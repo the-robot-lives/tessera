@@ -54,7 +54,18 @@ defmodule PersonaKit.PersonaCard do
   """
   if Noizu.Tessera.Hologram.Adapter.available?() do
     def action(:chose, %{persona_id: persona_id, click_count: click_count}, component) do
-      put_state(component, selected: persona_id, click_count: click_count)
+      component = put_state(component, selected: persona_id, click_count: click_count)
+
+      # The cid-targeted re-render is DOM-identical by design (the contract
+      # template is state-free), so the demo chains a second action explicitly
+      # targeted at the page under a DIFFERENT name — observable proof that
+      # this cid-targeted action ran, without conflating with the click's own
+      # routing (CONTRACT.md §3 target form, "page" target).
+      put_action(component, [
+        name: :cid_confirmed,
+        params: %{persona_id: persona_id},
+        target: "page"
+      ])
     end
 
     def action(_other, _params, component), do: component
