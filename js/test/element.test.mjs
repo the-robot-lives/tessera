@@ -185,6 +185,62 @@ describe("TesseraElement over plain HTMLElement", () => {
     });
   });
 
+  describe("tsr-props removal / replacement clears applied keys", () => {
+    it("removing tsr-props clears the properties it assigned (no stale values)", () => {
+      const el = make({}, { tagList: ["a"], extra: 5, flag: true });
+      expect(el.extra).to.equal(5);
+
+      el.removeAttribute("tsr-props");
+
+      expect(el.extra).to.be.undefined;
+      expect(el.flag).to.be.undefined;
+      expect(el.tagList).to.be.undefined;
+      el.remove();
+    });
+
+    it("replacing tsr-props updates kept keys and clears dropped ones", () => {
+      const el = make({}, { keep: 1, drop: 2 });
+      expect(el.keep).to.equal(1);
+
+      el.setAttribute("tsr-props", JSON.stringify({ keep: 9 }));
+
+      expect(el.keep).to.equal(9, "kept key re-assigned from the new payload");
+      expect(el.drop, "dropped key cleared").to.be.undefined;
+      el.remove();
+    });
+
+    it("skipped reserved keys are never tracked, so removal cannot delete tessera internals", () => {
+      let cleaned = 0;
+      const probe = () => () => {
+        cleaned += 1;
+      };
+      behaviors.add(PLAIN_TAG, probe);
+      const el = make({});
+      captureWarns(() => {
+        el.setAttribute("tsr-props", JSON.stringify({ __tesseraCleanups: null, normal: 1 }));
+      });
+      expect(el.normal).to.equal(1);
+
+      el.removeAttribute("tsr-props");
+
+      expect(el.normal).to.be.undefined;
+      expect(el.__tesseraCleanups, "reserved key untouched by the clear").to.have.lengthOf(1);
+      el.remove();
+      expect(cleaned).to.equal(1);
+      behaviors.remove(PLAIN_TAG, probe);
+    });
+
+    it("removal clears the keys it assigned (plain HTMLElement, no stale values survive)", () => {
+      // Plain element contrast for the Lit accessor case asserted in the
+      // LitElement suite below.
+      const el = make({}, { extra: 5 });
+      expect(el.extra).to.equal(5);
+      el.removeAttribute("tsr-props");
+      expect(el.extra).to.be.undefined;
+      el.remove();
+    });
+  });
+
   it("connectedCallback registers the contract's events with the bridge", () => {
     const el = make({});
     expect(getBridge().listeners.has("plain-select")).to.equal(true);
@@ -322,5 +378,68 @@ describe("TesseraElement over LitElement", () => {
     await el.updateComplete;
     expect(el.cardTitle).to.equal("Grace");
     el.remove();
+  });
+
+  it("removal resets accessor-backed Lit reactive props through the setter", async () => {
+    const el = document.createElement(LIT_TAG);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    // `items` is declared in Lit `static properties` — assigning it goes
+    // through Lit's accessor, so there is no own property to delete; the
+    // reset must ride the setter instead.
+    el.setAttribute("tsr-props", JSON.stringify({ items: ["x"] }));
+    await el.updateComplete;
+    expect(el.items).to.deep.equal(["x"]);
+
+    el.removeAttribute("tsr-props");
+    await el.updateComplete;
+    expect(el.items).to.be.undefined;
+    el.remove();
+  });
+});
+
+describe("skipped-prop warn-once across module copies", () => {
+  const WARNED_KEY = Symbol.for("tessera.warned-props");
+  const COPY2_TAG = "tsr-el-plain-copy2";
+  const PROBE_KEY = "_cross-copy-warn-probe";
+
+  it("two module copies share one globalThis warn set — a skipped key warns once per document", async () => {
+    const element1 = await import("../../priv/js/src/element.mjs");
+    // Cache-busting query: a SECOND instance of the module, exactly what
+    // Hologram's per-page esbuild bundles produce.
+    const element2 = await import("../../priv/js/src/element.mjs?copy=2");
+    expect(element2.TesseraElement).to.not.equal(
+      element1.TesseraElement,
+      "precondition: two distinct module instances",
+    );
+
+    class Copy2El extends element2.TesseraElement(HTMLElement, plainContract) {}
+    // Defined under a UNIQUE tag (one definition per tag per document) with
+    // the SAME contract: the dedupe key is `${contract.tag}:${key}`, so this
+    // is exactly the duplicate-bundle scenario the global set exists for.
+    defineOnce(COPY2_TAG, Copy2El);
+
+    const dedupe = `${PLAIN_TAG}:${PROBE_KEY}`;
+    globalThis[WARNED_KEY]?.delete(dedupe);
+
+    const el1 = document.createElement(PLAIN_TAG);
+    const el2 = document.createElement(COPY2_TAG);
+    document.body.appendChild(el1);
+    document.body.appendChild(el2);
+
+    const warns = captureWarns(() => {
+      el1.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 1 }));
+      el2.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 2 }));
+    });
+
+    expect(warns.filter((w) => w.includes(`"${PROBE_KEY}"`))).to.have.lengthOf(
+      1,
+      "the second copy's skipped-key application must NOT re-warn (shared globalThis set)",
+    );
+    expect(globalThis[WARNED_KEY], "the set lives on globalThis under the Symbol.for key").to.exist;
+    expect(globalThis[WARNED_KEY].has(dedupe)).to.equal(true);
+
+    el1.remove();
+    el2.remove();
   });
 });

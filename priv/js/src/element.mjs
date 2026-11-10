@@ -11,6 +11,8 @@
  *   - parses the `tsr-props` JSON and assigns each key as a property; bad
  *     JSON warns, never throws; `_`-prefixed (reserved) keys and keys whose
  *     current value is a function (methods) are skipped with a warn-once,
+ *   - removing or replacing `tsr-props` clears the keys previous
+ *     applications assigned, so stale values never outlive their payload,
  *   - calls `requestUpdate()` when the base provides it, after property
  *     assignment,
  *   - on `connectedCallback` registers the contract's events with the
@@ -23,10 +25,12 @@ import { behaviorsFor } from "./behaviors.mjs";
 
 const TSR_PROPS_ATTR = "tsr-props";
 
-// `<tag>:<key>` combos already warned about, so a skipped key warns once and
-// stays quiet on re-applications of the same attribute (Hologram re-renders
-// re-set tsr-props constantly).
-const warnedSkippedProps = new Set();
+// Warn-once set for skipped tsr-props keys, pinned to `globalThis` under a
+// `Symbol.for` key — the SAME singleton design as the bridge and `defineOnce`:
+// Hologram's per-page bundles routinely load two copies of this module, and
+// "warn once" must hold ACROSS copies, not per module instance.
+const WARNED_SKIPPED_PROPS_KEY = Symbol.for("tessera.warned-props");
+const warnedSkippedProps = (globalThis[WARNED_SKIPPED_PROPS_KEY] ??= new Set());
 
 /**
  * Coerce an attribute value to the contract type. `value` is the attribute
@@ -52,7 +56,18 @@ function coerceValue(def, value) {
 }
 
 function applyTsrProps(el, contract, raw) {
-  if (raw === null || raw === undefined || raw === "") return;
+  // Keys previous applications of tsr-props ASSIGNED (skipped reserved/method
+  // keys are never tracked) — so a removal or replacement can clear them.
+  const applied = el.__tesseraAppliedProps ?? (el.__tesseraAppliedProps = new Set());
+
+  if (raw === null || raw === undefined || raw === "") {
+    // Attribute REMOVED (e.g. a Hologram patch dropped it): clear everything a
+    // previous application assigned — stale property values must not keep
+    // serving after their payload is gone.
+    clearAppliedTsrProps(el, contract, applied, new Set());
+    if (typeof el.requestUpdate === "function") el.requestUpdate();
+    return;
+  }
   let data;
   try {
     data = JSON.parse(raw);
@@ -64,6 +79,7 @@ function applyTsrProps(el, contract, raw) {
     console.warn(`[tessera] <${contract.tag}> ignoring tsr-props: expected a JSON object`);
     return;
   }
+  const assigned = new Set();
   for (const [key, value] of Object.entries(data)) {
     // Reserved keys: anything starting with "_" is tessera-internal
     // (e.g. `__tesseraCleanups`), and a key whose CURRENT value is a function
@@ -90,13 +106,43 @@ function applyTsrProps(el, contract, raw) {
     }
     try {
       el[key] = value;
+      assigned.add(key);
     } catch (err) {
       console.warn(`[tessera] <${contract.tag}> could not set property "${key}" from tsr-props: ${err?.message ?? err}`);
     }
   }
+  // Attribute REPLACED: keys the previous application assigned that the new
+  // payload no longer carries must be cleared, not left stale.
+  clearAppliedTsrProps(el, contract, applied, assigned);
   // tsr-props may have clobbered or been skipped for any key — only call a
   // real function, never trust `el.requestUpdate` to exist (or stay sane).
   if (typeof el.requestUpdate === "function") el.requestUpdate();
+}
+
+/**
+ * Clear every key in `applied` that `keep` does not carry, then track `keep`
+ * as the new applied set. Plain own properties are deleted (removing the
+ * shadowing assignment); accessor-backed keys (e.g. Lit reactive props, which
+ * survive `delete`) are forced to `undefined` through the setter so the base
+ * class observes the reset.
+ */
+function clearAppliedTsrProps(el, contract, applied, keep) {
+  for (const key of applied) {
+    if (keep.has(key)) continue;
+    try {
+      delete el[key];
+    } catch (err) {
+      console.warn(`[tessera] <${contract.tag}> could not clear tsr-props property "${key}": ${err?.message ?? err}`);
+    }
+    if (el[key] !== undefined) {
+      try {
+        el[key] = undefined;
+      } catch (err) {
+        console.warn(`[tessera] <${contract.tag}> could not reset tsr-props property "${key}": ${err?.message ?? err}`);
+      }
+    }
+  }
+  el.__tesseraAppliedProps = keep;
 }
 
 /**

@@ -104,6 +104,23 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
 
+    test "event names containing reserved wire characters (`:` `@` `;` whitespace) raise with a pointed message" do
+      # These characters delimit the `event:action@target;…` bridge grammar
+      # (CONTRACT.md §3) — rejected at compile time, before the generic
+      # grammar error, so the author learns WHY the name is unusable.
+      for bad <- ["persona@select", "persona:select", "persona;select", "persona select"] do
+        assert_raise CompileError, ~r/reserved data-tsr-on character/, fn ->
+          compile_source(~s(event "#{bad}"))
+        end
+      end
+    end
+
+    test "tag names containing reserved wire characters raise with a pointed message" do
+      assert_raise CompileError, ~r/reserved data-tsr-on character/, fn ->
+        compile_source("tag: \"bad@tag-name\", js: \"x.mjs\"", "")
+      end
+    end
+
     test "duplicate attr raises with both lines" do
       assert_raise CompileError, ~r/duplicate tessera attr :x/, fn ->
         compile_source("""

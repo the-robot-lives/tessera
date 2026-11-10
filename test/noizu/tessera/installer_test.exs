@@ -5,6 +5,53 @@ defmodule Noizu.Tessera.InstallerTest do
 
   @additions Installer.additions("../deps/noizu_tessera/priv/js")
 
+  describe "find_npm/1" do
+    test "errors with actionable guidance when npm is missing (injectable lookup)" do
+      assert {:error, msg} = Installer.find_npm(fn _cmd -> nil end)
+      assert msg =~ "npm was not found"
+      assert msg =~ "--no-npm", "points at the skip-the-npm-leg escape hatch"
+      assert msg =~ "mix tessera.install"
+    end
+
+    test "returns the resolved path when npm exists (injectable lookup)" do
+      assert {:ok, "/usr/local/bin/npm"} = Installer.find_npm(fn _cmd -> "/usr/local/bin/npm" end)
+    end
+  end
+
+  describe "relative_path/2" do
+    @tag :tmp_dir
+    test "target under the assets dir stays a plain relative path", %{tmp_dir: tmp_dir} do
+      assets = Path.join(tmp_dir, "host/assets")
+      dep = Path.join(tmp_dir, "host/assets/node_modules/dep/priv/js")
+
+      assert Installer.relative_path(assets, dep) ==
+               {:ok, Path.relative_to(dep, assets)}
+    end
+
+    @tag :tmp_dir
+    test "sibling trees traverse with .. segments (dep outside the app tree)", %{tmp_dir: tmp_dir} do
+      assets = Path.join([tmp_dir, "host", "assets"])
+      dep = Path.join([tmp_dir, "elsewhere", "dep", "priv", "js"])
+
+      assert {:ok, rel} = Installer.relative_path(assets, dep)
+      assert rel == Path.join(["..", "..", "elsewhere", "dep", "priv", "js"])
+
+      # Round-trips back to the target from the assets dir (and is genuinely
+      # relative — the old Path.relative_to fallback returned the absolute
+      # path for targets outside the assets tree).
+      refute String.starts_with?(rel, "/")
+      assert Path.expand(rel, assets) == Path.expand(dep)
+    end
+
+    test "errors loudly when the paths share no root (different volume)" do
+      # Deterministic on every platform: a non-"/" first segment is a foreign
+      # root (windows drive or backslash path), so no relative path exists.
+      assert {:error, msg} = Installer.relative_path("/app/assets", "D:\\other\\dep")
+      assert msg =~ "do not share a root"
+      assert msg =~ "relative `file:` path"
+    end
+  end
+
   describe "additions/2" do
     test "wires the core file: dep and lit" do
       assert @additions["@noizu/tessera-core"] == "file:../deps/noizu_tessera/priv/js"
@@ -67,12 +114,19 @@ defmodule Noizu.Tessera.InstallerTest do
       entries =
         Installer.dep_js_entries(%{my_dep_app: dep_app, bare_app: bare_app}, assets, :host_app)
 
-      # relative from the host's assets dir, regardless of where the dep lives
-      # (the old starts_with?-assets predicate never matched deps)
-      assert entries == [
-               {"@acme/widgets",
-                "file:" <> Path.relative_to(Path.join(dep_app, "priv/js"), assets)}
-             ]
+      # A REAL relative path from the host's assets dir, including `..`
+      # traversal for deps living outside the app tree (the old
+      # Path.relative_to/2 fallback silently produced a host-absolute path).
+      expected_rel =
+        case Installer.relative_path(assets, Path.join(dep_app, "priv/js")) do
+          {:ok, rel} -> rel
+          {:error, msg} -> flunk("expected a relative path, got: #{msg}")
+        end
+
+      assert entries == [{"@acme/widgets", "file:" <> expected_rel}]
+
+      refute String.starts_with?(expected_rel, "/"),
+             "the file: path must be relative, got: #{expected_rel}"
     end
 
     @tag :tmp_dir

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-11
+
+- Hardening: contract golden CHECKED IN (`test/fixtures/persona_card.contract.golden.mjs`, no longer self-bootstrapped/gitignored — the old golden could never fail on a fresh checkout); regeneration is explicit `MIX_ENV=test mix tessera.golden [--check]`, documented in AUTHORING.md. CEM and contract goldens now handled identically (both reviewed files, both task-regenerated).
+- Hardening: `tessera_action_name` catch-all raises a pointed ArgumentError naming component/event/value (integer/map/binary bindings used to crash the whole render with a bare FunctionClauseError); non-string targets rejected too. Reserved `data-tsr-on` characters (`:` `@` `;` whitespace) now rejected at compile time for tag/event names (pointed CompileError) and at render time for binding action/target values (ArgumentError) — CONTRACT.md §3 reserves them.
+- Hardening: `mix tessera.install` detects a missing npm (`Installer.find_npm/1`, injectable lookup) and raises install guidance instead of a raw `:enoent`; generated `file:` paths are now real relative paths with `..` traversal even for deps outside the app tree (`Installer.relative_path/2`), failing loudly when no relative path exists (different volume) instead of embedding host-absolute URLs.
+- JS core: removing or replacing `tsr-props` now clears the keys previous applications assigned (plain props deleted, accessor-backed reactive props reset through the setter) — stale values no longer outlive their payload; skipped-prop warn-once set moved onto `globalThis[Symbol.for("tessera.warned-props")]` so warn-once holds across duplicate bundle copies (same singleton design as bridge/defineOnce).
+- Docs truth sweep: EXTENDING.md `element:` marked Phase 2 (not yet implemented — the option does not exist); CONSUMING.md no longer claims the installer edits mix.exs (manual step stated); CONTRACT.md §1 `_hidden` rejection mechanism corrected (identifier grammar, not round-trip), §3 reserved characters documented, §5 init/2 + init/3 pair documented; redundant-guard comments added at the three equivalent-mutant sites (naming.ex `trim: false`, bridge.mjs entry trim + trailing-@ guard). ExUnit 105→118, core WTR 70→80.
+
 ## 2026-11-10
 
 - Repo created: README with planned architecture and naming. Hex package is `noizu_tessera` with namespace `Noizu.Tessera` because bare `tessera` is taken on hex.pm. Phase 0 bridge spike is running in the `hologram-start-app` branch `spike/tessera-bridge`.

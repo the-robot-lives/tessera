@@ -35,6 +35,18 @@ defmodule Noizu.Tessera.SpecTest do
       end
     end
 
+    test "rejects names containing reserved bridge-grammar characters (whitespace `:` `@` `;`)" do
+      for bad <- ["persona@select", "persona:select", "persona;select", "persona select"] do
+        assert_raise CompileError, ~r/reserved data-tsr-on character/, fn ->
+          Spec.validate!(:event, bad, %{}, "t.ex", 1)
+        end
+      end
+
+      assert_raise CompileError, ~r/reserved data-tsr-on character/, fn ->
+        Spec.validate!(:tag, "bad@tag-name", %{}, "t.ex", 1)
+      end
+    end
+
     test "rejects detail keys that are not snake atoms" do
       assert_raise CompileError, ~r/must be a snake_case atom/, fn ->
         Spec.validate!(:event, "persona-select", %{"persona_id" => :string}, "t.ex", 1)
@@ -147,6 +159,13 @@ defmodule Noizu.Tessera.SpecTest do
   describe "escape_json/1" do
     test "escapes quotes, backslashes and control chars" do
       assert Spec.escape_json("a\"b\\c\nd\te") == "a\\\"b\\\\c\\nd\\te"
+    end
+
+    test "escapes carriage returns (a raw CR inside a generated .mjs string literal is a SyntaxError)" do
+      assert Spec.escape_json("a\rb") == "a\\rb"
+
+      assert Spec.escape_json("mix\rof\rthem\rall\there") ==
+               "mix\\rof\\rthem\\rall\\there"
     end
   end
 
