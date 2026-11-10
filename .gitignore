@@ -9,3 +9,6 @@ node_modules/
 .claude/worktrees/
 .tmp/
 .DS_Store
+
+# Generated at compile time next to each component .mjs
+*.contract.generated.mjs
