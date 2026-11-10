@@ -1,0 +1,11 @@
+/_build/
+/deps/
+/cover/
+/doc/
+erl_crash.dump
+*.ez
+node_modules/
+/priv/js/dist/
+.claude/worktrees/
+.tmp/
+.DS_Store
