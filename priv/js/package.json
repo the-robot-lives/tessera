@@ -35,11 +35,11 @@
     "./bus": {
       "types": "./index.d.ts",
       "default": "./src/bus.mjs"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "src/",
-    "dist/",
     "index.d.ts"
   ],
   "sideEffects": false,
