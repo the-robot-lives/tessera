@@ -5,19 +5,31 @@ defmodule Noizu.Tessera.CodegenTest do
   alias Noizu.Tessera.Spec
 
   # The golden fixtures pin the exact byte output of the generators for the
-  # PersonaCard fixture component (every DSL entry kind). Regenerate them with
-  # `mix test.regen_goldens`-style manual step: temporarily run
-  # `Codegen.write_contract_module(spec, golden_dir)` — the checked-in files
-  # are reviewed by eye against CONTRACT.md §2 on every change.
+  # PersonaCard fixture component (every DSL entry kind). The CEM golden is
+  # checked in; the CONTRACT golden is gitignored (`*.contract.generated.mjs`)
+  # because it is a compile-time artifact, so `contract_golden/0` BOOTSTRAPS
+  # it from the current generator on a fresh checkout and then pins it
+  # byte-for-byte on every later run. To re-review by eye against
+  # CONTRACT.md §2 after an intentional change, delete
+  # `test/fixtures/persona_card.contract.generated.mjs` and run the suite.
   @golden_dir Path.expand("../../fixtures", __DIR__)
-  @contract_golden File.read!(Path.join(@golden_dir, "persona_card.contract.generated.mjs"))
   @cem_golden File.read!(Path.join(@golden_dir, "persona_card.cem.json"))
 
   @fixture_spec Tessera.TestFixtures.PersonaCard.__tessera_spec__()
 
+  defp contract_golden do
+    path = Path.join(@golden_dir, "persona_card.contract.generated.mjs")
+
+    unless File.exists?(path) do
+      File.write!(path, Codegen.contract_module(@fixture_spec))
+    end
+
+    File.read!(path)
+  end
+
   describe "contract_module/1" do
     test "is byte-identical to the golden fixture (CONTRACT.md §2)" do
-      assert Codegen.contract_module(@fixture_spec) == @contract_golden
+      assert Codegen.contract_module(@fixture_spec) == contract_golden()
     end
 
     test "is deterministic" do
@@ -74,7 +86,7 @@ defmodule Noizu.Tessera.CodegenTest do
       assert Codegen.write_contract_module(@fixture_spec, tmp_dir) == :written
 
       path = Codegen.contract_path(@fixture_spec, tmp_dir)
-      assert File.read!(path) == @contract_golden
+      assert File.read!(path) == contract_golden()
       assert Codegen.write_contract_module(@fixture_spec, tmp_dir) == :unchanged
 
       changed = %Spec{@fixture_spec | cy: "other-hook"}
