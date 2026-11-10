@@ -1,0 +1,15 @@
+{
+  "name": "@noizu/tessera-core-tests",
+  "private": true,
+  "type": "module",
+  "description": "Web Test Runner harness for @noizu/tessera-core (dev tooling only — the shipped package has no devDependencies).",
+  "scripts": {
+    "test": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs",
+    "test:watch": "wtr --config web-test-runner.config.mjs --watch"
+  },
+  "devDependencies": {
+    "@open-wc/testing": "^4.0.0",
+    "@web/test-runner": "^0.20.2",
+    "lit": "^3.3.3"
+  }
+}
