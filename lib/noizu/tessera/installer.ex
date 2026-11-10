@@ -65,6 +65,31 @@ defmodule Noizu.Tessera.Installer do
   end
 
   @doc """
+  Absolute path of the core `priv/js` runtime directory for the host app.
+
+  Resolved through `deps_paths` (what Mix actually resolved — path deps may
+  be transitive and are NOT guaranteed to be symlinked under `deps/<name>`,
+  e.g. recent Mix versions link only direct path deps), falling back to the
+  conventional `deps/noizu_tessera` join for callers that predate
+  `deps_paths/0`.
+  """
+  @spec core_js_dir(map(), String.t()) :: {:ok, String.t()} | :error
+  def core_js_dir(deps_paths, deps_path) when is_map(deps_paths) and is_binary(deps_path) do
+    candidate =
+      case Map.fetch(deps_paths, :noizu_tessera) do
+        {:ok, root} when is_binary(root) ->
+          root
+          |> Path.expand()
+          |> Path.join(Path.join(["priv", "js"]))
+
+        :error ->
+          Path.join([deps_path, "noizu_tessera", "priv", "js"])
+      end
+
+    if File.dir?(candidate), do: {:ok, candidate}, else: :error
+  end
+
+  @doc """
   Idempotent merge of `additions` into a decoded `package.json` map: keys that
   already exist keep their value, missing keys are added, every other
   top-level key is preserved untouched.

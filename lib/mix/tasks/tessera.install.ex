@@ -54,16 +54,17 @@ defmodule Mix.Tasks.Tessera.Install do
   end
 
   defp tessera_core_relpath(root) do
-    deps_path = Mix.Project.deps_path()
-    core_js = Path.join([deps_path, "noizu_tessera", "priv", "js"])
+    case Installer.core_js_dir(Mix.Project.deps_paths(), Mix.Project.deps_path()) do
+      {:ok, core_js} ->
+        relpath = Path.relative_to(core_js, assets_dir(root))
+        {:ok, relpath}
 
-    if File.dir?(core_js) do
-      relpath = Path.relative_to(core_js, assets_dir(root))
-      {:ok, relpath}
-    else
-      {:error,
-       "#{core_js} not found — is {:noizu_tessera, ...} in this app's deps? " <>
-         "Run `mix deps.get` first"}
+      :error ->
+        core_js = Path.join([Mix.Project.deps_path(), "noizu_tessera", "priv", "js"])
+
+        {:error,
+         "#{core_js} not found — is noizu_tessera in this app's deps (direct or " <>
+           "transitive)? Run `mix deps.get` first"}
     end
   end
 
