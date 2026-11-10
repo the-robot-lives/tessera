@@ -1,0 +1,57 @@
+{
+  "name": "@noizu/tessera-core",
+  "version": "0.1.0",
+  "description": "Tessera JS core: contract-driven web-component runtime (TesseraElement mixin, defineOnce, event bridge, behaviors, bus seam). No runtime dependencies; lit is an optional peer.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.mjs",
+  "module": "src/index.mjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.mjs"
+    },
+    "./bridge": {
+      "types": "./index.d.ts",
+      "default": "./src/bridge.mjs"
+    },
+    "./define": {
+      "types": "./index.d.ts",
+      "default": "./src/define.mjs"
+    },
+    "./events": {
+      "types": "./index.d.ts",
+      "default": "./src/events.mjs"
+    },
+    "./element": {
+      "types": "./index.d.ts",
+      "default": "./src/element.mjs"
+    },
+    "./behaviors": {
+      "types": "./index.d.ts",
+      "default": "./src/behaviors.mjs"
+    },
+    "./bus": {
+      "types": "./index.d.ts",
+      "default": "./src/bus.mjs"
+    }
+  },
+  "files": [
+    "src/",
+    "dist/",
+    "index.d.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "registry": "https://npm.noizu.com/"
+  },
+  "peerDependencies": {
+    "lit": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "lit": {
+      "optional": true
+    }
+  }
+}

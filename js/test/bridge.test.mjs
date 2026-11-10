@@ -1,0 +1,261 @@
+import { expect } from "@open-wc/testing";
+import { parseTsrOn, registerEvents } from "../../priv/js/src/bridge.mjs";
+
+const BRIDGE_KEY = Symbol.for("tessera.bridge");
+
+function captureWarns(fn) {
+  const warns = [];
+  const original = console.warn;
+  console.warn = (msg) => warns.push(String(msg));
+  try {
+    fn();
+  } finally {
+    console.warn = original;
+  }
+  return warns;
+}
+
+describe("parseTsrOn", () => {
+  it("parses a single entry", () => {
+    expect(parseTsrOn("persona-select:chose@page")).to.deep.equal(
+      new Map([["persona-select", { action: "chose", target: "page" }]]),
+    );
+  });
+
+  it("parses multiple entries", () => {
+    const map = parseTsrOn("persona-select:chose@page;persona-hover:hover@picker1");
+    expect(map.get("persona-select")).to.deep.equal({ action: "chose", target: "page" });
+    expect(map.get("persona-hover")).to.deep.equal({ action: "hover", target: "picker1" });
+    expect(map.size).to.equal(2);
+  });
+
+  it("supports a cid target and tolerates whitespace", () => {
+    const map = parseTsrOn(" item-add : pushed @shopping-list-1 ");
+    expect(map.get("item-add")).to.deep.equal({ action: "pushed", target: "shopping-list-1" });
+  });
+
+  it("empty or missing attribute yields an empty map without warnings", () => {
+    const warns = captureWarns(() => {
+      expect(parseTsrOn("")).to.deep.equal(new Map());
+      expect(parseTsrOn(null)).to.deep.equal(new Map());
+      expect(parseTsrOn(undefined)).to.deep.equal(new Map());
+      expect(parseTsrOn(";;")).to.deep.equal(new Map());
+    });
+    expect(warns).to.have.lengthOf(0);
+  });
+
+  it("skips malformed entries with a console.warn and keeps the rest", () => {
+    const warns = captureWarns(() => {
+      const map = parseTsrOn("no-colon@page;good:action@layout;:missing-event@page;no-action:@page;trailing@");
+      expect(map.size).to.equal(1);
+      expect(map.get("good")).to.deep.equal({ action: "action", target: "layout" });
+    });
+    expect(warns.length).to.equal(4);
+    for (const w of warns) expect(w).to.include("malformed data-tsr-on entry");
+  });
+
+  it("empty action / target / event are malformed", () => {
+    const warns = captureWarns(() => {
+      expect(parseTsrOn("evt:@page").size).to.equal(0);
+      expect(parseTsrOn("evt:action@").size).to.equal(0);
+      expect(parseTsrOn(":action@page").size).to.equal(0);
+    });
+    expect(warns.length).to.equal(3);
+  });
+});
+
+describe("bridge dispatch", () => {
+  const calls = [];
+  let originalHologram;
+
+  before(() => {
+    originalHologram = globalThis.Hologram;
+    globalThis.Hologram = { dispatchAction: (...args) => calls.push(args) };
+  });
+
+  after(() => {
+    if (originalHologram === undefined) delete globalThis.Hologram;
+    else globalThis.Hologram = originalHologram;
+  });
+
+  beforeEach(() => {
+    calls.length = 0;
+  });
+
+  it("delivers an event fired inside a shadow root with snake_case params and the right action/target", () => {
+    registerEvents(["bridge-shadow-evt"]);
+    const host = document.createElement("div");
+    host.setAttribute("data-tsr-on", "bridge-shadow-evt:chose@page");
+    const shadowChild = document.createElement("button");
+    host.attachShadow({ mode: "open" }).appendChild(shadowChild);
+    document.body.appendChild(host);
+
+    shadowChild.dispatchEvent(
+      new CustomEvent("bridge-shadow-evt", { detail: { personaId: "Ada", clickCount: 2 }, bubbles: true, composed: true }),
+    );
+
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0]).to.deep.equal(["chose", "page", { persona_id: "Ada", click_count: 2 }]);
+    host.remove();
+  });
+
+  it("dispatches nothing when the host has no data-tsr-on mapping", () => {
+    registerEvents(["bridge-unmapped-evt"]);
+    const plain = document.createElement("div");
+    document.body.appendChild(plain);
+    plain.dispatchEvent(new CustomEvent("bridge-unmapped-evt", { bubbles: true, composed: true, detail: { a: 1 } }));
+    expect(calls).to.have.lengthOf(0);
+    plain.remove();
+  });
+
+  it("dispatches nothing when the event type has no matching entry", () => {
+    registerEvents(["bridge-other-evt"]);
+    const host = document.createElement("div");
+    host.setAttribute("data-tsr-on", "bridge-other-evt:chose@page");
+    document.body.appendChild(host);
+    host.dispatchEvent(new CustomEvent("bridge-other-evt-2", { bubbles: true, composed: true }));
+    expect(calls).to.have.lengthOf(0);
+    host.remove();
+  });
+
+  it("passes an empty object when the event carries no detail", () => {
+    registerEvents(["bridge-nodetail-evt"]);
+    const host = document.createElement("div");
+    host.setAttribute("data-tsr-on", "bridge-nodetail-evt:touched@layout");
+    document.body.appendChild(host);
+    host.dispatchEvent(new CustomEvent("bridge-nodetail-evt", { bubbles: true, composed: true }));
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0]).to.deep.equal(["touched", "layout", {}]);
+    host.remove();
+  });
+
+  it("resolves a host from composedPath when a nested element re-dispatches the event (tag registered)", () => {
+    registerEvents(["bridge-nested-evt"], "bridge-nested-tag");
+    const host = document.createElement("bridge-nested-tag");
+    host.setAttribute("data-tsr-on", "bridge-nested-evt:add@list1");
+    const child = document.createElement("button");
+    child.textContent = "add";
+    host.appendChild(child);
+    document.body.appendChild(host);
+
+    // No shadow boundary here: event.target is the nested child.
+    child.dispatchEvent(new CustomEvent("bridge-nested-evt", { bubbles: true, composed: true, detail: { itemId: "x" } }));
+
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0]).to.deep.equal(["add", "list1", { item_id: "x" }]);
+    host.remove();
+  });
+
+  it("composedPath fallback only honours REGISTERED contract tags", () => {
+    registerEvents(["bridge-stray-evt"], "bridge-registered-tag");
+    const stranger = document.createElement("div");
+    stranger.setAttribute("data-tsr-on", "bridge-stray-evt:steal@page");
+    const child = document.createElement("button");
+    stranger.appendChild(child);
+    document.body.appendChild(stranger);
+
+    child.dispatchEvent(new CustomEvent("bridge-stray-evt", { bubbles: true, composed: true }));
+    // The unregistered <div> mapping must NOT hijack the nested event.
+    expect(calls).to.have.lengthOf(0);
+    stranger.remove();
+  });
+
+  it("a registered contract host is found via composedPath past unregistered ancestors", () => {
+    registerEvents(["bridge-nested2-evt"], "bridge-nested2-tag");
+    const stranger = document.createElement("div");
+    stranger.setAttribute("data-tsr-on", "bridge-nested2-evt:steal@page");
+    const registeredHost = document.createElement("bridge-nested2-tag");
+    registeredHost.setAttribute("data-tsr-on", "bridge-nested2-evt:ok@page");
+    const child = document.createElement("button");
+    registeredHost.appendChild(child);
+    stranger.appendChild(registeredHost);
+    document.body.appendChild(stranger);
+
+    child.dispatchEvent(new CustomEvent("bridge-nested2-evt", { bubbles: true, composed: true }));
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0][0]).to.equal("ok", "first registered element carrying a mapping wins");
+    stranger.remove();
+  });
+
+  it("does nothing (and does not throw) when globalThis.Hologram is absent", () => {
+    const saved = globalThis.Hologram;
+    delete globalThis.Hologram;
+    try {
+      registerEvents(["bridge-nohologram-evt"]);
+      const host = document.createElement("div");
+      host.setAttribute("data-tsr-on", "bridge-nohologram-evt:chose@page");
+      document.body.appendChild(host);
+      expect(() => {
+        host.dispatchEvent(new CustomEvent("bridge-nohologram-evt", { bubbles: true, composed: true, detail: { a: 1 } }));
+      }).to.not.throw();
+      expect(calls).to.have.lengthOf(0);
+      host.remove();
+    } finally {
+      if (saved === undefined) delete globalThis.Hologram;
+      else globalThis.Hologram = saved;
+    }
+  });
+
+  it("event.target (post-retarget) wins over a deeper composedPath mapping", () => {
+    registerEvents(["bridge-priority-evt"], "bridge-priority-tag");
+    const outer = document.createElement("bridge-priority-tag");
+    outer.setAttribute("data-tsr-on", "bridge-priority-evt:outer@page");
+    const inner = document.createElement("bridge-priority-tag");
+    inner.setAttribute("data-tsr-on", "bridge-priority-evt:inner@layout");
+    outer.appendChild(inner);
+    document.body.appendChild(outer);
+
+    inner.dispatchEvent(new CustomEvent("bridge-priority-evt", { bubbles: true, composed: true }));
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0][0]).to.equal("inner", "the element the event actually fired on wins");
+    outer.remove();
+  });
+});
+
+describe("bridge singleton across module copies", () => {
+  const BRIDGE_SRC = "../../priv/js/src/bridge.mjs";
+
+  it("two independent module instances share one globalThis singleton", async () => {
+    const copy1 = await import(BRIDGE_SRC);
+    // Cache-busting query forces the dev server to evaluate a SECOND copy of
+    // the module — what Hologram's per-page esbuild bundles produce.
+    const copy2 = await import(`${BRIDGE_SRC}?copy=2`);
+    expect(copy2).to.not.equal(copy1, "precondition: two distinct module instances");
+
+    const singleton = globalThis[BRIDGE_KEY];
+    expect(singleton, "the bridge singleton exists on globalThis").to.exist;
+
+    // Both copies register the same event name: still exactly ONE listener,
+    // proven by exactly one dispatch per fired event.
+    copy1.registerEvents(["singleton-evt"]);
+    copy2.registerEvents(["singleton-evt"]);
+
+    const host = document.createElement("div");
+    host.setAttribute("data-tsr-on", "singleton-evt:ping@page");
+    document.body.appendChild(host);
+
+    const dispatches = [];
+    const saved = globalThis.Hologram;
+    globalThis.Hologram = { dispatchAction: (...a) => dispatches.push(a) };
+    try {
+      host.dispatchEvent(new CustomEvent("singleton-evt", { bubbles: true, composed: true, detail: { onceOnly: true } }));
+    } finally {
+      if (saved === undefined) delete globalThis.Hologram;
+      else globalThis.Hologram = saved;
+    }
+
+    expect(dispatches).to.have.lengthOf(1, "one event ⇒ exactly one dispatch, even with two module copies");
+    expect(dispatches[0]).to.deep.equal(["ping", "page", { once_only: true }]);
+    expect(singleton.listeners.has("singleton-evt")).to.equal(true);
+    host.remove();
+  });
+
+  it("behaviors registered through the singleton are visible to every copy", async () => {
+    const behaviors1 = (await import("../../priv/js/src/behaviors.mjs")).behaviors;
+    const behaviors2 = (await import(`${BRIDGE_SRC}?copy=2`)).getBridge().behaviors;
+    behaviors1.add("singleton-behavior-tag", () => {});
+    expect(behaviors2.has("singleton-behavior-tag")).to.equal(true, "one registry, shared via globalThis");
+    behaviors1.remove("singleton-behavior-tag", behaviors1.get("singleton-behavior-tag")[0]);
+    expect(behaviors2.has("singleton-behavior-tag")).to.equal(false);
+  });
+});
