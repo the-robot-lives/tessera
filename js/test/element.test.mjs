@@ -127,6 +127,64 @@ describe("TesseraElement over plain HTMLElement", () => {
     el.remove();
   });
 
+  describe("tsr-props guard (reserved and method keys)", () => {
+    it("ignores `_`-prefixed reserved keys, so `__tesseraCleanups` cannot break disconnect cleanups", () => {
+      let cleaned = 0;
+      const probe = () => () => {
+        cleaned += 1;
+      };
+      behaviors.add(PLAIN_TAG, probe);
+      const el = make({});
+      expect(el.__tesseraCleanups).to.have.lengthOf(1);
+
+      captureWarns(() => {
+        el.setAttribute("tsr-props", JSON.stringify({ __tesseraCleanups: null }));
+      });
+
+      expect(el.__tesseraCleanups, "reserved key was not clobbered").to.not.equal(null);
+      expect(el.__tesseraCleanups).to.have.lengthOf(1);
+      el.remove();
+      expect(cleaned).to.equal(1, "disconnect cleanups still ran");
+      behaviors.remove(PLAIN_TAG, probe);
+    });
+
+    it("warns once per skipped key, not once per application", () => {
+      const el = make({});
+      const seen = [];
+      const original = console.warn;
+      console.warn = (msg) => seen.push(String(msg));
+      try {
+        el.setAttribute("tsr-props", JSON.stringify({ _second: 1 }));
+        el.setAttribute("tsr-props", JSON.stringify({ _second: 2 }));
+        el.setAttribute("tsr-props", JSON.stringify({ _second: 3, _fresh: 4 }));
+      } finally {
+        console.warn = original;
+      }
+      el.remove();
+      expect(seen.filter((w) => w.includes('"_second"')), "exactly one warning for the key across re-applications").to.have.lengthOf(1);
+      expect(seen.filter((w) => w.includes('"_fresh"')), "a new key warns on first sight").to.have.lengthOf(1);
+    });
+
+    it("skips keys whose current value is a function (plain-element contrast: non-functions still assign)", () => {
+      const el = make({});
+      const seen = [];
+      const original = console.warn;
+      console.warn = (msg) => seen.push(String(msg));
+      try {
+        el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 1 }));
+      } finally {
+        console.warn = original;
+      }
+      expect(el.requestUpdate).to.equal(1, "plain HTMLElement has no requestUpdate method — nothing to protect, value assigns");
+      expect(() => el.setAttribute("tsr-props", JSON.stringify({ more: "x" }))).to.not.throw(
+        undefined,
+        "a clobbered requestUpdate must not break applyTsrProps",
+      );
+      expect(seen.filter((w) => w.includes('"requestUpdate"'))).to.have.lengthOf(0);
+      el.remove();
+    });
+  });
+
   it("connectedCallback registers the contract's events with the bridge", () => {
     const el = make({});
     expect(getBridge().listeners.has("plain-select")).to.equal(true);
@@ -240,6 +298,29 @@ describe("TesseraElement over LitElement", () => {
     });
     await el.updateComplete;
     expect(warns.some((w) => w.includes("tsr-props"))).to.equal(true);
+    el.remove();
+  });
+
+  it("tsr-props skips function-valued keys (requestUpdate) over Lit and warns once", async () => {
+    const el = document.createElement(LIT_TAG);
+    document.body.appendChild(el);
+    await el.updateComplete;
+    const seen = [];
+    const original = console.warn;
+    console.warn = (msg) => seen.push(String(msg));
+    try {
+      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 1 }));
+      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 2 }));
+    } finally {
+      console.warn = original;
+    }
+    expect(typeof el.requestUpdate, "the method survives").to.equal("function");
+    await el.updateComplete;
+    expect(seen.filter((w) => w.includes('"requestUpdate"'))).to.have.lengthOf(1, "warned once per key");
+    // The render pipeline is untouched: a reactive prop change still renders.
+    el.setAttribute("card-title", "Grace");
+    await el.updateComplete;
+    expect(el.cardTitle).to.equal("Grace");
     el.remove();
   });
 });

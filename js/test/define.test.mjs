@@ -62,4 +62,28 @@ describe("defineOnce", () => {
     }
     expect(warnCount).to.equal(0);
   });
+
+  it("warns ONCE per tag across DUPLICATE module copies (warn set shared on globalThis)", async () => {
+    const copy1 = await import("../../priv/js/src/define.mjs");
+    // Cache-busting query = a second, independently-evaluated module copy —
+    // what Hologram's per-page esbuild bundles produce.
+    const copy2 = await import("../../priv/js/src/define.mjs?copy=2");
+    expect(copy2.defineOnce).to.not.equal(copy1.defineOnce, "precondition: two distinct module instances");
+
+    class Keeper extends HTMLElement {}
+    copy1.defineOnce("tsr-define-cross-copy", Keeper);
+
+    const warns = [];
+    const original = console.warn;
+    console.warn = (msg) => warns.push(String(msg));
+    try {
+      copy2.defineOnce("tsr-define-cross-copy", class extends HTMLElement {});
+      copy1.defineOnce("tsr-define-cross-copy", class extends HTMLElement {});
+    } finally {
+      console.warn = original;
+    }
+    expect(warns).to.have.lengthOf(1, "one warning per tag per document — whichever copy dedupes first");
+    expect(warns[0]).to.include("tsr-define-cross-copy");
+    expect(customElements.get("tsr-define-cross-copy")).to.equal(Keeper, "first definition still wins");
+  });
 });
