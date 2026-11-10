@@ -72,9 +72,14 @@ defmodule Noizu.Tessera.ScaffoldTest do
 
       expected_rel = Path.relative_to(mjs_path, Path.dirname(test_path), force: true)
 
-      assert test_content =~ ~s(import { register } from "#{expected_rel}";)
-      # no stray extra ../ beyond the real computation
-      assert test_content =~ "../../lib/my_app/components/persona_card.mjs"
+      # Exact equality on the computed import statement — no substring
+      # tolerance for stray path segments.
+      import_line =
+        test_content
+        |> String.split("\n")
+        |> Enum.find(fn line -> String.contains?(line, "import { register }") end)
+
+      assert import_line == ~s(import { register } from "#{expected_rel}";)
     end
 
     test "scaffolded .mjs carries the load-bearing top-level register() call" do

@@ -93,6 +93,32 @@ defmodule Noizu.Tessera.InstallerTest do
     end
   end
 
+  describe "core_js_dir/2" do
+    @tag :tmp_dir
+    test "resolves through deps_paths when the dep is registered (transitive path deps)",
+         %{tmp_dir: tmp_dir} do
+      root = Path.join(tmp_dir, "tessera_checkout")
+      File.mkdir_p!(Path.join([root, "priv", "js"]))
+
+      assert {:ok, dir} = Installer.core_js_dir(%{noizu_tessera: root}, "/some/other/deps")
+      assert dir == Path.join([Path.expand(root), "priv", "js"])
+    end
+
+    @tag :tmp_dir
+    test "falls back to the conventional deps/noizu_tessera join", %{tmp_dir: tmp_dir} do
+      deps_path = Path.join(tmp_dir, "deps")
+      File.mkdir_p!(Path.join([deps_path, "noizu_tessera", "priv", "js"]))
+
+      assert {:ok, dir} = Installer.core_js_dir(%{}, deps_path)
+      assert dir == Path.join([deps_path, "noizu_tessera", "priv", "js"])
+    end
+
+    @tag :tmp_dir
+    test "errors when neither path ships priv/js", %{tmp_dir: tmp_dir} do
+      assert Installer.core_js_dir(%{}, Path.join(tmp_dir, "nowhere")) == :error
+    end
+  end
+
   describe "merge_into_assets/2" do
     @tag :tmp_dir
     test "writes once, then reports unchanged", %{tmp_dir: tmp_dir} do

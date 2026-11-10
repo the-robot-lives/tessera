@@ -60,7 +60,7 @@ Types: `string | integer | float | boolean | list | map | any`.
   data-cy="persona-card-root"></persona-card>
 ```
 
-`data-tsr-on` grammar: `entry (";" entry)*`, where `entry = event ":" action "@" target` and `target ∈ page | layout | <cid>`. A binding prop value of `:chose` means target `page`. A value of `{:chose, target: "layout"}` (or a cid string) sets the target explicitly. If an event has no binding, it gets no entry.
+`data-tsr-on` grammar: `entry (";" entry)*`, where `entry = event ":" action "@" target` and `target ∈ page | layout | <cid>`. A binding prop value of `:chose` means target `page`. A value of `{:chose, target: "layout"}` or `{:chose, target: "<cid>"}` (the tuple form — the only way to address a layout or a component `cid`) sets the target explicitly. A bare binary binding is rejected at render time with an `ArgumentError`. If an event has no binding, it gets no entry.
 
 ## 4. JS core runtime (`@noizu/tessera-core`)
 

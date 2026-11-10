@@ -233,9 +233,14 @@ defmodule Noizu.Tessera.ComponentTest do
       assert Adapter.has_top_level_register?("import x\n\nregister();\n")
       assert Adapter.has_top_level_register?("register()\n")
       assert Adapter.has_top_level_register?("export function register() {}\n\nregister()")
+      # Leading whitespace (indentation) is tolerated.
+      assert Adapter.has_top_level_register?("{\n  register();\n}\n")
+      assert Adapter.has_top_level_register?("\tregister()\n")
       refute Adapter.has_top_level_register?("export function register() {}\n")
       refute Adapter.has_top_level_register?("// register();\n")
       refute Adapter.has_top_level_register?("foo.register();\n")
+      # Only a standalone STATEMENT counts, never an inline call.
+      refute Adapter.has_top_level_register?("foo(); register();\n")
     end
 
     test "warns at compile time when a component .mjs lacks the load-bearing call" do

@@ -1,0 +1,17 @@
+{
+  "name": "tessera-plain-html-demo",
+  "private": true,
+  "type": "module",
+  "description": "Plain-HTML tessera demo: vanilla JS web components + addEventListener, no framework",
+  "scripts": {
+    "build": "esbuild src/main.mjs --bundle --format=esm --outfile=dist/bundle.js --log-level=info",
+    "serve": "node serve.mjs"
+  },
+  "dependencies": {
+    "@noizu/tessera-core": "file:../../priv/js",
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

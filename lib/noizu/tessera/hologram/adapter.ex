@@ -92,10 +92,19 @@ defmodule Noizu.Tessera.Hologram.Adapter do
     :ok
   end
 
-  @doc "True when `source` contains a top-level `register()` call statement."
+  @doc """
+  True when `source` contains a top-level `register()` call statement.
+
+  The match is anchored per line on purpose: it must only fire on a call
+  STATEMENT standing alone on its own line, never on an inline call
+  (`foo(); register()`) or inside another expression — only a statement the
+  bundle actually evaluates as a top-level statement provides the
+  load-bearing registration. Leading whitespace (indentation) is tolerated
+  so formatted sources (`mix format`, nested modules) still match.
+  """
   @spec has_top_level_register?(String.t()) :: boolean()
   def has_top_level_register?(source) when is_binary(source) do
-    Regex.match?(~r/^register\(\s*\)\s*;?\s*$/m, source)
+    Regex.match?(~r/^[ \t]*register\(\s*\)\s*;?[ \t]*$/m, source)
   end
 
   @doc """

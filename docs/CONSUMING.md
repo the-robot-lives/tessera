@@ -77,9 +77,11 @@ commit them where your tooling or downstream consumers expect.
   CONTRACT.md §4. Bind an action atom (`on_persona_select={:chose}`) or a
   tuple with an explicit target (`{:chose, target: "layout"}` or
   `{:chose, target: cid}` — CONTRACT.md §3 supports cid targets only through
-  the tuple form; bare binaries are rejected with an ArgumentError). With no
-  binding (nil/false, or none passed), the attribute is omitted and the
-  element's default action (the snake_case event name) targets `@page`.
+  the tuple form; bare binaries are rejected with an ArgumentError). With NO
+  binding (`nil`/`false`, or none passed) NO `data-tsr-on` entry is rendered
+  for that event and NOTHING dispatches when the element emits it — the
+  event is then just a plain composed DOM `CustomEvent` that only plain
+  `addEventListener` consumers see. There is no implicit default action.
 
 ## 6. Versioning note
 
