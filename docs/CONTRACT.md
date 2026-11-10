@@ -17,6 +17,21 @@ Phase 0 evidence: hologram-start-app branch `spike/tessera-bridge` @ `c20f27f9`.
 
 Tag names follow the custom-element rule: lowercase and contain a hyphen. Validation happens at compile time.
 
+### Key case conversion (normative)
+
+The conversions in the table above are plain character transforms, not `Macro.underscore`:
+
+- **snake → camel** (`display_name` → `displayName`, detail `persona_id` → `personaId`): split on `_`, capitalize the first character of every segment after the first.
+- **camel → snake** (`displayName` → `display_name`): each uppercase character becomes `_` + its lowercase form. `userID` → `user_i_d` — consecutive capitals each get their own underscore.
+
+Spec keys MUST round-trip: `snake → camel → snake` is an identity, or a key written by the Elixir spec would arrive back at the bridge as something else. That rules out:
+
+- **digit-initial segments after `_`** — `col_2_width` → camel `col2Width` → snake `col2_width` ≠ `col_2_width`. Write `col2_width`.
+- **double, leading, or trailing underscores** — `my__key`, `_hidden`, `trailing_` all round-trip into different strings.
+- **consecutive capitals in JS-authored detail keys** — camel → snake splits per character, so `userID` → `user_i_d` and it never comes back. Write `userId`.
+
+The Elixir side validates these rules at compile time; the JS core does not police them at runtime — a non-round-tripping key silently mismatches.
+
 ## 2. Generated JS contract module
 
 For each component the spec generates `<snake_tag>.contract.generated.mjs` next to the component's `.mjs`, with a default export:
@@ -58,6 +73,8 @@ Types: `string | integer | float | boolean | list | map | any`.
   3. Call `globalThis.Hologram.dispatchAction(action, target, snakeKeysDeep(event.detail ?? {}))`.
 
   If no entry matches, or `globalThis.Hologram` is absent, it does nothing, which is the plain-HTML/React case.
+
+- **Nested shadow attribution (normative).** The bridge resolves bindings from the document level. When tessera element B sits inside tessera element A's shadow root and B dispatches a composed event, the retargeted shadow host A is the first candidate: **if A binds that event name, A's action fires and B's never does.** If A carries no entry, the bridge falls back to scanning the composed path for the first registered contract element carrying a mapping — open-shadow internals are visible on that path — so B's own mapping still fires when B's tag is registered. The event is dropped only when no registered element on the path maps it. Prefer deliberate composition: a component that composes tessera children should re-emit child events from itself — `emit()` from the outer element — to expose them explicitly (see `docs/EXTENDING.md` §4) instead of relying on the path fallback.
 - `behaviors.add(tag, fn)`: `fn(el)` runs on each `connectedCallback`. It may return a cleanup function, which runs on disconnect.
 
 ## 5. Elixir ↔ JS import rules (Hologram 0.10.1, learned in the spike)

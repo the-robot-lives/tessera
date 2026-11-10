@@ -9,7 +9,8 @@
  *   - coerces attributes to typed properties (string / integer / float /
  *     boolean-by-presence) per the contract's `type`,
  *   - parses the `tsr-props` JSON and assigns each key as a property; bad
- *     JSON warns, never throws,
+ *     JSON warns, never throws; `_`-prefixed (reserved) keys and keys whose
+ *     current value is a function (methods) are skipped with a warn-once,
  *   - calls `requestUpdate()` when the base provides it, after property
  *     assignment,
  *   - on `connectedCallback` registers the contract's events with the
@@ -21,6 +22,11 @@ import { registerEvents } from "./bridge.mjs";
 import { behaviorsFor } from "./behaviors.mjs";
 
 const TSR_PROPS_ATTR = "tsr-props";
+
+// `<tag>:<key>` combos already warned about, so a skipped key warns once and
+// stays quiet on re-applications of the same attribute (Hologram re-renders
+// re-set tsr-props constantly).
+const warnedSkippedProps = new Set();
 
 /**
  * Coerce an attribute value to the contract type. `value` is the attribute
@@ -59,13 +65,38 @@ function applyTsrProps(el, contract, raw) {
     return;
   }
   for (const [key, value] of Object.entries(data)) {
+    // Reserved keys: anything starting with "_" is tessera-internal
+    // (e.g. `__tesseraCleanups`), and a key whose CURRENT value is a function
+    // is a method (Lit's `requestUpdate`, lifecycle callbacks). Letting
+    // tsr-props clobber either breaks the element, so both are skipped with a
+    // single warning per tag+key.
+    let current;
+    try {
+      current = el[key];
+    } catch {
+      current = undefined; // exotic getter; fall through to the guarded set
+    }
+    if (key.startsWith("_") || typeof current === "function") {
+      const dedupe = `${contract.tag}:${key}`;
+      if (!warnedSkippedProps.has(dedupe)) {
+        warnedSkippedProps.add(dedupe);
+        console.warn(
+          key.startsWith("_")
+            ? `[tessera] <${contract.tag}> ignoring tsr-props key "${key}": keys starting with "_" are reserved`
+            : `[tessera] <${contract.tag}> ignoring tsr-props key "${key}": it would overwrite a method`,
+        );
+      }
+      continue;
+    }
     try {
       el[key] = value;
     } catch (err) {
       console.warn(`[tessera] <${contract.tag}> could not set property "${key}" from tsr-props: ${err?.message ?? err}`);
     }
   }
-  el.requestUpdate?.();
+  // tsr-props may have clobbered or been skipped for any key — only call a
+  // real function, never trust `el.requestUpdate` to exist (or stay sane).
+  if (typeof el.requestUpdate === "function") el.requestUpdate();
 }
 
 /**
