@@ -11,7 +11,8 @@ defmodule NoizuTessera.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       name: "Noizu.Tessera",
-      description: "Shippable web components with Hologram hooks — spec DSL, codegen and the Hologram adapter.",
+      description:
+        "Shippable web components with Hologram hooks — spec DSL, codegen and the Hologram adapter.",
       source_url: "https://github.com/the-robot-lives/tessera",
       deps: deps(),
       package: package(),

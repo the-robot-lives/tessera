@@ -76,10 +76,12 @@ defmodule Noizu.Tessera.Hologram.Adapter do
     cy_line = if spec.cy, do: ~s(  data-cy="#{spec.cy}")
 
     lines =
-      (attr_lines ++ List.wrap(tsr_props_line) ++ List.wrap(data_tsr_on_line) ++ List.wrap(cy_line))
+      (attr_lines ++
+         List.wrap(tsr_props_line) ++ List.wrap(data_tsr_on_line) ++ List.wrap(cy_line))
       |> Enum.reject(&is_nil/1)
 
     open = "<#{spec.tag}#{format_open(lines)}>"
+
     String.trim_trailing("""
     #{open}
       <slot />
@@ -240,7 +242,7 @@ defmodule Noizu.Tessera.Hologram.Adapter do
   # -- internals -------------------------------------------------------------
 
   defp bridge_helper_asts(%Spec{} = spec) do
-    if spec.events != [] or spec.props != [] and Enum.any?(spec.props, fn p -> !!p[:json] end) do
+    if spec.events != [] or (spec.props != [] and Enum.any?(spec.props, fn p -> !!p[:json] end)) do
       event_pairs = event_pairs(spec)
       json_pairs = json_prop_pairs(spec)
 
@@ -280,7 +282,7 @@ defmodule Noizu.Tessera.Hologram.Adapter do
                 end
               end)
 
-            if parts == [], do: nil, else: "{" <> Enum.join(parts, ",")
+            if parts == [], do: nil, else: "{" <> Enum.join(parts, ",") <> "}"
           end
 
           # Minimal JSON encoder over the contract types, written with

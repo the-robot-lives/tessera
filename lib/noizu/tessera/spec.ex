@@ -74,27 +74,20 @@ defmodule Noizu.Tessera.Spec do
 
   `kind` is the DSL entry being validated (`"attr"`, `"prop"`, `"event"`, ...).
   """
-  @spec validate!(atom(), String.t() | atom(), keyword() | %{atom() => atom()}, String.t(), non_neg_integer()) ::
+  @spec validate!(
+          atom(),
+          String.t() | atom(),
+          keyword() | %{atom() => atom()},
+          String.t(),
+          non_neg_integer()
+        ) ::
           :ok
   def validate!(kind, name, detail_or_opts, file, line)
 
-  def validate!(kind, name, _opts, file, line) when kind in [:tag, :event] and is_binary(name) do
-    regex = if kind == :tag, do: Naming.tag_regex(), else: Naming.event_regex()
-
-    unless Regex.match?(regex, name) do
-      raise CompileError,
-        file: file,
-        line: line,
-        description:
-          "invalid tessera #{kind} name #{inspect(name)} — must match the contract grammar " <>
-            "^[a-z][a-z0-9]*(-[a-z0-9]+)+$ (lowercase with at least one hyphen)"
-    end
-
-    :ok
-  end
-
+  # The detail-map clause comes first so events get BOTH the grammar check and
+  # the per-key checks (a later general clause would otherwise shadow it).
   def validate!(:event, name, detail, file, line) when is_map(detail) do
-    validate!(:event, name, %{}, file, line)
+    validate_grammar!(:event, name, file, line)
 
     Enum.each(detail, fn
       {key, type} when is_atom(key) ->
@@ -110,6 +103,11 @@ defmodule Noizu.Tessera.Spec do
             "tessera event #{inspect(name)} detail key #{inspect(key)} must be a snake_case atom"
     end)
 
+    :ok
+  end
+
+  def validate!(kind, name, _opts, file, line) when kind in [:tag, :event] do
+    validate_grammar!(kind, name, file, line)
     :ok
   end
 
@@ -157,6 +155,21 @@ defmodule Noizu.Tessera.Spec do
     :ok
   end
 
+  defp validate_grammar!(kind, name, file, line) when kind in [:tag, :event] do
+    regex = if kind == :tag, do: Naming.tag_regex(), else: Naming.event_regex()
+
+    unless is_binary(name) and Regex.match?(regex, name) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "invalid tessera #{kind} name #{inspect(name)} — must match the contract grammar " <>
+            "^[a-z][a-z0-9]*(-[a-z0-9]+)+$ (lowercase with at least one hyphen)"
+    end
+
+    :ok
+  end
+
   defp validate_snake_name!(kind, name, file, line) do
     unless is_atom(name) and Regex.match?(Naming.snake_regex(), Atom.to_string(name)) do
       raise CompileError,
@@ -195,7 +208,19 @@ defmodule Noizu.Tessera.Spec do
   def json_literal(false), do: "false"
   def json_literal(v) when is_integer(v) or is_float(v), do: to_string(v)
   def json_literal(v) when is_binary(v), do: ~s("#{escape_json(v)}")
-  def json_literal(v) when is_list(v) or is_map(v), do: Jason.encode!(v)
+  # Maps are encoded with keys sorted by name so the generated contract (and
+  # goldens) are byte-deterministic across runs (Jason does not sort map keys).
+  def json_literal(%{} = v) do
+    inner =
+      v
+      |> Enum.map(fn {k, val} -> {json_key(k), val} end)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map_join(",", fn {k, val} -> json_literal(k) <> ":" <> json_literal(val) end)
+
+    "{" <> inner <> "}"
+  end
+
+  def json_literal(v) when is_list(v), do: Jason.encode!(v)
 
   def json_literal(v) do
     raise ArgumentError,
@@ -213,6 +238,9 @@ defmodule Noizu.Tessera.Spec do
     |> String.replace("\r", "\\r")
     |> String.replace("\t", "\\t")
   end
+
+  defp json_key(k) when is_binary(k), do: k
+  defp json_key(k), do: to_string(k)
 
   @doc "Spec rendered to a plain JSON-encodable map (used by `__tessera_manifest__/0`)."
   @spec to_manifest_map(t()) :: map()
@@ -247,7 +275,8 @@ defmodule Noizu.Tessera.Spec do
           %{
             "name" => e.name,
             "detail" =>
-              e[:detail] |> Map.new(fn {k, t} -> {Naming.snake_to_camel(k), Atom.to_string(t)} end)
+              e[:detail]
+              |> Map.new(fn {k, t} -> {Naming.snake_to_camel(k), Atom.to_string(t)} end)
           }
         end),
       "slots" => Enum.map(spec.slots, & &1.name)

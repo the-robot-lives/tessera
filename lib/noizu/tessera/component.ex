@@ -170,7 +170,6 @@ defmodule Noizu.Tessera.Component do
     end
   end
 
-
   @doc false
   # Compile-time sink for the DSL macros — runs during the consumer module's
   # body expansion, with the consumer module passed explicitly. Validates the
@@ -180,6 +179,7 @@ defmodule Noizu.Tessera.Component do
   # __before_compile__) on purpose: @before_compile hooks run in registration
   # order and Hologram's hook reads @__props__ first.
   def record(consumer, :attr, name, type, opts, line, file, hologram?) do
+    opts = eval_opts!(opts, :attr, name, file, line)
     Spec.validate!(:attr, name, %{type: type}, file, line)
 
     entry = %{
@@ -200,6 +200,7 @@ defmodule Noizu.Tessera.Component do
   end
 
   def record(consumer, :prop, name, type, opts, line, file, _hologram?) do
+    opts = eval_opts!(opts, :prop, name, file, line)
     Spec.validate!(:prop, name, %{type: type}, file, line)
 
     entry = %{
@@ -215,14 +216,24 @@ defmodule Noizu.Tessera.Component do
   end
 
   def record(consumer, :event, name, _type, opts, line, file, hologram?) do
+    opts = eval_opts!(opts, :event, name, file, line)
     detail = opts[:detail] || %{}
     Spec.validate!(:event, name, detail, file, line)
 
-    Module.put_attribute(consumer, :tessera_events, {line, %{name: name, detail: detail, line: line}})
+    Module.put_attribute(
+      consumer,
+      :tessera_events,
+      {line, %{name: name, detail: detail, line: line}}
+    )
 
     if hologram? do
       binding = Naming.event_binding_prop(name)
-      Module.put_attribute(consumer, :__props__, {binding, :any, [tessera_origin: :binding, default: nil]})
+
+      Module.put_attribute(
+        consumer,
+        :__props__,
+        {binding, :any, [tessera_origin: :binding, default: nil]}
+      )
     end
 
     :ok
@@ -256,7 +267,8 @@ defmodule Noizu.Tessera.Component do
   # -- compile hooks ---------------------------------------------------------
 
   @doc false
-  def __before_compile__(env) do
+  @spec __before_compile__(Macro.Env.t()) :: Macro.t()
+  defmacro __before_compile__(env) do
     attrs = attr_entries(env)
     props = prop_entries(env)
     events = event_entries(env)
@@ -299,12 +311,16 @@ defmodule Noizu.Tessera.Component do
     end
   end
 
+  # Runs at expansion: the spec attribute is readable here, and the write
+  # side-effect happens once, after the module body is fully compiled.
   @doc false
-  def __after_compile__(env, _beam) do
+  defmacro __after_compile__(env, _beam) do
     case Module.get_attribute(env.module, :tessera_compiled_spec) do
       nil -> :ok
       %Spec{} = spec -> Adapter.write_contract_next_to_mjs(spec)
     end
+
+    quote(do: :ok)
   end
 
   # -- spec assembly ---------------------------------------------------------
@@ -339,10 +355,12 @@ defmodule Noizu.Tessera.Component do
     accumulated(env.module, :tessera_slots) |> Enum.map(fn {_line, entry} -> entry end)
   end
 
+  # Accumulate attributes come out newest-first; reverse so spec entries keep
+  # DSL declaration order (hologram does the same for @__props__).
   defp accumulated(module, attribute) when is_atom(module) do
     case Module.get_attribute(module, attribute) do
       nil -> []
-      value when is_list(value) -> value
+      value when is_list(value) -> Enum.reverse(value)
       other -> List.wrap(other)
     end
   end
@@ -421,5 +439,32 @@ defmodule Noizu.Tessera.Component do
           "tessera :js option must be a plain colocated filename ending in .mjs " <>
             "(e.g. \"persona_card.mjs\"), got: #{inspect(js)}"
     end
+  end
+
+  # DSL opts arrive as the caller's AST (record_ast escapes it for the
+  # compile-time sink). Turn it into runtime values so defaults/detail maps
+  # are real literals — and reject anything that needs bindings, since the
+  # wire contract must be known at compile time.
+  defp eval_opts!(opts, kind, name, file, line) do
+    {value, _binding} = Code.eval_quoted(opts, [], file: file, line: line)
+
+    unless is_nil(value) or Keyword.keyword?(value) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{kind} #{inspect(name)} options must be a keyword list of " <>
+            "compile-time literals, got: #{inspect(value)}"
+    end
+
+    value || []
+  rescue
+    e ->
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{kind} #{inspect(name)} options must be compile-time literals " <>
+            "(no variables or module attributes) — #{Exception.message(e)}"
   end
 end

@@ -96,7 +96,8 @@ defmodule Noizu.Tessera.Codegen do
 
   @doc "Path of the generated contract module for a spec, under `dir`."
   @spec contract_path(Spec.t(), String.t()) :: String.t()
-  def contract_path(%Spec{} = spec, dir), do: Path.join(dir, snake_tag(spec) <> ".contract.generated.mjs")
+  def contract_path(%Spec{} = spec, dir),
+    do: Path.join(dir, snake_tag(spec) <> ".contract.generated.mjs")
 
   @doc "snake_case form of the tag (`persona-card` → `persona_card`)."
   @spec snake_tag(Spec.t()) :: String.t()
@@ -130,7 +131,7 @@ defmodule Noizu.Tessera.Codegen do
     |> Map.keys()
     |> Enum.sort()
     |> Enum.map(fn key ->
-      "#{Spec.json_literal(Naming.snake_to_camel(key))}: #{Spec.json_literal(Atom.to_string(detail[key]))}"
+      "#{Naming.snake_to_camel(key)}: #{Spec.json_literal(Atom.to_string(detail[key]))}"
     end)
     |> Enum.map_join(", ", & &1)
     |> then(&"{#{&1}}")

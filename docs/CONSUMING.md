@@ -1,0 +1,77 @@
+# Consuming noizu_tessera in a Hologram app
+
+Setup for host applications. Component authoring is `docs/AUTHORING.md`; the
+normative wire contract is `docs/CONTRACT.md`.
+
+## 1. Dependency
+
+```elixir
+# mix.exs
+defp deps do
+  [
+    {:hologram, "~> 0.10"},
+    {:noizu_tessera, "~> 0.1"}
+  ]
+end
+```
+
+`noizu_tessera` keeps `hologram` as an optional runtime:false dependency, so
+non-Hologram hosts (plain Elixir + npm consumers of the generated contracts)
+depend on it without pulling the framework.
+
+## 2. Install the JS side
+
+```sh
+mix tessera.install
+```
+
+- adds `{:noizu_tessera, "~> 0.1"}` to `mix.exs` if missing;
+- wires `@noizu/tessera-core` into `assets/package.json` (`file:` link into
+  the installed dependency's `priv/js`, plus lit `^3` as a peer — existing
+  keys are never overwritten; re-runs are idempotent);
+- runs `npm install` unless you pass `--no-npm`.
+
+Hosts that manage their own JS packaging can skip the npm leg and add
+`@noizu/tessera-core` from their registry of choice themselves.
+
+## 3. Declare components
+
+Author components per `docs/AUTHORING.md`. Compile — the contracts,
+`__tessera_spec__`, and (in Hologram) the render/bridge glue are generated at
+compile time; nothing to run by hand.
+
+## 4. Aggregate manifests
+
+```elixir
+defmodule MyApp.Tessera do
+  use Noizu.Tessera.Package, components: [MyApp.Components.PersonaCard, ...]
+end
+```
+
+```sh
+mix tessera.manifest
+```
+
+writes `tessera-manifest.json` (full specs) and `custom-elements.json`
+(Custom Elements Manifest, schemaVersion "1.0.0") into the current directory —
+commit them where your tooling or downstream consumers expect.
+
+## 5. Runtime model (what the wiring does)
+
+- **Server render:** tessera components render as their tag with kebab-case
+  attributes; boolean attrs render by presence (`false`/`nil` drop the
+  attribute); json props ship as `tsr-props` (camelCase keys, HTML-encoded in
+  the served HTML, decoded by the DOM); bound events render as
+  `data-tsr-on="event:action@target"`.
+- **Client:** the generated `init/3` calls the colocated `.mjs`'s `register`
+  export through an absolute-path `js_import` binding, so each page bundle
+  registers the element it uses. `defineOnce` in `@noizu/tessera-core` makes
+  duplicate registration (multiple bundles) warn-once instead of throwing.
+- **Events:** element → Elixir actions flow through the bridge described in
+  CONTRACT.md §4; `target` is `page` (default), `layout`, or a component `cid`.
+
+## 6. Versioning note
+
+The Elixir package and `@noizu/tessera-core` version in lockstep (0.1.x) —
+the wire contract (v1) is what they share, so minor mismatches are tolerable,
+but keep them in the same major.

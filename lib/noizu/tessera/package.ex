@@ -17,7 +17,14 @@ defmodule Noizu.Tessera.Package do
   @spec __using__(keyword()) :: Macro.t()
   defmacro __using__(opts) do
     caller = __CALLER__
-    components = Keyword.get(opts, :components, [])
+
+    # `use` hands us the option values as AST — expand the component aliases
+    # (e.g. {:__aliases__, _, [:MyApp, :PersonaCard]}) to module atoms.
+    components =
+      case Keyword.get(opts, :components, []) do
+        list when is_list(list) -> Enum.map(list, &Macro.expand(&1, caller))
+        other -> other
+      end
 
     unless is_list(components) and components != [] and Enum.all?(components, &is_atom/1) do
       raise CompileError,

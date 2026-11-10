@@ -12,7 +12,7 @@ defmodule Noizu.Tessera.Registry do
     current = current_app()
     deps = Mix.Project.deps_paths() |> Map.keys()
 
-    ([current | deps] |> Enum.reject(&is_nil/1)) |> Enum.uniq() |> Enum.sort()
+    [current | deps] |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
   end
 
   @doc "Modules of `app` that export `__tessera_manifest__/0`, sorted."
