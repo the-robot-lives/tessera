@@ -1,0 +1,13 @@
+{
+  "name": "tessera-e2e",
+  "private": true,
+  "description": "Cypress e2e for the tessera demo apps (Hologram host + plain HTML)",
+  "scripts": {
+    "open": "cypress open",
+    "run": "cypress run"
+  },
+  "devDependencies": {
+    "cypress": "15.20.0",
+    "typescript": "^5.5.0"
+  }
+}
