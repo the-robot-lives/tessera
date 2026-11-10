@@ -1,5 +1,6 @@
 import { expect } from "@open-wc/testing";
 import { parseTsrOn, registerEvents } from "../../priv/js/src/bridge.mjs";
+import { emit } from "../../priv/js/src/events.mjs";
 
 const BRIDGE_KEY = Symbol.for("tessera.bridge");
 
@@ -208,6 +209,59 @@ describe("bridge dispatch", () => {
     inner.dispatchEvent(new CustomEvent("bridge-priority-evt", { bubbles: true, composed: true }));
     expect(calls).to.have.lengthOf(1);
     expect(calls[0][0]).to.equal("inner", "the element the event actually fired on wins");
+    outer.remove();
+  });
+
+  it("a tessera element nested INSIDE another tessera element's shadow root is attributed to the OUTER host (shadow retargeting)", () => {
+    registerEvents(["bridge-shadow-nested-evt"], "bridge-shadow-outer-tag");
+    registerEvents(["bridge-shadow-nested-evt"], "bridge-shadow-inner-tag");
+
+    const outer = document.createElement("bridge-shadow-outer-tag");
+    outer.setAttribute("data-tsr-on", "bridge-shadow-nested-evt:outer@page");
+    const inner = document.createElement("bridge-shadow-inner-tag");
+    inner.setAttribute("data-tsr-on", "bridge-shadow-nested-evt:inner@layout"); // must NEVER fire
+    outer.attachShadow({ mode: "open" }).appendChild(inner);
+    document.body.appendChild(outer);
+
+    emit(inner, "bridge-shadow-nested-evt", { itemId: "q" });
+
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0]).to.deep.equal(
+      ["outer", "page", { item_id: "q" }],
+      "the retargeted shadow host is tried first: the outer binding fires, the inner binding for the same event never does",
+    );
+    outer.remove();
+  });
+
+  it("when the shadow host is unmapped, the composedPath fallback finds the inner registered host (NOT a drop)", () => {
+    registerEvents(["bridge-shadow-drop-evt"], "bridge-shadow-drop-tag");
+    const outer = document.createElement("bridge-shadow-drop-tag"); // NO data-tsr-on
+    const inner = document.createElement("bridge-shadow-drop-tag");
+    inner.setAttribute("data-tsr-on", "bridge-shadow-drop-evt:inner@layout");
+    outer.attachShadow({ mode: "open" }).appendChild(inner);
+    document.body.appendChild(outer);
+
+    emit(inner, "bridge-shadow-drop-evt", { itemId: "z" });
+
+    // The retargeted target (outer) is tried FIRST and has no entry; the
+    // fallback then scans the composed path — open-shadow internals are
+    // visible on it — and resolves the inner registered tessera host.
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0]).to.deep.equal(["inner", "layout", { item_id: "z" }]);
+    outer.remove();
+  });
+
+  it("drops the event when the host is unmapped and the inner element's tag is NOT registered", () => {
+    registerEvents(["bridge-shadow-stray-evt"], "bridge-shadow-stray-outer-tag");
+    const outer = document.createElement("bridge-shadow-stray-outer-tag"); // registered tag, NO data-tsr-on
+    const inner = document.createElement("div"); // unregistered tag carrying a mapping — cannot hijack
+    inner.setAttribute("data-tsr-on", "bridge-shadow-stray-evt:steal@layout");
+    outer.attachShadow({ mode: "open" }).appendChild(inner);
+    document.body.appendChild(outer);
+
+    emit(inner, "bridge-shadow-stray-evt", {});
+
+    expect(calls).to.have.lengthOf(0, "no registered element on the (retargeted) path maps the event ⇒ dropped");
     outer.remove();
   });
 });
