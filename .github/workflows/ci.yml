@@ -108,9 +108,11 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    # TODO: drop continue-on-error once this job has been green for a full
-    # release cycle — until then a red e2e must still be triaged, it just
-    # does not block.
+    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
+    # mode below is fixed — see docs/notes/e2e-linux-ci.md (component-own
+    # shadow updates are lost under the Hologram host on ubuntu runners while
+    # all specs pass on macOS; toolchain + Linux browser both ruled out).
+    # A red e2e must still be triaged, it just does not block.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -133,6 +135,11 @@ jobs:
       - name: Boot Hologram demo on :5586
         working-directory: demo/hologram_app
         run: |
+          # Gate the WHOLE chain on HOLOGRAM_START: the deps.get path-dep
+          # compile registers Hologram compiler state, and a later `mix holo`
+          # can stall forever on "compiler already running, waiting" if the
+          # earlier compile ran un-gated (observed flaky in a Linux repro).
+          export HOLOGRAM_START=1
           mix deps.get
           mix tessera.install
           nohup mix holo > /tmp/holo.log 2>&1 &

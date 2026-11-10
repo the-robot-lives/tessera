@@ -21,6 +21,13 @@ as the wire contract specifies.
 
 `PORT=1234 npm run serve` changes the port.
 
+> **Bundling note:** the bundle imports the component sources from
+> `examples/persona_kit`, and each of those imports `"lit"`. esbuild resolves
+> bare specifiers from the *importing file's* `node_modules` chain, so a
+> fresh clone must also run `npm ci` (or `npm install`) once in
+> `examples/persona_kit` — not just here — before `npm run build` works.
+> Local checkouts usually have it already (from the persona_kit WTR suite).
+
 ## What the page does
 
 * `src/main.mjs` imports the two component modules — each has a

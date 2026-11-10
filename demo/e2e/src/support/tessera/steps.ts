@@ -3,8 +3,11 @@
 
 /// <reference types="cypress" />
 
-const HOLOGRAM = "http://localhost:5586";
-const PLAIN = "http://localhost:5587";
+// Base URLs are env-overridable (--env tsrHoloUrl=… / tsrPlainUrl=…) so the
+// suite can run against demos in containers / other hosts (CI, dockerized
+// browser against a host server) without touching the specs.
+const HOLOGRAM: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
+const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
 
 export const tesseraSteps = {
   visitHologramMain(): void {
