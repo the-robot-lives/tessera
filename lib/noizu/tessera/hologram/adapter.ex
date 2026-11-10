@@ -55,12 +55,47 @@ defmodule Noizu.Tessera.Hologram.Adapter do
   def js_import_asts(nil), do: []
 
   def js_import_asts(mjs_path) when is_binary(mjs_path) do
+    warn_missing_top_level_register(mjs_path)
+
     [
       quote do
         @external_resource unquote(mjs_path)
         @__js_imports__ %{export: "register", from: unquote(mjs_path), as: "register"}
       end
     ]
+  end
+
+  @doc """
+  Compile-time sanity check: the component's `.mjs` must carry a TOP-LEVEL
+  `register()` call. It is load-bearing — stateless SSR never calls
+  `init/3`, so the element gets defined only when the page bundle evaluates
+  the `.mjs` and its last statement registers it. Missing it means the
+  component renders server-side but never upgrades on the client. Warns
+  (never raises) so an unusual packaging layout cannot break the host build.
+  """
+  @spec warn_missing_top_level_register(String.t()) :: :ok
+  def warn_missing_top_level_register(mjs_path) do
+    if File.exists?(mjs_path) do
+      source = File.read!(mjs_path)
+
+      unless has_top_level_register?(source) do
+        IO.warn(
+          "noizu_tessera: #{mjs_path} has no top-level `register()` call — " <>
+            "element registration relies on it running when the page bundle loads " <>
+            "(stateless SSR never calls init/3). Add `register();` at the end of the module.",
+          file: mjs_path,
+          line: 1
+        )
+      end
+    end
+
+    :ok
+  end
+
+  @doc "True when `source` contains a top-level `register()` call statement."
+  @spec has_top_level_register?(String.t()) :: boolean()
+  def has_top_level_register?(source) when is_binary(source) do
+    Regex.match?(~r/^register\(\s*\)\s*;?\s*$/m, source)
   end
 
   @doc """
@@ -155,21 +190,34 @@ defmodule Noizu.Tessera.Hologram.Adapter do
   end
 
   @doc """
-  The quoted AST of the generated component body: `init/3` (+ the
-  `__tessera_init__/3` hook, both defoverridable), the template, the bridge
-  helpers and the `__tessera_spec__/0` + `__tessera_manifest__/0` readers.
-  Spliced from `__before_compile__` (the spec must be known). `caller_dir` is
-  the directory of the component module's file; the `.mjs` import path is
-  built from it and must be absolute (CONTRACT.md §5).
+  The quoted AST of the generated component body: the `init/2` + `init/3`
+  pair (+ the `__tessera_init__/2` and `__tessera_init__/3` hooks, all
+  defoverridable), the template, the bridge helpers and the
+  `__tessera_spec__/0` + `__tessera_manifest__/0` readers. Spliced from
+  `__before_compile__` (the spec must be known). `caller_dir` is the
+  directory of the component module's file; the `.mjs` import path is built
+  from it and must be absolute (CONTRACT.md §5).
   """
   @spec body_ast(Spec.t(), String.t()) :: Macro.t()
   def body_ast(%Spec{} = spec, caller_dir) when is_binary(caller_dir) do
     quote do
-      # Generated init: the client-side mount runs the transpiled init/2
-      # derived from this init/3; `call(:register, [])` both defines the
-      # custom element on mount and keeps the js_import in the page call
-      # graph (Hologram only bundles imports the call graph references —
-      # CONTRACT.md §5). On the server (SSR) it is an :ok pass-through.
+      # Generated init pair. Hologram 0.10.1 treats init/2 (client) and
+      # init/3 (server) as SEPARATE optional callbacks — the compiler never
+      # derives one from the other, and a stateful client mount calls init/2
+      # directly (missing it throws "component … doesn't have init/2
+      # implemented"). `call(:register, [])` defines the custom element on
+      # mount and keeps the js_import in the page call graph (Hologram only
+      # bundles imports the call graph references — CONTRACT.md §5).
+      #
+      # NOTE registration does NOT depend on init: stateless SSR never calls
+      # init/3 at all. Elements get defined because the component's `.mjs`
+      # has a load-bearing top-level `register()` call that runs when the
+      # page bundle is evaluated (mix compile warns when it is missing).
+      def init(props, component) do
+        call(:register, [])
+        __tessera_init__(props, component)
+      end
+
       def init(props, component, server) do
         call(:register, [])
         __tessera_init__(props, component, server)
@@ -177,13 +225,17 @@ defmodule Noizu.Tessera.Hologram.Adapter do
 
       @doc """
       Default tessera init body — a no-op returning the component. Override
-      this (not `init/3`) to seed state, so element registration keeps
-      running; if you must override `init/3` itself, call
-      `super(props, component, server)` first.
+      these (not `init/2` / `init/3`) to seed state, so element registration
+      keeps running. A user-defined `init` written BEFORE the generated one
+      would shadow it and kill registration — always override
+      `__tessera_init__/2` (client) and/or `__tessera_init__/3` (server)
+      instead.
       """
+      def __tessera_init__(_props, component), do: component
+
       def __tessera_init__(_props, component, _server), do: component
 
-      defoverridable init: 3, __tessera_init__: 3
+      defoverridable init: 2, init: 3, __tessera_init__: 2, __tessera_init__: 3
 
       @doc "The compiled `Noizu.Tessera.Spec` struct for this component."
       @spec __tessera_spec__() :: Noizu.Tessera.Spec.t()
@@ -253,8 +305,14 @@ defmodule Noizu.Tessera.Hologram.Adapter do
           def __tessera_data_tsr_on__(bindings) do
             parts =
               Enum.flat_map(unquote(Macro.escape(event_pairs)), fn pair ->
+                # nil/false bindings mean "not bound" (the attr is simply
+                # omitted). Any other value must be an action atom or an
+                # {action, opts} tuple — bindings are runtime template
+                # expressions, so validation happens here, at render time;
+                # the DEFAULT action wired into the template is
+                # compile-time generated from the spec and always valid.
                 case Map.get(bindings, elem(pair, 0)) do
-                  nil ->
+                  v when v in [nil, false] ->
                     []
 
                   binding ->
@@ -320,7 +378,8 @@ defmodule Noizu.Tessera.Hologram.Adapter do
           def __tessera_json_encode__(value),
             do: "\"" <> tessera_json_escape(to_string(value)) <> "\""
 
-          defp tessera_json_key(key) when is_atom(key), do: "\"" <> Atom.to_string(key) <> "\""
+          defp tessera_json_key(key) when is_atom(key),
+            do: "\"" <> tessera_json_escape(Atom.to_string(key)) <> "\""
 
           defp tessera_json_key(key) when is_binary(key),
             do: "\"" <> tessera_json_escape(key) <> "\""
@@ -340,6 +399,16 @@ defmodule Noizu.Tessera.Hologram.Adapter do
 
           defp tessera_action_name({action, _opts}) when is_atom(action),
             do: Atom.to_string(action)
+
+          # CONTRACT.md §3 supports cid targets only as {:action, target: "cid"};
+          # a bare binary binding is always a mistake (strings are not valid
+          # Hologram actions), so fail loudly instead of rendering a broken
+          # data-tsr-on attribute.
+          defp tessera_action_name(binding) when is_binary(binding) do
+            raise ArgumentError,
+                  "tessera event binding #{inspect(binding)} is not supported — " <>
+                    "bind an action atom or {:action, target: \"layout\" | cid}"
+          end
 
           defp tessera_target_name({_action, opts}) when is_list(opts) do
             case :lists.keyfind(:target, 1, opts) do

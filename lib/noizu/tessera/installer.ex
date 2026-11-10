@@ -23,6 +23,48 @@ defmodule Noizu.Tessera.Installer do
   end
 
   @doc """
+  `[{name, "file:<relpath>"}]` entries for every dep app in `deps_paths`
+  (an `{app_atom => project_root}` map) that ships a tessera js package —
+  `priv/js/package.json` with a `name` — relative to `assets_dir`. Apps
+  equal to `current_app` are skipped (their runtime is the core entry).
+  Pure function of its arguments so it is unit-testable without Mix.
+  """
+  @spec dep_js_entries(map(), String.t(), atom() | nil) :: [{String.t(), String.t()}]
+  def dep_js_entries(deps_paths, assets_dir, current_app)
+      when is_map(deps_paths) and is_binary(assets_dir) do
+    deps_paths
+    |> Enum.reject(fn {app, _root} -> app == current_app end)
+    |> Enum.flat_map(fn {_app, root} ->
+      case js_package_name(root) do
+        {name, js_dir} ->
+          [{name, "file:" <> Path.relative_to(js_dir, assets_dir)}]
+
+        nil ->
+          []
+      end
+    end)
+  end
+
+  @doc """
+  `{name, js_dir}` when `project_root/priv/js/package.json` declares a
+  `name`; the returned `js_dir` is the `priv/js` directory itself.
+  """
+  @spec js_package_name(String.t()) :: {String.t(), String.t()} | nil
+  def js_package_name(project_root) when is_binary(project_root) do
+    js_dir = Path.join(project_root, Path.join(["priv", "js"]))
+    path = Path.join(js_dir, "package.json")
+
+    with true <- File.exists?(path),
+         {:ok, json} <- File.read(path),
+         {:ok, map} <- Jason.decode(json),
+         name when is_binary(name) <- map["name"] do
+      {name, js_dir}
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
   Idempotent merge of `additions` into a decoded `package.json` map: keys that
   already exist keep their value, missing keys are added, every other
   top-level key is preserved untouched.

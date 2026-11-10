@@ -225,4 +225,32 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
   end
+
+  describe "top-level register() check" do
+    alias Noizu.Tessera.Hologram.Adapter
+
+    test "detects a top-level register() call" do
+      assert Adapter.has_top_level_register?("import x\n\nregister();\n")
+      assert Adapter.has_top_level_register?("register()\n")
+      assert Adapter.has_top_level_register?("export function register() {}\n\nregister()")
+      refute Adapter.has_top_level_register?("export function register() {}\n")
+      refute Adapter.has_top_level_register?("// register();\n")
+      refute Adapter.has_top_level_register?("foo.register();\n")
+    end
+
+    test "warns at compile time when a component .mjs lacks the load-bearing call" do
+      import ExUnit.CaptureIO
+
+      id = :erlang.unique_integer([:positive])
+      mjs = Path.join(@tmp_dir, "no_register_#{id}.mjs")
+      File.write!(mjs, "export function register() {}\n")
+
+      warnings =
+        capture_io(:stderr, fn ->
+          assert :ok = Adapter.warn_missing_top_level_register(mjs)
+        end)
+
+      assert warnings =~ "no top-level `register()` call"
+    end
+  end
 end

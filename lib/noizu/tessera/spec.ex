@@ -220,7 +220,11 @@ defmodule Noizu.Tessera.Spec do
     "{" <> inner <> "}"
   end
 
-  def json_literal(v) when is_list(v), do: Jason.encode!(v)
+  # Lists are encoded manually over json_literal (NOT Jason) so nested maps
+  # keep the sorted-key byte determinism — Jason emits map keys in arbitrary
+  # order.
+  def json_literal(v) when is_list(v),
+    do: "[" <> Enum.map_join(v, ",", &json_literal/1) <> "]"
 
   def json_literal(v) do
     raise ArgumentError,

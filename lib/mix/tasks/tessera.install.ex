@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Tessera.Install do
 
   use Mix.Task
 
-  alias Noizu.Tessera.{Installer, Registry}
+  alias Noizu.Tessera.Installer
 
   @switches [no_npm: :boolean]
 
@@ -69,24 +69,7 @@ defmodule Mix.Tasks.Tessera.Install do
 
   defp dep_js_entries do
     assets = assets_dir(File.cwd!())
-
-    Registry.tessera_apps()
-    |> Enum.filter(&(&1 != Mix.Project.config()[:app]))
-    |> Enum.flat_map(fn app ->
-      case Registry.app_js_package(app) do
-        {name, pkg_path} ->
-          js_dir = pkg_path |> Path.dirname() |> Path.dirname()
-
-          if String.starts_with?(js_dir, assets <> "/") do
-            [{name, "file:" <> Path.relative_to(js_dir, assets)}]
-          else
-            []
-          end
-
-        nil ->
-          []
-      end
-    end)
+    Installer.dep_js_entries(Mix.Project.deps_paths(), assets, Mix.Project.config()[:app])
   end
 
   defp assets_dir(root), do: Path.join(root, "assets")

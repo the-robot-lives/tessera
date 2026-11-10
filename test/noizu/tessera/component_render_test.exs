@@ -108,6 +108,21 @@ defmodule Noizu.Tessera.ComponentRenderTest do
     refute html =~ "data-tsr-on"
   end
 
+  test "false and nil bindings mean no binding (attribute omitted)" do
+    assert Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{
+             on_persona_select: false,
+             on_persona_hover: nil
+           }) == nil
+  end
+
+  test "a bare binary binding raises a clear ArgumentError (cid needs {:action, target: cid})" do
+    assert_raise ArgumentError, ~r/not supported/, fn ->
+      Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{
+        on_persona_select: "picker1"
+      })
+    end
+  end
+
   test "renders data-cy" do
     {html, _} = render([{"display_name", [expression: {"Ada"}]}])
     assert html =~ ~s(data-cy="persona-card-root")
@@ -136,6 +151,12 @@ defmodule Noizu.Tessera.ComponentRenderTest do
     assert html =~ "<persona-card"
     assert Map.has_key?(registry, "c1")
     assert registry["c1"].module == @fixture_mod
+
+    # client path for the same stateful instance: the generated init/2 must
+    # exist and return the component (the page bundle transpiles it as the
+    # client mount hook)
+    component = %Hologram.Component{}
+    assert @fixture_mod.init(%{display_name: "Ada", cid: "c1"}, component) == component
   end
 
   test "template markup is contract-shaped (structural assertions on the source)" do
@@ -156,11 +177,20 @@ defmodule Noizu.Tessera.ComponentRenderTest do
     assert markup == String.trim_trailing(expected, "\n")
   end
 
-  test "generated init/3 registers and defaults to a pass-through" do
+  test "generated init pair registers and defaults to a pass-through" do
+    # Hologram treats init/2 (client mount) and init/3 (server) as separate
+    # optional callbacks — both must exist on generated components.
+    assert function_exported?(@fixture_mod, :init, 2)
     assert function_exported?(@fixture_mod, :init, 3)
+    assert function_exported?(@fixture_mod, :__tessera_init__, 2)
     assert function_exported?(@fixture_mod, :__tessera_init__, 3)
 
     component = %Hologram.Component{}
+
+    # client path (arity 2): returns the component untouched
+    assert @fixture_mod.init(%{display_name: "Ada"}, component) == component
+
+    # server path (arity 3): returns {component, server}
     {component2, server2} = @fixture_mod.init(%{display_name: "Ada"}, component, %Server{})
 
     # default __tessera_init__ returns the component untouched

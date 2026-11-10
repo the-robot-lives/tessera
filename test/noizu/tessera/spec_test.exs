@@ -123,6 +123,14 @@ defmodule Noizu.Tessera.SpecTest do
       assert Spec.json_literal(%{"b" => 1, "a" => 2}) == ~s({"a":2,"b":1})
     end
 
+    test "lists of maps are key-sorted deterministically (not Jason's arbitrary order)" do
+      assert Spec.json_literal([%{b: 1, a: 2}, %{d: 3, c: 4}]) ==
+               ~s([{"a":2,"b":1},{"c":4,"d":3}])
+
+      assert Spec.json_literal([]) == "[]"
+      assert Spec.json_literal(["x", %{k: "v"}]) == ~s(["x",{"k":"v"}])
+    end
+
     test "escapes strings" do
       # input:  say "hi"
       # output: "say \"hi\""  (as JSON literal text)

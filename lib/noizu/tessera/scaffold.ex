@@ -96,6 +96,10 @@ defmodule Noizu.Tessera.Scaffold do
       return defineOnce("#{tag}", #{camel});
     }
 
+    // LOAD-BEARING: this top-level register() call is what actually defines
+    // the custom element. Stateless SSR never calls init/3, so registration
+    // happens when the page bundle evaluates this module and reaches this
+    // statement (CONTRACT.md §3; `mix compile` warns if it is missing).
     // Page bundles carry their own copy of this module — defineOnce makes the
     // re-execution safe (CONTRACT.md §4).
     register();
@@ -140,10 +144,10 @@ defmodule Noizu.Tessera.Scaffold do
     mjs_path = Path.join(Path.dirname(lib_path), snake <> ".mjs")
     test_path = Path.join([root, "test", "components", snake <> "_test.mjs"])
 
-    # test/components/<snake>_test.mjs → lib/.../<snake>.mjs
+    # test/components/<snake>_test.mjs → lib/.../<snake>.mjs (sibling trees, so
+    # force: true to emit the needed ../ segments instead of an absolute path)
     mjs_relpath_from_test =
-      Path.relative_to(mjs_path, Path.join([root, "test", "components"]))
-      |> then(fn rel -> "../" <> rel end)
+      Path.relative_to(mjs_path, Path.dirname(test_path), force: true)
 
     [
       {lib_path, spec_module_content(tag, module_name)},

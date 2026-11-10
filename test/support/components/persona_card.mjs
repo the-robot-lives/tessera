@@ -11,4 +11,6 @@ export function register() {
   return defineOnce("persona-card", PersonaCard);
 }
 
+// LOAD-BEARING: stateless SSR never calls init/3 — the element gets defined
+// only when the page bundle evaluates this statement (CONTRACT.md §3).
 register();

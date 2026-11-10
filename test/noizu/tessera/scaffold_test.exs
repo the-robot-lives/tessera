@@ -66,6 +66,24 @@ defmodule Noizu.Tessera.ScaffoldTest do
              ]
     end
 
+    test "the WTR test imports the .mjs by its real computed relative path" do
+      [{_lib, _spec}, {mjs_path, _mjs}, {test_path, test_content}] =
+        Scaffold.generate("persona-card", "MyApp.Components.PersonaCard", "/proj")
+
+      expected_rel = Path.relative_to(mjs_path, Path.dirname(test_path), force: true)
+
+      assert test_content =~ ~s(import { register } from "#{expected_rel}";)
+      # no stray extra ../ beyond the real computation
+      assert test_content =~ "../../lib/my_app/components/persona_card.mjs"
+    end
+
+    test "scaffolded .mjs carries the load-bearing top-level register() call" do
+      [{_lib, _spec}, {_mjs_path, mjs_content}, _test] =
+        Scaffold.generate("persona-card", "MyApp.Components.PersonaCard", "/proj")
+
+      assert Noizu.Tessera.Hologram.Adapter.has_top_level_register?(mjs_content)
+    end
+
     test "raises CompileError on a grammar-invalid tag" do
       assert_raise CompileError, ~r/invalid tessera tag/, fn ->
         Scaffold.generate("BadTag", "X.Y", "/proj")

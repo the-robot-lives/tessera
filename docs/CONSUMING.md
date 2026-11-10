@@ -63,12 +63,23 @@ commit them where your tooling or downstream consumers expect.
   attribute); json props ship as `tsr-props` (camelCase keys, HTML-encoded in
   the served HTML, decoded by the DOM); bound events render as
   `data-tsr-on="event:action@target"`.
-- **Client:** the generated `init/3` calls the colocated `.mjs`'s `register`
-  export through an absolute-path `js_import` binding, so each page bundle
-  registers the element it uses. `defineOnce` in `@noizu/tessera-core` makes
-  duplicate registration (multiple bundles) warn-once instead of throwing.
+- **Registration:** the top-level `register()` call at the end of each
+  component's `.mjs` is load-bearing — stateless SSR never calls `init/3`, so
+  the element gets defined only when the page bundle evaluates the `.mjs` and
+  reaches that statement. The `.mjs` itself is bundled because the generated
+  `init/2`/`init/3` pair calls its `register` export through an absolute-path
+  `js_import` binding, keeping it on the page call graph. `mix compile` warns
+  if a component's `.mjs` is missing the top-level call. Stateful instances
+  additionally register through those inits. `defineOnce` in
+  `@noizu/tessera-core` makes duplicate registration (multiple bundles)
+  warn-once instead of throwing.
 - **Events:** element → Elixir actions flow through the bridge described in
-  CONTRACT.md §4; `target` is `page` (default), `layout`, or a component `cid`.
+  CONTRACT.md §4. Bind an action atom (`on_persona_select={:chose}`) or a
+  tuple with an explicit target (`{:chose, target: "layout"}` or
+  `{:chose, target: cid}` — CONTRACT.md §3 supports cid targets only through
+  the tuple form; bare binaries are rejected with an ArgumentError). With no
+  binding (nil/false, or none passed), the attribute is omitted and the
+  element's default action (the snake_case event name) targets `@page`.
 
 ## 6. Versioning note
 

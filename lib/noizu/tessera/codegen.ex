@@ -6,8 +6,12 @@ defmodule Noizu.Tessera.Codegen do
       text of CONTRACT.md §2 (camelCase keys, deterministic key order),
       written next to the component's `.mjs` at compile time;
     * `cem/1` — a Custom Elements Manifest (schemaVersion `"1.0.0"`) as a
-      JSON-encodable map with string keys (Jason encodes maps in sorted key
-      order, so the output is deterministic across runs).
+      JSON-encodable map with string keys. Determinism note: the CONTRACT
+      module above goes through `Spec.json_literal/1`, which key-sorts maps
+      explicitly; the CEM map is encoded by Jason, whose map key order is
+      arbitrary but stable within an OTP build — the golden fixture pins
+      whatever it produces here, so regenerate goldens rather than assuming
+      an order when the CEM shape changes.
 
   Both are pure functions of the spec — the golden fixtures under
   `test/fixtures/` pin their exact output.

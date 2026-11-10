@@ -46,6 +46,53 @@ defmodule Noizu.Tessera.InstallerTest do
     end
   end
 
+  describe "dep_js_entries/3" do
+    @tag :tmp_dir
+    test "collects file: entries from fake dep apps shipping priv/js", %{tmp_dir: tmp_dir} do
+      # fake dep app shipping a tessera js runtime
+      dep_app = Path.join(tmp_dir, "my_dep_app")
+      File.mkdir_p!(Path.join([dep_app, "priv", "js"]))
+
+      File.write!(
+        Path.join([dep_app, "priv", "js", "package.json"]),
+        ~s({"name":"@acme/widgets"})
+      )
+
+      # fake app without a js runtime must be skipped
+      bare_app = Path.join(tmp_dir, "bare_app")
+      File.mkdir_p!(bare_app)
+
+      assets = Path.join([tmp_dir, "host", "assets"])
+
+      entries =
+        Installer.dep_js_entries(%{my_dep_app: dep_app, bare_app: bare_app}, assets, :host_app)
+
+      # relative from the host's assets dir, regardless of where the dep lives
+      # (the old starts_with?-assets predicate never matched deps)
+      assert entries == [
+               {"@acme/widgets",
+                "file:" <> Path.relative_to(Path.join(dep_app, "priv/js"), assets)}
+             ]
+    end
+
+    @tag :tmp_dir
+    test "skips the current app", %{tmp_dir: tmp_dir} do
+      dep_app = Path.join(tmp_dir, "my_dep_app")
+      File.mkdir_p!(Path.join([dep_app, "priv", "js"]))
+
+      File.write!(
+        Path.join([dep_app, "priv", "js", "package.json"]),
+        ~s({"name":"@acme/widgets"})
+      )
+
+      assert Installer.dep_js_entries(%{my_dep_app: dep_app}, "/x/assets", :my_dep_app) == []
+    end
+
+    test "returns [] for a deps map without js shippers" do
+      assert Installer.dep_js_entries(%{"some_app" => "/nonexistent"}, "/x/assets", nil) == []
+    end
+  end
+
   describe "merge_into_assets/2" do
     @tag :tmp_dir
     test "writes once, then reports unchanged", %{tmp_dir: tmp_dir} do

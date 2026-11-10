@@ -87,11 +87,24 @@ always pass it.
    the spec actually changed — content-compared, no rebuild loops).
 3. In Hologram apps (`hologram` dep present): the server render template
    (kebab attrs, `tsr-props` JSON for json props, `data-tsr-on` for bound
-   events, `data-cy`), a generated `init/3` that triggers the client
+   events, `data-cy`), generated `init/2` + `init/3` that trigger the client
    registration call, and the absolute-path `js_import` binding to the `.mjs`
-   (`register` export). Override `init/3` (call `super/1`… i.e. forward to
-   `__tessera_init__/3`) to seed state — see the adapter section of
-   `docs/CONTRACT.md` §3/§5.
+   (`register` export). Hologram treats `init/2` (client mount) and `init/3`
+   (server) as separate callbacks — the compiler never derives one from the
+   other, which is why tessera generates both.
+
+**Override `__tessera_init__/2` (client) and/or `__tessera_init__/3` (server)
+— never `init/2` / `init/3` — to seed state.** The generated inits run
+`call(:register, [])` before delegating to the `__tessera_init__` hooks, so
+overriding the hooks keeps registration alive; a user-defined `init` written
+before the generated one would shadow it and kill registration.
+
+**The top-level `register()` call at the end of your `.mjs` is load-bearing.**
+Stateless SSR (no `cid` passed) never runs `init/3`; the element gets defined
+only when the page bundle evaluates the `.mjs` and reaches that statement.
+Removing it means components render server-side but never upgrade on the
+client. `mix compile` emits a warning when a component's `.mjs` is missing the
+call. See docs/CONTRACT.md §3/§5 for the render + bridge mechanics.
 
 ## Known compiler behaviours (not bugs)
 
@@ -102,7 +115,8 @@ always pass it.
   a catch-all `init/3`), reproduces with a plain Hologram component, and is
   expected in tessera apps. It does not affect the library's own build.
 - Stateless rendering (no `cid` passed) never runs `init/3` server-side —
-  stateful initialization only happens for `cid`-bearing instances.
+  stateful initialization only happens for `cid`-bearing instances (and the
+  client mount path calls `init/2`, which is why both are generated).
 
 ## Scaffolding
 
