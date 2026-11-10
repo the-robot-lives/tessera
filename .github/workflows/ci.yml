@@ -142,6 +142,15 @@ jobs:
           done
           echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
 
+      # esbuild resolves bare specifiers ("lit") from each importing file's
+      # node_modules chain, and the components live in examples/persona_kit —
+      # so that package's own deps must be installed even though the bundle
+      # is built from demo/plain_html (fresh CI checkouts lack it; local
+      # checkouts usually have it from WTR development, masking the gap).
+      - name: Install persona_kit npm deps (lit resolves from importer path)
+        working-directory: examples/persona_kit
+        run: npm ci
+
       - name: Boot plain-HTML demo on :5587
         working-directory: demo/plain_html
         run: |
