@@ -61,11 +61,11 @@ defmodule PersonaKit.PersonaCard do
       # targeted at the page under a DIFFERENT name — observable proof that
       # this cid-targeted action ran, without conflating with the click's own
       # routing (CONTRACT.md §3 target form, "page" target).
-      put_action(component, [
+      put_action(component,
         name: :cid_confirmed,
         params: %{persona_id: persona_id},
         target: "page"
-      ])
+      )
     end
 
     def action(_other, _params, component), do: component

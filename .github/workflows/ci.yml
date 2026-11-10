@@ -69,6 +69,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # persona_kit's WTR suite imports the component .mjs files, and each
+      # .mjs imports its `*.contract.generated.mjs` sibling — a build artifact
+      # written by the Elixir compiler (gitignored by design). Generate them
+      # before wtr runs or every component test 404s on a fresh checkout.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -89,6 +98,10 @@ jobs:
           path: examples/persona_kit/node_modules
           key: pk-js-${{ runner.os }}-${{ hashFiles('examples/persona_kit/package-lock.json') }}
 
+      - name: Generate persona_kit contract modules (mix compile)
+        working-directory: examples/persona_kit
+        run: mix deps.get && mix compile
+
       - name: persona_kit WTR suite
         working-directory: examples/persona_kit
         run: npm ci && npm test
@@ -101,6 +114,12 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+
+      # `mix holo` boots Hologram.LiveReload in dev, whose file_system worker
+      # hard-crashes the whole app on Linux runners without inotify-tools
+      # (Hologram 0.10.1 MatchErrors on the :ignore instead of degrading).
+      - name: Install inotify-tools (file_system / LiveReload)
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
 
       - uses: erlef/setup-beam@v1
         with:
