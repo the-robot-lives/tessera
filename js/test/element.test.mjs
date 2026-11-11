@@ -1,39 +1,14 @@
-import { expect, nextFrame } from "@open-wc/testing";
-import { LitElement, html } from "lit";
+import { expect } from "@open-wc/testing";
 import { TesseraElement } from "../../priv/js/src/element.mjs";
 import { defineOnce } from "../../priv/js/src/define.mjs";
 import { behaviors } from "../../priv/js/src/behaviors.mjs";
 import { getBridge } from "../../priv/js/src/bridge.mjs";
+import { PLAIN_TAG, plainContract, captureWarns } from "./helpers.mjs";
 
-const PLAIN_TAG = "tsr-el-plain";
-const LIT_TAG = "tsr-el-lit";
-
-const plainContract = {
-  version: 1,
-  tag: PLAIN_TAG,
-  attrs: [
-    { name: "display-name", key: "displayName", type: "string", required: true, default: null },
-    { name: "count", key: "count", type: "integer", default: 0 },
-    { name: "ratio", key: "ratio", type: "float" },
-    { name: "active", key: "active", type: "boolean" },
-  ],
-  props: [{ name: "tagList", type: "list", json: true, default: [] }],
-  events: [{ name: "plain-select", detail: { personaId: "string" } }],
-  slots: ["default"],
-  cy: "plain-el-root",
-};
-
-function captureWarns(fn) {
-  const warns = [];
-  const original = console.warn;
-  console.warn = (msg) => warns.push(String(msg));
-  try {
-    fn();
-  } finally {
-    console.warn = original;
-  }
-  return warns;
-}
+// FAST group: TesseraElement over plain HTMLElement — the behavior-defining
+// core (attribute coercion, tsr-props apply/clear, behaviors, bridge wiring).
+// The Lit-host matrix and cross-module-copy redundancy live in the FULL group
+// (element.lit.test.mjs / element.copies.test.mjs). docs/notes/test-tiering.md.
 
 describe("TesseraElement over plain HTMLElement", () => {
   before(() => {
@@ -297,149 +272,5 @@ describe("TesseraElement over plain HTMLElement", () => {
       expect(warns.some((w) => w.includes("boom"))).to.equal(true);
       el.remove();
     });
-  });
-});
-
-describe("TesseraElement over LitElement", () => {
-  const litContract = {
-    version: 1,
-    tag: LIT_TAG,
-    attrs: [{ name: "card-title", key: "cardTitle", type: "string" }],
-    props: [{ name: "tagList", type: "list", json: true }],
-    events: [{ name: "lit-select" }],
-  };
-
-  before(() => {
-    class LitEl extends TesseraElement(LitElement, litContract) {
-      static properties = {
-        items: { type: Array },
-      };
-      render() {
-        return html`<span data-cy="lit-tags">${(this.tagList ?? []).length}</span>`;
-      }
-    }
-    defineOnce(LIT_TAG, LitEl);
-  });
-
-  it("observedAttributes merge Lit reactive props, contract attrs and tsr-props", () => {
-    const observed = customElements.get(LIT_TAG).observedAttributes;
-    expect(observed).to.include.members(["items", "card-title", "tsr-props"]);
-  });
-
-  it("attribute coercion works over Lit", async () => {
-    const el = document.createElement(LIT_TAG);
-    el.setAttribute("card-title", "Ada");
-    document.body.appendChild(el);
-    expect(el.cardTitle).to.equal("Ada");
-    el.remove();
-  });
-
-  it("tsr-props assignment triggers a Lit reactive render", async () => {
-    const el = document.createElement(LIT_TAG);
-    el.setAttribute("tsr-props", JSON.stringify({ tagList: ["a", "b", "c"] }));
-    document.body.appendChild(el);
-    await el.updateComplete;
-    await nextFrame();
-    const text = el.shadowRoot?.querySelector("[data-cy=lit-tags]")?.textContent;
-    expect(text).to.equal("3", "requestUpdate flows through Lit's reactive render");
-    el.remove();
-  });
-
-  it("bad tsr-props JSON warns and never throws over Lit", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    const warns = captureWarns(() => {
-      el.setAttribute("tsr-props", "not-json");
-    });
-    await el.updateComplete;
-    expect(warns.some((w) => w.includes("tsr-props"))).to.equal(true);
-    el.remove();
-  });
-
-  it("tsr-props skips function-valued keys (requestUpdate) over Lit and warns once", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    const seen = [];
-    const original = console.warn;
-    console.warn = (msg) => seen.push(String(msg));
-    try {
-      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 1 }));
-      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 2 }));
-    } finally {
-      console.warn = original;
-    }
-    expect(typeof el.requestUpdate, "the method survives").to.equal("function");
-    await el.updateComplete;
-    expect(seen.filter((w) => w.includes('"requestUpdate"'))).to.have.lengthOf(1, "warned once per key");
-    // The render pipeline is untouched: a reactive prop change still renders.
-    el.setAttribute("card-title", "Grace");
-    await el.updateComplete;
-    expect(el.cardTitle).to.equal("Grace");
-    el.remove();
-  });
-
-  it("removal resets accessor-backed Lit reactive props through the setter", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    // `items` is declared in Lit `static properties` — assigning it goes
-    // through Lit's accessor, so there is no own property to delete; the
-    // reset must ride the setter instead.
-    el.setAttribute("tsr-props", JSON.stringify({ items: ["x"] }));
-    await el.updateComplete;
-    expect(el.items).to.deep.equal(["x"]);
-
-    el.removeAttribute("tsr-props");
-    await el.updateComplete;
-    expect(el.items).to.be.undefined;
-    el.remove();
-  });
-});
-
-describe("skipped-prop warn-once across module copies", () => {
-  const WARNED_KEY = Symbol.for("tessera.warned-props");
-  const COPY2_TAG = "tsr-el-plain-copy2";
-  const PROBE_KEY = "_cross-copy-warn-probe";
-
-  it("two module copies share one globalThis warn set — a skipped key warns once per document", async () => {
-    const element1 = await import("../../priv/js/src/element.mjs");
-    // Cache-busting query: a SECOND instance of the module, exactly what
-    // Hologram's per-page esbuild bundles produce.
-    const element2 = await import("../../priv/js/src/element.mjs?copy=2");
-    expect(element2.TesseraElement).to.not.equal(
-      element1.TesseraElement,
-      "precondition: two distinct module instances",
-    );
-
-    class Copy2El extends element2.TesseraElement(HTMLElement, plainContract) {}
-    // Defined under a UNIQUE tag (one definition per tag per document) with
-    // the SAME contract: the dedupe key is `${contract.tag}:${key}`, so this
-    // is exactly the duplicate-bundle scenario the global set exists for.
-    defineOnce(COPY2_TAG, Copy2El);
-
-    const dedupe = `${PLAIN_TAG}:${PROBE_KEY}`;
-    globalThis[WARNED_KEY]?.delete(dedupe);
-
-    const el1 = document.createElement(PLAIN_TAG);
-    const el2 = document.createElement(COPY2_TAG);
-    document.body.appendChild(el1);
-    document.body.appendChild(el2);
-
-    const warns = captureWarns(() => {
-      el1.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 1 }));
-      el2.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 2 }));
-    });
-
-    expect(warns.filter((w) => w.includes(`"${PROBE_KEY}"`))).to.have.lengthOf(
-      1,
-      "the second copy's skipped-key application must NOT re-warn (shared globalThis set)",
-    );
-    expect(globalThis[WARNED_KEY], "the set lives on globalThis under the Symbol.for key").to.exist;
-    expect(globalThis[WARNED_KEY].has(dedupe)).to.equal(true);
-
-    el1.remove();
-    el2.remove();
   });
 });

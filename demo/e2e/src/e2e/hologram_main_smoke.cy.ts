@@ -9,7 +9,8 @@
 import { tesseraSteps as steps } from "../support/tessera/steps";
 import { tesseraAsserts as asserts } from "../support/tessera/asserts";
 
-describe("tessera hologram demo — main page (smoke)", () => {
+// @fast: BLOCKING core-claim smoke leg (b) — runs in the fast per-change lane.
+describe("tessera hologram demo — main page (smoke)", { tags: "@fast" }, () => {
   beforeEach(() => {
     // Given the demo app is served and the tessera elements are defined
     steps.visitHologramMain();
