@@ -117,6 +117,8 @@ defmodule Noizu.Tessera.Codegen do
   with type, `json` flag and JSON-literal default), `events` (name +
   camelCase detail schema), `slots`, `cssProperties` (name + default) and
   `cssParts` — the last two fed by the spec DSL's `css`/`part` declarations.
+  Each module carries the §8.3 custom field `tessera: {extensionApi, actions}`
+  — the extension-api version axis and every declared action name (D2).
   """
   @spec cem([Spec.t()]) :: map()
   def cem(specs) when is_list(specs) do
@@ -281,6 +283,17 @@ defmodule Noizu.Tessera.Codegen do
       }
     ]
 
-    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations}
+    # §8.3 per-module custom field `tessera`: the extension-api axis (defaulted
+    # to the first stable 1.0.0 when the spec declares none) plus EVERY action
+    # name in declaration order (D2 — the open surface; `internal:` annotation
+    # lives in the declaration-level doc entries above). CEM consumers ignore
+    # unknown keys by convention.
+    tessera_field = %{
+      "extensionApi" => spec.extension_api || Spec.default_extension_api(),
+      "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name))
+    }
+
+    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations,
+      "tessera" => tessera_field}
   end
 end

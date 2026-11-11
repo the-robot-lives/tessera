@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfPipeline extends TesseraElement(LitElement, contract, {state: ["count","selected_id","meta"], actions: ["bump","select_item","seed_cache"], internalActions: ["seed_cache"]}) {
+class TsrConfPipeline extends TesseraElement(LitElement, contract, {state: ["count","selected_id","meta"], actions: ["bump","select_item","seed_cache"], internalActions: ["seed_cache"], extensionApi: "1.0.0"}) {
   static properties = {
       count: { type: Number },
       selected_id: { type: String },

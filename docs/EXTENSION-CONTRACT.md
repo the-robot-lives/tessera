@@ -798,7 +798,7 @@ attach internals to an element that did not. [PENDING TIER-1] and
 | Axis | Versions | Where | Today |
 |---|---|---|---|
 | **Wire contract** (`contract.version`) | attrs/props/events/slots naming, contract-module shape, DOM shape, bridge | CONTRACT §2 `version`, `tesseraContractVersion` | 1 |
-| **Extension API** (`extension_api`) | §3's surface: derivation shape + the `use Vendor.Element` macro expansion (§5.3, §5.9), action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | none yet; first stable value `1.0.0` |
+| **Extension API** (`extension_api`) | §3's surface: derivation shape + the `use Vendor.Element` macro expansion (§5.3, §5.9), action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | `1.0.0` (declared per component; unset ⇒ first stable `1.0.0`) |
 
 The axes move independently. This document itself is versioned separately
 (draft v0.1 → 1.0.0 at first stable release).
@@ -833,8 +833,11 @@ the runtime static `tesseraExtensionApi`. The base declares; a derived element
 inherits unless it declares its own (then §5.7's pin check applies). A
 `tag: :inherit` extension keeps the base tag's declaration unless it widens
 the action set, in which case the extending app's emitted CEM lists the merged
-`actions`. [PENDING TIER-1: the spec struct gains the field; nothing reads it
-today.]
+`actions`. [LANDED TIER-1, brief 2b: the spec field flows to
+`to_manifest_map/1` (`"extension_api"`, key always present — defaulted to
+`1.0.0` when the component declares none), `Codegen.cem/1` (per-module
+`tessera` field), the `TesseraElement` descriptor (`extensionApi`) and the
+mixin static `tesseraExtensionApi`; X-15 pins the agreement.]
 
 ### 8.4 Pinning and mismatch
 

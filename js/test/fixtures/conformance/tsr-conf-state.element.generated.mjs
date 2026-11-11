@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfState extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["bump"], internalActions: []}) {
+class TsrConfState extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["bump"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       count: { type: Number },
       step: { type: Number },

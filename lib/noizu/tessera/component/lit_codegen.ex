@@ -437,16 +437,20 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   # the compiled bodies keep Elixir names internally; the snapshot is the
   # camelCase projection), EVERY declared action name (open surface, D2 —
   # `internal:` ones included), and the `internal:` subset the runtime warns
-  # on interception against (advisory, never a gate, §10). For a derived
+  # on interception against (advisory, never a gate, §10), and the declared
+  # extension_api (§8.3, fed to the `tesseraExtensionApi` static; defaulted to
+  # 1.0.0 for specs that declare none). For a derived
   # spec this is the MERGED surface (new + inherited names ride the ES chain
   # into the same registry).
   defp extension_descriptor(%Spec{} = spec) do
     state = Enum.map(spec.state, &Atom.to_string(&1.name))
     actions = Enum.map(spec.actions, &Atom.to_string(&1.name))
     internal = spec.actions |> Enum.filter(& &1[:internal]) |> Enum.map(&Atom.to_string(&1.name))
+    extension_api = spec.extension_api || Spec.default_extension_api()
 
     "{state: #{Spec.json_literal(state)}, actions: #{Spec.json_literal(actions)}, " <>
-      "internalActions: #{Spec.json_literal(internal)}}"
+      "internalActions: #{Spec.json_literal(internal)}, " <>
+      "extensionApi: #{Spec.json_literal(extension_api)}}"
   end
 
   defp source_name(%Spec{module: nil, file: file}), do: file || "Noizu.Tessera.Spec"

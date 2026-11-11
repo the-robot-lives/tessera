@@ -28,6 +28,16 @@ defmodule Noizu.Tessera.Spec do
 
   alias Noizu.Tessera.Naming
 
+  # First stable extension_api (EXTENSION-CONTRACT.md §8.1). Components that
+  # don't declare `extension_api:` ship this; mirrors the private constant in
+  # `Noizu.Tessera.Component.Extension` (kept separate to avoid a
+  # Component→Spec cycle back-edge; both MUST stay "1.0.0").
+  @default_extension_api "1.0.0"
+
+  @doc "The first stable extension_api used when a spec declares none (§8.1)."
+  @spec default_extension_api() :: String.t()
+  def default_extension_api, do: @default_extension_api
+
   defstruct version: 1,
             tag: nil,
             module: nil,
@@ -451,6 +461,10 @@ defmodule Noizu.Tessera.Spec do
   def to_manifest_map(%__MODULE__{} = spec) do
     %{
       "contractVersion" => spec.version,
+      # §8.3: the extension-api axis rides every manifest entry, defaulted so
+      # the key is ALWAYS present (components compiled before brief 2b get the
+      # first stable version, not an absent key).
+      "extension_api" => spec.extension_api || default_extension_api(),
       "tag" => spec.tag,
       "module" => spec.module && inspect(spec.module),
       "file" => spec.file,

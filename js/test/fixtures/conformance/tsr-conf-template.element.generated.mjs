@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfTemplate extends TesseraElement(LitElement, contract, {state: ["flag","items"], actions: ["toggle_flag"], internalActions: []}) {
+class TsrConfTemplate extends TesseraElement(LitElement, contract, {state: ["flag","items"], actions: ["toggle_flag"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       flag: { type: Boolean },
       items: { type: Array },

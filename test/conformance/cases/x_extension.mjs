@@ -9,6 +9,7 @@
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy} from "../support/dom.mjs";
+import manifests from "../../../js/test/fixtures/conformance/conformance_manifests.generated.mjs";
 
 export const cases = [
   defineCase({
@@ -326,7 +327,35 @@ export const cases = [
       expect(h.win.getComputedStyle(accent).color).to.equal("rgb(102, 204, 255)");
     },
   }),
-  pendingCase({id: "X-15", family: "X", fast: false, title: "tesseraExtensionApi / manifest / CEM agree; major-mismatch pin warns", reason: "extension_api versioning lands with brief 2b"}),
+  defineCase({
+    id: "X-15",
+    family: "X",
+    fast: true,
+    title: "tesseraExtensionApi / manifest extension_api agree (CEM pinned in ExUnit)",
+    async run(mount, expect) {
+      // §8.3 three-way agreement. The CEM field is Elixir-only output
+      // (Codegen.cem/1) — pinned against the SAME spec object in
+      // codegen_test.exs; the manifest is the fixture generator's
+      // Spec.to_manifest_map/1 output shipped below. This case proves the
+      // runtime statics equal the manifest entries for every generated
+      // fixture — the third edge of the triangle.
+      for (const name of ["pipeline", "state"]) {
+        const h = await mount({fixture: name});
+        const ctor = h.win.customElements.get(h.tag);
+        const m = manifests[h.tag];
+        expect(m, `manifest entry for ${h.tag}`).to.be.an("object");
+        expect(ctor.tesseraExtensionApi, `${h.tag} extensionApi`).to.equal(m.extension_api);
+        expect(ctor.tesseraExtensionApi, `${h.tag} first-stable default`).to.equal("1.0.0");
+        // D2 open surface: the static action list equals the manifest list
+        // (declaration order — the same spec feeds both).
+        expect(ctor.tesseraActions, `${h.tag} actions`).to.deep.equal(m.actions);
+      }
+      // Major-mismatch pin WARNINGS are a compile-time Elixir property
+      // (Extension.check_pin!/3: CompileError on major, IO.warn on minor) —
+      // firing is proven in test/noizu/tessera/component/extension_test.exs;
+      // the JS lane pin check lands with the bridge briefs (2f/3f).
+    },
+  }),
   pendingCase({id: "X-16", family: "X", fast: true, title: "Elixir derivation end-to-end — derived tag registers, base untouched", reason: "derivation macro lands with brief 2c / 3f"}),
   pendingCase({id: "X-17", family: "X", fast: true, title: "region replacement — override renders on derived; unknown region fails", reason: "template regions land with brief 2d"}),
 

@@ -21,8 +21,9 @@
  *     bridge and runs the tag's behaviors, collecting their cleanups,
  *   - on `disconnectedCallback` runs those cleanups,
  *   - when an `extension` descriptor is given (`{state, actions,
- *     internalActions}` — emitted by the element codegen from the spec):
- *     the contract §6 state snapshot + action pipeline.
+ *     internalActions, extensionApi}` — emitted by the element codegen from
+ *     the spec): the contract §6 state snapshot + action pipeline, and the
+ *     §8.3 `tesseraExtensionApi` static.
  */
 
 import { registerEvents } from "./bridge.mjs";
@@ -174,10 +175,11 @@ function clearAppliedTsrProps(el, contract, applied, keep) {
 /**
  * @param {Function} Base `HTMLElement` or `LitElement` (or a subclass).
  * @param {object} contract a generated contract module (CONTRACT.md §2).
- * @param {{state?: string[], actions?: string[], internalActions?: string[]} | null} [extension]
+ * @param {{state?: string[], actions?: string[], internalActions?: string[], extensionApi?: string} | null} [extension]
  *   the EXTENSION-CONTRACT.md §6 descriptor (snake_case state keys; ALL
  *   declared action names — open surface, D2; the `internal:` subset is the
- *   advisory warn set). Without it the mixed class keeps its §4 shape.
+ *   advisory warn set; `extensionApi` is the §8 semver axis). Without it the
+ *   mixed class keeps its §4 shape.
  * @returns {Function} the mixed class.
  */
 export function TesseraElement(Base, contract, extension = null) {
@@ -206,10 +208,15 @@ export function TesseraElement(Base, contract, extension = null) {
 
   return class extends Base {
     // Contract statics (§6.1): identity + the OPEN action surface (D2) —
-    // every declared name, snake canonical, internal ones included.
+    // every declared name, snake canonical, internal ones included — plus
+    // the §8.3 extension-api axis (manifest `extension_api` / CEM
+    // `tessera.extensionApi` agree by construction; the default here mirrors
+    // the codegen default for hand-written mixins like the counter fixture).
     static tesseraTag = tag;
     static tesseraContractVersion = contract?.version ?? 1;
     static tesseraActions = [...actionNames];
+    static tesseraExtensionApi =
+      typeof extension?.extensionApi === "string" ? extension.extensionApi : "1.0.0";
 
     /**
      * Fresh FROZEN camelCase snapshot (§6.2, U2/Q5): canonical camel keys
