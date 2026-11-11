@@ -1149,15 +1149,50 @@ defmodule Noizu.Tessera.Component.Extension do
         }
       end)
 
+    # §6.7 (brief 2f parity): declared via `use …, form_associated: true`.
+    form_associated = Keyword.get(opts, :form_associated) == true
+
+    unless is_boolean(Keyword.get(opts, :form_associated, false)) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera Tier-2 `form_associated:` must be a boolean (§6.7), got: " <>
+            inspect(Keyword.get(opts, :form_associated))
+    end
+
+    # D2/§10 internal annotation (advisory warn-once only): a subset of the
+    # declared actions is `internal: true` on the spec entries.
+    internal_actions = Keyword.get(opts, :internal_actions, [])
+
+    Enum.each(internal_actions, fn name ->
+      unless name in action_names do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `internal_actions:` must be a subset of `actions:` — " <>
+              inspect(name) <> " is not declared (D2/§10)"
+      end
+    end)
+
     spec = %Spec{
       version: 1,
       tag: tag,
       module: caller.module,
       file: caller.file,
-      actions: Enum.map(action_names, &%{name: &1, line: caller.line}),
+      actions:
+        Enum.map(action_names, fn name ->
+          if name in internal_actions do
+            %{name: name, line: caller.line, internal: true}
+          else
+            %{name: name, line: caller.line}
+          end
+        end),
       props: props,
       template: %{raw: markup, lexer: :hologram, line: caller.line},
-      extension_api: extension_api
+      extension_api: extension_api,
+      form_associated: form_associated
     }
 
     entry_asts = tier2_entry_asts(caller.module, action_names)
@@ -1343,7 +1378,11 @@ defmodule Noizu.Tessera.Component.Extension do
         lifecycle: merged.lifecycle,
         derived_from: base,
         priority: priority,
-        extension_api: extension_api
+        extension_api: extension_api,
+        # §6.7 additive inheritance: the layer participates if it declares
+        # `form_associated: true` or its base already does.
+        form_associated:
+          Keyword.get(opts, :form_associated) == true or vendor_spec.form_associated == true
       }
 
     # §5.7 chain-conflict warning for a `tag: :inherit` layer (same sibling
@@ -1393,7 +1432,7 @@ defmodule Noizu.Tessera.Component.Extension do
       # of a dynamic remote call. The author's override clauses come AFTER
       # this `use` and are just plain `action/3` clauses; the total chain
       # fallback is appended at `__before_compile__` (see
-      # `__tier2_before_compile__/1`) so it can never shadow them.
+      # `__before_compile__/1`) so it can never shadow them.
       #
       # `__tessera_action__/3` entries follow for every merged action, so a
       # chained extender is itself a valid chain parent.
@@ -1401,7 +1440,9 @@ defmodule Noizu.Tessera.Component.Extension do
 
       unquote_splicing(tier2_entry_asts(caller.module, inherited_names))
 
-      @before_compile {Noizu.Tessera.Component.Extension, :__tier2_before_compile__}
+      # NOTE: FUNCTION form — on Elixir 1.20.1 the tuple form
+      # ({Module, :fun}) runs the hook but DISCARDS its returned quote.
+      @before_compile Noizu.Tessera.Component.Extension
 
       # Named template regions (§5.4 Tier-2 analogue): delegating defs so an
       # unoverridden extender renders the vendor default and an override
@@ -1423,6 +1464,13 @@ defmodule Noizu.Tessera.Component.Extension do
       @doc "The tessera manifest entry (plain map) for this derived component."
       @spec __tessera_manifest__() :: map()
       def __tessera_manifest__, do: unquote(Macro.escape(Spec.to_manifest_map(merged_spec)))
+
+      # A chained extender is itself a vendor (§5.9 dependency order): the
+      # next layer `use`s THIS module and rides the same derivation.
+      @doc false
+      defmacro __using__(opts) do
+        Noizu.Tessera.Component.Extension.derive_tier2!(__MODULE__, opts, __CALLER__)
+      end
     end
   end
 
@@ -1436,7 +1484,7 @@ defmodule Noizu.Tessera.Component.Extension do
   # unknown-action classification expects). Appending here — not at `use` —
   # is what lets a Tier-2 author mirror the Tier-1 style and define ONLY
   # the clauses they override.
-  def __tier2_before_compile__(_env) do
+  defmacro __before_compile__(_env) do
     quote do
       def action(name, params, component), do: base_action(name, params, component)
     end
