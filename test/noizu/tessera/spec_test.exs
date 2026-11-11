@@ -336,6 +336,16 @@ defmodule Noizu.Tessera.SpecTest do
       assert unset["extension_api"] == "1.0.0"
       assert Spec.default_extension_api() == "1.0.0"
     end
+
+    test "formAssociated rides the manifest ONLY when declared (§6.7, brief 2f)" do
+      declared = Spec.to_manifest_map(%Spec{tag: "v-form", form_associated: true})
+      assert declared["formAssociated"] == true
+
+      # Absent — NOT false — keeps pre-2f manifest bytes byte-stable; the
+      # runtimes treat absent and false identically (never attach internals).
+      unset = Spec.to_manifest_map(%Spec{tag: "v-card"})
+      refute Map.has_key?(unset, "formAssociated")
+    end
   end
 
   describe "validate! property options (lit-parity 1c)" do

@@ -35,7 +35,7 @@ export const manifests = {
     "cy": "conf-dir-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_directives.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_directives.ex",
     "js": "conf_directives.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Directives",
@@ -61,6 +61,39 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-dir-root\">\n  <div data-cy=\"conf-dir-class\" class={class_map(%{active: @active, highlight: @highlight})}>classes</div>\n  <div data-cy=\"conf-dir-style\" style={style_map(%{backgroundColor: @bg, \"--tsr-conf-directives-accent\": @accent})}>styled</div>\n  <div data-cy=\"conf-dir-defined\" title={if_defined(@title_text)}>defined</div>\n  <div data-cy=\"conf-dir-nothing-attr\" title={nothing}>nothing-attr</div>\n  <div data-cy=\"conf-dir-nothing-child\">{nothing}</div>\n  <button type=\"button\" data-cy=\"conf-dir-toggle-active\" $click={:toggle_active}>active</button>\n  <button type=\"button\" data-cy=\"conf-dir-toggle-highlight\" $click={:toggle_highlight}>highlight</button>\n</div>\n"
     }
   },
+  "tsr-conf-form": {
+    "actions": [
+      "set_value",
+      "reset_value"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-form-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_form.ex",
+    "formAssociated": true,
+    "js": "conf_form.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Form",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": "initial",
+        "name": "value",
+        "type": "string"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-form",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-form-root\">\n  <button type=\"button\" data-cy=\"conf-form-set\" $click={:set_value, value: \"clicked\"}>set</button>\n  <span data-cy=\"conf-form-value\">{@value}</span>\n</div>\n"
+    }
+  },
   "tsr-conf-pipeline": {
     "actions": [
       "bump",
@@ -80,7 +113,7 @@ export const manifests = {
       }
     ],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_pipeline.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_pipeline.ex",
     "js": "conf_pipeline.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Pipeline",
@@ -121,7 +154,7 @@ export const manifests = {
     "cy": "conf-region-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_region.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_region.ex",
     "js": "conf_region.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.RegionBase",
@@ -145,7 +178,7 @@ export const manifests = {
     "derived_from": "Tessera.TestFixtures.Conformance.RegionBase",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_region_derived.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_region_derived.ex",
     "js": "conf_region_derived.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.RegionVendor",
@@ -161,14 +194,16 @@ export const manifests = {
     }
   },
   "tsr-conf-slots": {
-    "actions": [],
+    "actions": [
+      "slot_changed"
+    ],
     "attrs": [],
     "contractVersion": 1,
     "cssProperties": [],
     "cy": "conf-slots-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_slots.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_slots.ex",
     "js": "conf_slots.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Slots",
@@ -178,12 +213,18 @@ export const manifests = {
       "header",
       "fb"
     ],
-    "state": [],
+    "state": [
+      {
+        "default": 0,
+        "name": "slot_changes",
+        "type": "integer"
+      }
+    ],
     "styles": [],
     "tag": "tsr-conf-slots",
     "template": {
       "lexer": "hologram",
-      "raw": "<div data-cy=\"conf-slots-root\">\n  <div data-cy=\"conf-slots-default\"><slot></slot></div>\n  <div data-cy=\"conf-slots-named\"><slot name=\"header\"></slot></div>\n  <div data-cy=\"conf-slots-fallback\"><slot name=\"fb\">fallback-content</slot></div>\n</div>\n"
+      "raw": "<div data-cy=\"conf-slots-root\">\n  <div data-cy=\"conf-slots-default\"><slot $slotchange={:slot_changed}></slot></div>\n  <div data-cy=\"conf-slots-named\"><slot name=\"header\"></slot></div>\n  <div data-cy=\"conf-slots-fallback\"><slot name=\"fb\">fallback-content</slot></div>\n</div>\n"
     }
   },
   "tsr-conf-state": {
@@ -211,7 +252,7 @@ export const manifests = {
       }
     ],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_state.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_state.ex",
     "js": "conf_state.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.State",
@@ -247,7 +288,7 @@ export const manifests = {
     "cy": "conf-styles-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_styles.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_styles.ex",
     "js": "conf_styles.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Styles",
@@ -294,7 +335,7 @@ export const manifests = {
       }
     ],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_takeover.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_takeover.ex",
     "js": "conf_takeover.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Takeover",
@@ -344,7 +385,7 @@ export const manifests = {
     "cy": "conf-template-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/takeover-chain/test/support/conformance/conf_template.ex",
+    "file": "/Users/keithbrings/Work/Space/Noizu/Projects/tessera/.claude/worktrees/forms-t1/test/support/conformance/conf_template.ex",
     "js": "conf_template.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.Template",

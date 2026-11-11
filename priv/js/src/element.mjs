@@ -18,8 +18,13 @@
  *   - calls `requestUpdate()` when the base provides it, after property
  *     assignment,
  *   - on `connectedCallback` registers the contract's events with the
- *     bridge and runs the tag's behaviors, collecting their cleanups,
+ *     bridge and runs the tag's behaviors, collecting their cleanups; a
+ *     behavior's §8.4 `api:` pin is checked here — major mismatch skips the
+ *     behavior (warn-once), minor mismatch warns only (U3/Q1),
  *   - on `disconnectedCallback` runs those cleanups,
+ *   - §6.7 (brief 2f): when the class declares `static formAssociated = true`
+ *     the constructor attaches ElementInternals (exposed as `el.internals`);
+ *     undeclared elements never attach and read null,
  *   - when an `extension` descriptor is given (`{state, actions,
  *     internalActions, extensionApi}` — emitted by the element codegen from
  *     the spec): the contract §6 state snapshot + action pipeline, and the
@@ -27,7 +32,7 @@
  */
 
 import { registerEvents } from "./bridge.mjs";
-import { behaviorsFor } from "./behaviors.mjs";
+import { behaviorsEntriesFor, checkApiPin } from "./behaviors.mjs";
 import { emit, camelCaseKey } from "./events.mjs";
 import { makeSnapshot, normalizeActionName, runPipeline } from "./pipeline.mjs";
 
@@ -45,6 +50,13 @@ const warnedSkippedProps = (globalThis[WARNED_SKIPPED_PROPS_KEY] ??= new Set());
 // singleton design as above; keyed by `<tag>:<snake-action>`.
 const WARNED_INTERNAL_KEY = Symbol.for("tessera.warned-internal");
 const warnedInternalActions = (globalThis[WARNED_INTERNAL_KEY] ??= new Set());
+
+// Warn-once map for §8.4 behavior `api:` pin mismatches (brief 2f/U3/Q1) —
+// same cross-copy singleton design. Keyed by EXTENDER FUNCTION → Set of
+// `<tag>|<range>|<runtime>|<verdict>` strings: warn-once per tag+extender
+// (§8.4), so a behavior re-connecting every mount never spams the console.
+const WARNED_PIN_KEY = Symbol.for("tessera.warned-behavior-pins");
+const warnedBehaviorPins = (globalThis[WARNED_PIN_KEY] ??= new Map());
 
 /**
  * Coerce an attribute value to the contract type. `value` is the attribute
@@ -368,6 +380,25 @@ export function TesseraElement(Base, contract, extension = null) {
       this.__tesseraCleanups = null;
       // Connection tracking for the pipeline's stale-drop (§6.4/U6).
       this.__tesseraConnected = false;
+      // §6.7 form participation (brief 2f): attach ElementInternals ONLY when
+      // the class declared `static formAssociated = true` (Tier-1 emission
+      // rides the spec's `form_associated: true`). Undeclared elements NEVER
+      // attach — `internals` reads null, never throws (§6.7 negative).
+      if (new.target.formAssociated === true) {
+        if (typeof this.attachInternals === "function") {
+          try {
+            this.__tesseraInternals = this.attachInternals();
+          } catch (err) {
+            console.warn(`[tessera] <${tag}> attachInternals failed: ${err?.message ?? err}`);
+            this.__tesseraInternals = null;
+          }
+        } else {
+          console.warn(
+            `[tessera] <${tag}> declared formAssociated but attachInternals is unavailable in this engine`,
+          );
+          this.__tesseraInternals = null;
+        }
+      }
       // Boolean attrs ride by presence/absence — an absent boolean is false,
       // not undefined (CONTRACT.md §3).
       for (const def of attrDefs) {
@@ -377,6 +408,22 @@ export function TesseraElement(Base, contract, extension = null) {
         }
       }
     }
+
+    /**
+     * The ElementInternals handle when (and only when) the class declared
+     * form participation (§6.7); null otherwise — authors drive
+     * setFormValue/setValidity through it (the documented push-per-render
+     * pattern: state → internals.setFormValue on every render).
+     */
+    get internals() {
+      return this.__tesseraInternals ?? null;
+    }
+
+    /** §6.7 seam — no-op; a form-associated subclass overrides (FM-03). */
+    formResetCallback() {}
+
+    /** §6.7 seam — no-op; `disabled` attr flips reach form-associated subclasses here. */
+    formDisabledCallback(_disabled) {}
 
     static get observedAttributes() {
       // `super.observedAttributes` binds `this` to THIS class (the mixin
@@ -409,11 +456,41 @@ export function TesseraElement(Base, contract, extension = null) {
       registerEvents(eventNames, contract?.tag);
       // Behaviors run on EVERY connect (CONTRACT.md §4); each may return a
       // cleanup, which runs on the matching disconnect. A behavior throwing
-      // must not break the element's connection.
+      // must not break the element's connection. §8.4 (brief 2f): a behavior
+      // carrying an `api:` pin is checked HERE (the tag may have had no
+      // runtime at registration) — major mismatch ⇒ warn + SKIP the behavior
+      // (U3/Q1 skip-on-major: never break the element), minor mismatch ⇒ warn
+      // only, no/unparsable range ⇒ no gate. Warn-once per tag+extender.
+      const runtimeApi = this.constructor.tesseraExtensionApi;
       const cleanups = [];
-      for (const fn of behaviorsFor(contract?.tag)) {
+      for (const entry of behaviorsEntriesFor(contract?.tag)) {
+        if (entry.api != null) {
+          const verdict = checkApiPin(entry.api, runtimeApi);
+          if (verdict !== "ok") {
+            let tags = warnedBehaviorPins.get(entry.fn);
+            if (!tags) {
+              tags = new Set();
+              warnedBehaviorPins.set(entry.fn, tags);
+            }
+            const dedupe = `${contract?.tag}|${entry.api}|${runtimeApi}|${verdict}`;
+            if (!tags.has(dedupe)) {
+              tags.add(dedupe);
+              warnTagged(
+                verdict === "major"
+                  ? `behavior SKIPPED: its api pin "${entry.api}" does not cover this runtime's ` +
+                      `extension_api ${runtimeApi} — major mismatch is never bridged (§8.4/U3)`
+                  : verdict === "minor"
+                    ? `behavior api pin "${entry.api}" declares a higher minor than this runtime's ` +
+                        `extension_api ${runtimeApi} — running anyway (minor mismatch is advisory, §8.4)`
+                    : `behavior api pin "${entry.api}" does not parse against extension_api ` +
+                        `${runtimeApi} — running ungated (fix the pin; §8.4)`,
+              );
+            }
+            if (verdict === "major") continue;
+          }
+        }
         try {
-          const cleanup = fn(this);
+          const cleanup = entry.fn(this);
           if (typeof cleanup === "function") cleanups.push(cleanup);
         } catch (err) {
           console.warn(`[tessera] behavior for <${tag}> threw: ${err?.message ?? err}`);

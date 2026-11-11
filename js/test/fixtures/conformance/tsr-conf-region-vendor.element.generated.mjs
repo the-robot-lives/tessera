@@ -47,4 +47,4 @@ export function register() {
 
 // Auto-register on direct ESM import (non-Hologram hosts). defineOnce makes
 // both this and the wrapper's top-level register() safe.
-register();
+if (!(globalThis.__tesseraNoAutoRegister ?? []).includes("tsr-conf-region-vendor")) register();

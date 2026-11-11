@@ -728,9 +728,13 @@ interface Behaviors {
   breaking the element (all three implemented).
 - Registry on the bridge singleton — cross-bundle visibility holds.
 - `add` returns an unsubscribe function (additive to today's `void`).
-- `opts.api` pins the extender's supported range (§8.4): major mismatch ⇒
-  warn + SKIP registration (never break the element); minor mismatch ⇒ warn
-  only.
+- `opts.api` pins the extender's supported range (§8.4, Q1 resolved to the
+  plan default 2026-11-12): the pin is checked at CONNECT, never at
+  registration (a tag may have no runtime yet when `add` runs); a MAJOR
+  mismatch ⇒ warn-once + skip the behavior's run — the registry entry stays
+  (unsubscribe still required, and a runtime later upgraded into range starts
+  running it); a minor mismatch ⇒ warn-once, the behavior runs; an unparsable
+  range ⇒ warn-once, run ungated.
 
 ### 6.6 Subclass hooks
 
@@ -774,8 +778,24 @@ it with spec-driven `form_associated`), the base constructor attaches
 `formResetCallback`/`formDisabledCallback` are no-op subclass-overridable seams
 on the element, and `setFormValue`/`setValidity` are driven through the
 internals from the mount subclass (the documented push-per-render pattern).
-Pinned by FM-01…FM-03 on the Tier-2 Cypress harness. `[PENDING TIER-1]` for
-the Tier-1 implementation.
+
+**Tier 1 is wired (brief 2f), same shape:** the spec DSL takes
+`form_associated: true` (a plain boolean `use` option; anything else is a
+`CompileError`) carried on `%Spec{}` with additive-derived inheritance (a
+derived component inherits its base's participation — explicit `false` is
+treated as unset, never as an override that silently drops it). The field
+flows to the manifest/CEM as a put-if-declared key (absent keeps pre-2f
+manifest bytes stable), and the element emission adds
+`static formAssociated = true` in all three templates (fresh, derived,
+tag-takeover mixin) ONLY when declared. The TesseraElement constructor gates
+`attachInternals` on `new.target.formAssociated === true` and exposes the
+handle as `el.internals` (undeclared reads `null` — never attached; a runtime
+without `attachInternals` degrades to a warn + `null`), with
+`formResetCallback`/`formDisabledCallback` as overridable no-op seams.
+Pinned by FM-01…FM-03 as SHARED case bodies: the WTR harness mounts the
+compiled `<tsr-conf-form>` fixture through a recording subclass implementing
+the same push-per-render pattern, so the identical bodies run unmodified on
+both engines.
 
 ### 6.8 Explicitly NOT part of the contract
 
@@ -875,8 +895,11 @@ mixin static `tesseraExtensionApi`; X-15 pins the agreement.]
   minor range ⇒ compile warning listing what the base does not declare.
 - **JS extenders** pin at the extension point: `behaviors.add(tag, fn, {
   api: "^1.0.0" })` (`onAction` gains the same option in a minor; the
-  `extendElement` registry takes it too, §5.9). Major mismatch ⇒ warn + skip
-  registration; minor ⇒ warn only; no range ⇒ no check.
+  `extendElement` registry takes it too, §5.9). The pin is evaluated at
+  CONNECT (Q1, resolved to the plan default 2026-11-12): major mismatch ⇒
+  warn-once + skip the run, the registry entry persists; minor mismatch ⇒
+  warn-once only, the behavior runs; an unparsable range warns and gates
+  nothing; no range ⇒ no check.
 - **Runtime mismatch warnings** are dev-mode, warn-once per tag+extender
   (warn-once set on the bridge singleton), stating both versions.
 - `mix tessera.manifest` reports unsatisfied pins as warnings; hard failure is
@@ -1103,9 +1126,14 @@ stock Hologram components; no wrapper runtime or notes yet):
 
 **Unresolved design questions for review:**
 
-- Q1 — `behaviors.add`'s `api:` pin: skip-on-major-mismatch (current §8.4
-  stance) or register-and-warn? Skipping protects the element; warning favors
-  extender continuity.
+- ~~Q1 — `behaviors.add`'s `api:` pin~~ **RESOLVED (2026-11-12, brief 2f,
+  plan default): register-and-gate.** The pin is checked at CONNECT — never at
+  registration (the tag may have no runtime yet when `add` runs). A MAJOR
+  mismatch warns once and skips the behavior's run; the registry entry
+  persists (unsubscribe still applies, and a runtime later upgraded into
+  range runs it). Minor mismatch warns once and runs; an unparsable range
+  warns once and runs ungated (never silently disable an extender). The
+  element is never broken either way (§6.5, §8.4).
 - Q2 — ~~interceptor attachment to private actions~~ **RESOLVED by D2
   (2026-11-11): all actions are open; interception is contract on every
   action**, and the `internal:` annotation warns advisory-only (§6.4, §10).

@@ -81,6 +81,8 @@ defmodule Noizu.Tessera.Component do
     js = Keyword.get(opts, :js)
     extension_api = Keyword.get(opts, :extension_api)
     validate_extension_api_option!(extension_api, caller.file, caller.line)
+    form_associated = Keyword.get(opts, :form_associated)
+    validate_form_associated_option!(form_associated, caller.file, caller.line)
 
     # Set at EXPANSION time (not in the quoted output) so a later `use Base`
     # expansion can see it for the reverse double-use guard — quoted
@@ -93,6 +95,13 @@ defmodule Noizu.Tessera.Component do
     # defaults to the first stable 1.0.0.
     if extension_api do
       Module.put_attribute(caller.module, :tessera_extension_api, extension_api)
+    end
+
+    # §6.7 declaration lane (brief 2f) — only `true` sets the attribute; the
+    # struct defaults to false and a deriving module inherits the base's value
+    # in __before_compile__ (participation is additive, never silently dropped).
+    if form_associated == true do
+      Module.put_attribute(caller.module, :tessera_form_associated, true)
     end
 
     # §5.1: a deriving module (`use Base, tag: …`) must not repeat the
@@ -944,7 +953,13 @@ defmodule Noizu.Tessera.Component do
       # `regions` = what the template declares, `region_overrides` = what this
       # module replaces via slot_template.
       regions: (lit.template && lit.template[:regions]) || [],
-      region_overrides: (lit.template && lit.template[:region_overrides]) || []
+      region_overrides: (lit.template && lit.template[:region_overrides]) || [],
+      # §6.7 (brief 2f): declared via `use …, form_associated: true`; a derived
+      # spec inherits the base's participation unless it declares its own
+      # (additive — see validate_form_associated_option!/4).
+      form_associated:
+        Module.get_attribute(env.module, :tessera_form_associated) == true or
+          (not is_nil(derived_from) and derived_from.__tessera_spec__().form_associated == true)
     }
 
     # Chain-conflict warning (§5.7, brief 2e): record this `tag: :inherit`
@@ -1734,6 +1749,25 @@ defmodule Noizu.Tessera.Component do
             "(e.g. \"1.0.0\") — requirement ranges like \"~> 1.0\" are pins and belong " <>
             "on `use Base, extension_api:` (EXTENSION-CONTRACT.md §8.3/§8.4), got: " <>
             "#{inspect(value)}"
+    end
+  end
+
+  # §6.7 declaration lane (brief 2f): `use Noizu.Tessera.Component,
+  # form_associated: true` opts the element into form participation. Only
+  # `true` is meaningful (the default is false and participation is additive —
+  # a deriving module cannot silently UN-declare its base's participation), so
+  # `false` is accepted and treated as unset; anything else fails compilation.
+  defp validate_form_associated_option!(nil, _file, _line), do: :ok
+  defp validate_form_associated_option!(false, _file, _line), do: :ok
+
+  defp validate_form_associated_option!(value, file, line) do
+    unless value == true do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera :form_associated option must be a boolean (true to declare form " <>
+            "participation per EXTENSION-CONTRACT.md §6.7), got: #{inspect(value)}"
     end
   end
 
