@@ -399,7 +399,11 @@ defmodule Noizu.Tessera.Spec do
       "parts" => Enum.map(spec.parts, & &1.name),
       "state" =>
         Enum.map(spec.state, fn s ->
-          %{"name" => Atom.to_string(s.name), "type" => Atom.to_string(s.type), "default" => s[:default]}
+          %{
+            "name" => Atom.to_string(s.name),
+            "type" => Atom.to_string(s.type),
+            "default" => s[:default]
+          }
         end),
       "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name)),
       "template" =>

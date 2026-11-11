@@ -5,7 +5,8 @@
 import { tesseraSteps as steps } from "../support/tessera/steps";
 import { tesseraAsserts as asserts } from "../support/tessera/asserts";
 
-describe("tessera plain-HTML demo", () => {
+// @fast: core-claim smoke (vanilla host) — runs in the fast per-change lane.
+describe("tessera plain-HTML demo", { tags: "@fast" }, () => {
   beforeEach(() => {
     // Given the static page serves the bundled components
     steps.visitPlain();

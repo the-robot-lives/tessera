@@ -21,7 +21,7 @@ defmodule Tessera.TestFixtures.PersonaCard do
 
   slot("header")
   slot("footer")
-  css("--persona-card-accent", default: "#6366f1")
-  part("select-button")
+  css "--persona-card-accent", default: "#6366f1"
+  part "select-button"
   cy("persona-card-root")
 end

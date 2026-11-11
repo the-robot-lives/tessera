@@ -13,7 +13,9 @@ const PICKER = '[data-cy="gallery-component"][data-tag="persona-picker"]';
 const cardDemo = `${CARD} [data-cy="gallery-demo"] persona-card`;
 const pickerDemo = `${PICKER} [data-cy="gallery-demo"] persona-picker`;
 
-describe("tessera component gallery (persona_kit)", () => {
+// @fast: gallery acceptance (CEM-driven live demos + editors + event log) —
+// quick (3s) and core to the gallery claim, so it gates the fast lane.
+describe("tessera component gallery (persona_kit)", { tags: "@fast" }, () => {
   beforeEach(() => {
     // Given the generated gallery serves the package's CEM + bundles
     steps.visitGallery();

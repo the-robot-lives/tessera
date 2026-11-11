@@ -114,18 +114,27 @@ defmodule Noizu.Tessera.Component.Expr do
 
   def translate_action({:fn, meta, [{:->, _, [args, _body]}]}, %__MODULE__{} = ctx)
       when length(args) != 2 do
-    error!(ctx, meta,
-      "tessera action fn must take exactly 2 arguments (state, params) — got #{length(args)}")
+    error!(
+      ctx,
+      meta,
+      "tessera action fn must take exactly 2 arguments (state, params) — got #{length(args)}"
+    )
   end
 
   def translate_action({:fn, meta, clauses}, %__MODULE__{} = ctx) when length(clauses) > 1 do
-    error!(ctx, meta,
-      "multi-clause fn is outside the tessera element subset — an action is one `fn state, params -> ... end`")
+    error!(
+      ctx,
+      meta,
+      "multi-clause fn is outside the tessera element subset — an action is one `fn state, params -> ... end`"
+    )
   end
 
   def translate_action(other, %__MODULE__{} = ctx) do
-    error!(ctx, elem(other, 1),
-      "tessera action must be `fn state, params -> ... end`, got: #{snippet(other)}")
+    error!(
+      ctx,
+      elem(other, 1),
+      "tessera action must be `fn state, params -> ... end`, got: #{snippet(other)}"
+    )
   end
 
   # A multi-expression action body becomes a JS IIFE: every statement except
@@ -139,7 +148,8 @@ defmodule Noizu.Tessera.Component.Expr do
 
     "(() => { " <>
       Enum.map_join(stmts, "; ", & &1) <>
-      "; return " <> last <>
+      "; return " <>
+      last <>
       "; })()"
   end
 
@@ -151,7 +161,11 @@ defmodule Noizu.Tessera.Component.Expr do
   defp translate_expr({:__block__, _, [expr]}, ctx), do: translate_expr(expr, ctx)
 
   defp translate_expr({:__block__, meta, _many}, ctx) do
-    error!(ctx, meta, "block expressions (multiple statements) are outside the tessera element subset")
+    error!(
+      ctx,
+      meta,
+      "block expressions (multiple statements) are outside the tessera element subset"
+    )
   end
 
   # literals
@@ -179,18 +193,27 @@ defmodule Noizu.Tessera.Component.Expr do
 
   # tuples are not in the subset (JS has no tuple literal)
   defp translate_expr({a, b}, ctx) when not is_atom(a),
-    do: error!(ctx, nil, "tuple {#{snippet(a)}, #{snippet(b)}} is outside the tessera element subset")
+    do:
+      error!(
+        ctx,
+        nil,
+        "tuple {#{snippet(a)}, #{snippet(b)}} is outside the tessera element subset"
+      )
 
   # variables
-  defp translate_expr({name, _meta, var_ctx}, _ctx) when name in [:state, :params] and is_atom(var_ctx), do: Atom.to_string(name)
+  defp translate_expr({name, _meta, var_ctx}, _ctx)
+       when name in [:state, :params] and is_atom(var_ctx), do: Atom.to_string(name)
 
   defp translate_expr({name, _meta, var_ctx}, %__MODULE__{} = ctx) when is_atom(var_ctx) do
     if MapSet.member?(ctx.vars, name) do
       Atom.to_string(name)
     else
-      error!(ctx, nil,
+      error!(
+        ctx,
+        nil,
         "variable #{inspect(name)} is outside the tessera element subset — only `state`, " <>
-          "`params` and pattern-bound names (#{inspect(Enum.sort(MapSet.to_list(ctx.vars)))}) may be referenced")
+          "`params` and pattern-bound names (#{inspect(Enum.sort(MapSet.to_list(ctx.vars)))}) may be referenced"
+      )
     end
   end
 
@@ -234,9 +257,12 @@ defmodule Noizu.Tessera.Component.Expr do
         translate_enum(fun, args, meta, ctx)
 
       _ ->
-        error!(ctx, meta,
+        error!(
+          ctx,
+          meta,
           "#{Macro.to_string(module)}.#{fun} is not in the tessera element subset — only Kernel, " <>
-            "String and Enum allowlisted functions")
+            "String and Enum allowlisted functions"
+        )
     end
   end
 
@@ -258,9 +284,12 @@ defmodule Noizu.Tessera.Component.Expr do
 
   # struct literal — explicitly rejected by name
   defp translate_expr({:%, meta, [module, _]}, ctx) do
-    error!(ctx, meta,
+    error!(
+      ctx,
+      meta,
       "struct %#{inspect(module)}{} is outside the tessera element subset " <>
-        "(state is a plain map of declared keys)")
+        "(state is a plain map of declared keys)"
+    )
   end
 
   # list literal
@@ -282,15 +311,21 @@ defmodule Noizu.Tessera.Component.Expr do
       inner = translate_expr(body, %{ctx | callback?: false, vars: MapSet.put(ctx.vars, arg)})
       "(#{arg}) => #{inner}"
     else
-      error!(ctx, meta,
+      error!(
+        ctx,
+        meta,
         "anonymous fn is only allowed as the callback of #{inspect(@callback_funs)} — " <>
-          "outside that it is not in the tessera element subset")
+          "outside that it is not in the tessera element subset"
+      )
     end
   end
 
   defp translate_expr({:fn, meta, _}, ctx) do
-    error!(ctx, meta,
-      "fn with multiple clauses or a multi-argument body is outside the tessera element subset")
+    error!(
+      ctx,
+      meta,
+      "fn with multiple clauses or a multi-argument body is outside the tessera element subset"
+    )
   end
 
   # capture — rejected by name
@@ -342,16 +377,23 @@ defmodule Noizu.Tessera.Component.Expr do
   # emit/2 — routed through @noizu/tessera-core emit (CONTRACT.md §4)
   defp translate_expr({:emit, meta, [event, detail]}, ctx) when is_binary(event) do
     unless MapSet.member?(ctx.events, event) do
-      error!(ctx, meta,
+      error!(
+        ctx,
+        meta,
         "emit(#{inspect(event)}, ...) — event is not declared; declare it with " <>
-          "`event #{inspect(event)}` in the component")
+          "`event #{inspect(event)}` in the component"
+      )
     end
 
     "emit(this, #{js_string(event)}, #{translate_expr(detail, %{ctx | camel_map_keys?: true})})"
   end
 
   defp translate_expr({:emit, meta, _}, ctx) do
-    error!(ctx, meta, "emit/2 with a non-literal event name is outside the tessera element subset")
+    error!(
+      ctx,
+      meta,
+      "emit/2 with a non-literal event name is outside the tessera element subset"
+    )
   end
 
   # local (bare) calls — only the Kernel allowlist
@@ -361,18 +403,27 @@ defmodule Noizu.Tessera.Component.Expr do
         translate_kernel(fun, args, meta, ctx)
 
       %{^fun => _} ->
-        error!(ctx, meta,
-          "Kernel.#{fun}/#{length(args)} is not in the tessera element subset (wrong arity)")
+        error!(
+          ctx,
+          meta,
+          "Kernel.#{fun}/#{length(args)} is not in the tessera element subset (wrong arity)"
+        )
 
       _ ->
-        error!(ctx, meta,
+        error!(
+          ctx,
+          meta,
           "local call #{fun}/#{length(args)} is outside the tessera element subset — only " <>
-            "allowlisted Kernel/String/Enum functions and emit/2 are in the subset")
+            "allowlisted Kernel/String/Enum functions and emit/2 are in the subset"
+        )
     end
   end
 
   defp translate_expr(other, ctx) do
-    meta = if is_tuple(other) and tuple_size(other) == 3 and is_list(elem(other, 1)), do: elem(other, 1), else: nil
+    meta =
+      if is_tuple(other) and tuple_size(other) == 3 and is_list(elem(other, 1)),
+        do: elem(other, 1),
+        else: nil
 
     error!(ctx, meta, "#{describe_construct(other)} is outside the tessera element subset")
   end
@@ -381,9 +432,12 @@ defmodule Noizu.Tessera.Component.Expr do
   # must fail at compile time, not render `undefined` at runtime).
   defp field_access({:state, _, var_ctx}, right, ctx) when is_atom(var_ctx) do
     unless MapSet.member?(ctx.state_keys, right) do
-      error!(ctx, nil,
+      error!(
+        ctx,
+        nil,
         "state.#{right} — `#{inspect(right)}` is not a declared state key " <>
-          "(declare it with `state #{inspect(right)}, <type>, ...`)")
+          "(declare it with `state #{inspect(right)}, <type>, ...`)"
+      )
     end
 
     "state." <> js_identifier(right)
@@ -418,18 +472,24 @@ defmodule Noizu.Tessera.Component.Expr do
         end
 
       _ ->
-        error!(ctx, meta,
+        error!(
+          ctx,
+          meta,
           "Kernel.#{fun}/#{length(args)} is not in the tessera element subset — allowlist: " <>
-            inspect(Enum.sort(Map.keys(@kernel_allowlist))))
+            inspect(Enum.sort(Map.keys(@kernel_allowlist)))
+        )
     end
   end
 
   defp translate_string(fun, args, meta, ctx) do
     case @string_allowlist[fun] do
       nil ->
-        error!(ctx, meta,
+        error!(
+          ctx,
+          meta,
           "String.#{fun} is not in the tessera element subset — allowlist: " <>
-            inspect(Enum.sort(Map.keys(@string_allowlist))))
+            inspect(Enum.sort(Map.keys(@string_allowlist)))
+        )
 
       {:method1, method} ->
         "#{translate_expr(hd(args), ctx)}#{method}()"
@@ -446,9 +506,14 @@ defmodule Noizu.Tessera.Component.Expr do
 
       {:split, :variadic} ->
         case args do
-          [s] -> "#{translate_expr(s, ctx)}.trim().split(/\\s+/)"
-          [s, sep] -> "#{translate_expr(s, ctx)}.split(#{translate_expr(sep, ctx)})"
-          _ -> error!(ctx, meta, "String.split/#{length(args)} is not in the tessera element subset")
+          [s] ->
+            "#{translate_expr(s, ctx)}.trim().split(/\\s+/)"
+
+          [s, sep] ->
+            "#{translate_expr(s, ctx)}.split(#{translate_expr(sep, ctx)})"
+
+          _ ->
+            error!(ctx, meta, "String.split/#{length(args)} is not in the tessera element subset")
         end
 
       {:replace, 3} ->
@@ -463,9 +528,12 @@ defmodule Noizu.Tessera.Component.Expr do
   defp translate_enum(fun, args, meta, ctx) do
     case @enum_allowlist[fun] do
       nil ->
-        error!(ctx, meta,
+        error!(
+          ctx,
+          meta,
           "Enum.#{fun} is not in the tessera element subset — allowlist: " <>
-            inspect(Enum.sort(Map.keys(@enum_allowlist))))
+            inspect(Enum.sort(Map.keys(@enum_allowlist)))
+        )
 
       {:callback, 2} ->
         [coll, cb] = args
@@ -518,13 +586,22 @@ defmodule Noizu.Tessera.Component.Expr do
 
   defp component_read(name, %__MODULE__{} = ctx) do
     cond do
-      MapSet.member?(ctx.state_keys, name) -> "this." <> Atom.to_string(name)
-      Map.has_key?(ctx.attrs, name) -> "this." <> Naming.snake_to_camel(name)
-      Map.has_key?(ctx.props, name) -> "this." <> Naming.snake_to_camel(name)
+      MapSet.member?(ctx.state_keys, name) ->
+        "this." <> Atom.to_string(name)
+
+      Map.has_key?(ctx.attrs, name) ->
+        "this." <> Naming.snake_to_camel(name)
+
+      Map.has_key?(ctx.props, name) ->
+        "this." <> Naming.snake_to_camel(name)
+
       true ->
-        error!(ctx, nil,
+        error!(
+          ctx,
+          nil,
           "template expression @#{name} does not resolve — declare `state #{inspect(name)}, ...`, " <>
-            "`attr #{inspect(name)}, ...` or `prop #{inspect(name)}, ...` first")
+            "`attr #{inspect(name)}, ...` or `prop #{inspect(name)}, ...` first"
+        )
     end
   end
 
@@ -595,8 +672,9 @@ defmodule Noizu.Tessera.Component.Expr do
     |> String.replace("${", "\\${")
   end
 
-  defp describe_construct({form, _, _}) when form in [:case, :cond, :with, :for, :try, :receive, :fn],
-    do: "`#{form}`"
+  defp describe_construct({form, _, _})
+       when form in [:case, :cond, :with, :for, :try, :receive, :fn],
+       do: "`#{form}`"
 
   defp describe_construct(other), do: "`#{snippet(other)}`"
 

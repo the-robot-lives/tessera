@@ -64,9 +64,7 @@ defmodule Noizu.Tessera.Component.TemplateTest do
 
     test "$event bindings route at translated actions with a params map" do
       js =
-        render!(
-          ~S|<button type="button" data-cy="inc" $click={:increment}>+</button>|
-        )
+        render!(~S|<button type="button" data-cy="inc" $click={:increment}>+</button>|)
 
       assert js =~ ~S|@click=${(ev) => this.__tesseraRunAction("increment", {}, ev)}|
     end
@@ -90,7 +88,8 @@ defmodule Noizu.Tessera.Component.TemplateTest do
           ~S|<ul>{%for item <- @items}<li class="item" data-cy={item.id}>{item.name}</li>{/for}</ul>|
         )
 
-      assert js =~ ~S|${(this.items ?? []).map((item) => html`<li class="item" data-cy="${__t(item.id)}">${__t(item.name)}</li>`)}|
+      assert js =~
+               ~S|${(this.items ?? []).map((item) => html`<li class="item" data-cy="${__t(item.id)}">${__t(item.name)}</li>`)}|
     end
   end
 

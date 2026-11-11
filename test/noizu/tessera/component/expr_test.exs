@@ -75,6 +75,7 @@ defmodule Noizu.Tessera.Component.ExprTest do
     test "allowlisted Kernel/String/Enum + pipe" do
       assert translate!(quote do: Kernel.abs(0 - 1)) == "Math.abs((0 - 1))"
       assert translate!(quote do: String.upcase(@label)) == "this.label.toUpperCase()"
+
       assert translate!(quote do: @label |> String.trim() |> String.downcase()) ==
                "this.label.trim().toLowerCase()"
 
@@ -107,26 +108,26 @@ defmodule Noizu.Tessera.Component.ExprTest do
   describe "rejects (outside the subset — each named in the error)" do
     test "case" do
       reject!("case", """
-case state.count do
-  1 -> :a
-end
-""")
+      case state.count do
+        1 -> :a
+      end
+      """)
     end
 
     test "cond" do
       reject!("cond", """
-cond do
-  true -> 1
-end
-""")
+      cond do
+        true -> 1
+      end
+      """)
     end
 
     test "with" do
       reject!("with", """
-with x <- 1 do
-  x
-end
-""")
+      with x <- 1 do
+        x
+      end
+      """)
     end
 
     test "multi-clause fn" do
@@ -148,68 +149,68 @@ end
 
     test "capture syntax" do
       reject!("capture", """
-Enum.map(@items, &String.upcase/1)
-""")
+      Enum.map(@items, &String.upcase/1)
+      """)
     end
 
     test "module outside the allowlist" do
       reject!("Map", """
-Map.get(state, :count, 0)
-""")
+      Map.get(state, :count, 0)
+      """)
     end
 
     test "allowlisted module, non-allowlisted function" do
       reject!("pad_leading", """
-String.pad_leading(@label, 2)
-""")
+      String.pad_leading(@label, 2)
+      """)
     end
 
     test "structs" do
       reject!("struct", """
-%Counter{}
-""")
+      %Counter{}
+      """)
     end
 
     test "tuples" do
       reject!("tuple", """
-{1, 2}
-""")
+      {1, 2}
+      """)
     end
 
     test "list concatenation" do
       reject!("++", """
-[1] ++ [2]
-""")
+      [1] ++ [2]
+      """)
     end
 
     test "undeclared state key" do
       reject!("nope", """
-state.nope
-""")
+      state.nope
+      """)
     end
 
     test "undeclared attr in template expression" do
       reject!("does not resolve", """
-@undeclared
-""")
+      @undeclared
+      """)
     end
 
     test "undeclared event in emit" do
       reject!("not declared", """
-emit("nope-event", %{})
-""")
+      emit("nope-event", %{})
+      """)
     end
 
     test "assignment (bindings are outside the expression subset)" do
       reject!("=", """
-x = state.count
-""")
+      x = state.count
+      """)
     end
 
     test "enum callback with wrong shape (two args)" do
       reject!("fn", """
-Enum.map(@items, fn a, b -> a end)
-""")
+      Enum.map(@items, fn a, b -> a end)
+      """)
     end
   end
 

@@ -257,7 +257,12 @@ defmodule Noizu.Tessera.Component do
   end
 
   defp template_record_ast(%Macro.Env{} = caller, markup) when is_binary(markup) do
-    quote bind_quoted: [consumer: caller.module, markup: markup, line: caller.line, file: caller.file] do
+    quote bind_quoted: [
+            consumer: caller.module,
+            markup: markup,
+            line: caller.line,
+            file: caller.file
+          ] do
       Noizu.Tessera.Component.record(consumer, :template, markup, nil, [], line, file, false)
     end
   end
@@ -447,7 +452,8 @@ defmodule Noizu.Tessera.Component do
       raise CompileError,
         file: file,
         line: line,
-        description: "tessera action name #{inspect(name)} must be a snake_case atom (e.g. :increment)"
+        description:
+          "tessera action name #{inspect(name)} must be a snake_case atom (e.g. :increment)"
     end
 
     unless match?({:fn, _, [{:->, _, [args, _body]}]} when length(args) == 2, fn_ast) do
@@ -460,7 +466,12 @@ defmodule Noizu.Tessera.Component do
             "docs/notes/spike-elixir-to-lit.md)"
     end
 
-    Module.put_attribute(consumer, :tessera_actions, {line, %{name: name, fn_ast: fn_ast, line: line}})
+    Module.put_attribute(
+      consumer,
+      :tessera_actions,
+      {line, %{name: name, fn_ast: fn_ast, line: line}}
+    )
+
     :ok
   end
 
@@ -620,20 +631,20 @@ defmodule Noizu.Tessera.Component do
 
     template_entry =
       template &&
-        (with {:ok, tree} <- Template.parse(template.markup) do
-           %{
-             raw: template.markup,
-             lexer: Template.lexer(),
-             render_js: Template.to_lit_render(tree, %{ctx | line: template.line}),
-             line: template.line
-           }
-         else
-           {:error, msg} ->
-             raise CompileError,
-               file: env.file,
-               line: template.line,
-               description: "tessera template: " <> msg
-         end)
+        with {:ok, tree} <- Template.parse(template.markup) do
+          %{
+            raw: template.markup,
+            lexer: Template.lexer(),
+            render_js: Template.to_lit_render(tree, %{ctx | line: template.line}),
+            line: template.line
+          }
+        else
+          {:error, msg} ->
+            raise CompileError,
+              file: env.file,
+              line: template.line,
+              description: "tessera template: " <> msg
+        end
 
     %{state: state, actions: actions, template: template_entry}
   end
@@ -699,7 +710,10 @@ defmodule Noizu.Tessera.Component do
   defp write_lit_modules!(%Spec{} = spec, dir) do
     case LitCodegen.write_element_module(spec, dir) do
       {:error, reason} ->
-        IO.warn("[tessera] could not write #{spec.tag}.element.generated.mjs: #{inspect(reason)}", [])
+        IO.warn(
+          "[tessera] could not write #{spec.tag}.element.generated.mjs: #{inspect(reason)}",
+          []
+        )
 
       _ ->
         :ok
