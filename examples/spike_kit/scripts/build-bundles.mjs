@@ -34,6 +34,10 @@ const plainDist = join(root, "../../demo/plain_html/dist");
 const components = [
   { tag: "spike-counter", exportName: "Counter", moduleExport: "SpikeCounter" },
   { tag: "spike-toggle-chip", exportName: "ToggleChip", moduleExport: "SpikeToggleChip" },
+  // directive-using surface (brief 1d step 4): its runtime bundle must
+  // externalize `lit/directives/*.js` to the shared runtime instead of
+  // inlining a second copy — proven by test/components/runtime_variant_test.mjs
+  { tag: "spike-directive-demo", exportName: "DirectiveDemo", moduleExport: "SpikeDirectiveDemo" },
 ];
 
 const common = { bundle: true, minify: true, target: ["es2020"], legalComments: "none" };
@@ -94,13 +98,17 @@ for (const { tag, exportName, moduleExport } of components) {
   await writeFile(umd, umdText);
   await rm(tmpIife);
 
-  // (3) runtime variant — lit + core external (import map supplies them)
+  // (3) runtime variant — lit + core external (import map supplies them).
+  // `lit/*` is load-bearing (brief 1d step 4): a bare `lit` external does NOT
+  // match the `lit/directives/*.js` subpaths generated elements import, so
+  // esbuild would silently inline a SECOND copy of the directive code into
+  // every runtime-variant bundle — defeating the shared-runtime amortization.
   const runtimeEsm = join(dist, `${tag}.runtime.esm.js`);
   await build({
     ...common,
     entryPoints: [element],
     format: "esm",
-    external: ["lit", "@noizu/tessera-core"],
+    external: ["lit", "lit/*", "@noizu/tessera-core"],
     outfile: runtimeEsm,
   });
 

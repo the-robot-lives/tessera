@@ -10,6 +10,7 @@ export default {
     "test/components/styles_panel_test.mjs",
     "test/components/props_panel_test.mjs",
     "test/components/vendor_counter_test.mjs",
+    "test/components/directive_demo_test.mjs",
   ],
   concurrentBrowsers: 1,
   concurrency: 1,

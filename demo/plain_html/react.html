@@ -6,7 +6,8 @@
     <title>tessera spike — React host (shared runtime)</title>
     <!-- SPIKE (spike/elixir-to-lit): minimal React host. React 18 UMD from a
          pinned CDN; the tessera elements load as the shared-runtime ESM
-         VARIANT — one import map points `lit` + `@noizu/tessera-core` at the
+         VARIANT — one import map points `lit` (bare + the `lit/directives/*.js`
+         subpaths) + `@noizu/tessera-core` at the
          same dist/tessera-runtime.esm.js module (one instance, one defineOnce
          registry), so both components amortize a single lit copy. -->
     <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
@@ -15,6 +16,9 @@
       {
         "imports": {
           "lit": "./dist/tessera-runtime.esm.js",
+          "lit/directives/class-map.js": "./dist/tessera-runtime.esm.js",
+          "lit/directives/style-map.js": "./dist/tessera-runtime.esm.js",
+          "lit/directives/if-defined.js": "./dist/tessera-runtime.esm.js",
           "@noizu/tessera-core": "./dist/tessera-runtime.esm.js"
         }
       }
