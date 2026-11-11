@@ -30,6 +30,7 @@ import {tag as TEMPLATE_TAG, TsrConfTemplate} from "./fixtures/conformance/tsr-c
 import {tag as STYLES_TAG, TsrConfStyles} from "./fixtures/conformance/tsr-conf-styles.element.generated.mjs";
 import {tag as SLOTS_TAG, TsrConfSlots} from "./fixtures/conformance/tsr-conf-slots.element.generated.mjs";
 import {tag as DIRECTIVES_TAG, TsrConfDirectives} from "./fixtures/conformance/tsr-conf-directives.element.generated.mjs";
+import {tag as PIPELINE_TAG, TsrConfPipeline} from "./fixtures/conformance/tsr-conf-pipeline.element.generated.mjs";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -120,6 +121,7 @@ const FIXTURES = {
   styles: {tag: STYLES_TAG, ctor: TsrConfStyles},
   slots: {tag: SLOTS_TAG, ctor: TsrConfSlots},
   directives: {tag: DIRECTIVES_TAG, ctor: TsrConfDirectives},
+  pipeline: {tag: PIPELINE_TAG, ctor: TsrConfPipeline},
 };
 
 let defined = false;
@@ -206,7 +208,8 @@ const SUPPORTED = new Set([
   "S-01", "S-02", "S-03", "S-04", "S-05", "S-06",
   "SD-01", "SD-02", "SD-03",
   "E-01", "E-02", "E-03",
-  "X-01", "X-03", "X-04", "X-14", "X-18",
+  "X-01", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
+  "X-11", "X-14", "X-15", "X-18", "X-20",
 ]);
 
 /**

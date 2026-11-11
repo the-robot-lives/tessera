@@ -79,11 +79,21 @@ defmodule Noizu.Tessera.Component do
     {derived?, opts} = Keyword.pop(opts, :__derived__, false)
     tag = Keyword.get(opts, :tag)
     js = Keyword.get(opts, :js)
+    extension_api = Keyword.get(opts, :extension_api)
+    validate_extension_api_option!(extension_api, caller.file, caller.line)
 
     # Set at EXPANSION time (not in the quoted output) so a later `use Base`
     # expansion can see it for the reverse double-use guard — quoted
     # Module.put_attribute calls only evaluate after nested macro expansion.
     Module.put_attribute(caller.module, :tessera_tag, tag)
+
+    # §8.3 declaration lane — only set when the author declared one, so a
+    # deriving module's concrete version (placed by Extension.derive!/3 before
+    # this internal `use`) is not clobbered. Absent ⇒ __before_compile__
+    # defaults to the first stable 1.0.0.
+    if extension_api do
+      Module.put_attribute(caller.module, :tessera_extension_api, extension_api)
+    end
 
     # §5.1: a deriving module (`use Base, tag: …`) must not repeat the
     # compiler. The internal use from Extension.derive!/3 carries __derived__
@@ -164,6 +174,7 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      action: 3,
       should_update: 1,
       will_update: 1,
       first_updated: 1,
@@ -189,6 +200,7 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      action: 3,
       should_update: 1,
       will_update: 1,
       first_updated: 1,
@@ -321,18 +333,24 @@ defmodule Noizu.Tessera.Component do
   @doc false
   # The fn AST is escaped as DATA (Macro.escape) — at __before_compile__ it is
   # translated to JS by Noizu.Tessera.Component.Expr, never evaluated.
-  @spec action(Macro.t(), Macro.t()) :: Macro.t()
-  defmacro action(name, fn_ast) do
+  #
+  # `internal: true` is the EXTENSION-CONTRACT.md §5.3 ADVISORY annotation —
+  # it groups the action under internal docs in the CEM and makes the runtime
+  # warn once when an interceptor registers against it. It NEVER restricts
+  # dispatch or interception (open surface, D2/§10).
+  @spec action(Macro.t(), Macro.t(), Macro.t()) :: Macro.t()
+  defmacro action(name, fn_ast, opts \\ []) do
     caller = __CALLER__
 
     quote bind_quoted: [
             consumer: caller.module,
             name: name,
             fn_ast: Macro.escape(fn_ast),
+            opts: opts,
             line: caller.line,
             file: caller.file
           ] do
-      Noizu.Tessera.Component.record(consumer, :action, name, fn_ast, [], line, file, false)
+      Noizu.Tessera.Component.record(consumer, :action, name, fn_ast, opts, line, file, false)
     end
   end
 
@@ -630,7 +648,9 @@ defmodule Noizu.Tessera.Component do
     :ok
   end
 
-  def record(consumer, :action, name, fn_ast, _opts, line, file, _hologram?) do
+  def record(consumer, :action, name, fn_ast, opts, line, file, _hologram?) do
+    opts = eval_opts!(opts, :action, name, file, line)
+
     unless is_atom(name) and Regex.match?(Naming.snake_regex(), Atom.to_string(name)) do
       raise CompileError,
         file: file,
@@ -649,11 +669,12 @@ defmodule Noizu.Tessera.Component do
             "docs/notes/spike-elixir-to-lit.md)"
     end
 
-    Module.put_attribute(
-      consumer,
-      :tessera_actions,
-      {line, %{name: name, fn_ast: fn_ast, line: line}}
-    )
+    entry = %{name: name, fn_ast: fn_ast, line: line}
+    # `internal:` annotation (EXTENSION-CONTRACT.md §5.3) — carried only when
+    # set, so the common entry shape stays byte-identical for goldens.
+    entry = if opts[:internal], do: Map.put(entry, :internal, true), else: entry
+
+    Module.put_attribute(consumer, :tessera_actions, {line, entry})
 
     :ok
   end
@@ -805,7 +826,10 @@ defmodule Noizu.Tessera.Component do
       lifecycle: lit.lifecycle,
       derived_from: derived_from,
       priority: Module.get_attribute(env.module, :tessera_derived_priority) || 0,
-      extension_api: Module.get_attribute(env.module, :tessera_extension_api)
+      # §8.3: element components ship 1.0.0 when neither the author declared
+      # one nor a base supplied it — the first stable extension_api.
+      extension_api: Module.get_attribute(env.module, :tessera_extension_api) ||
+                       Spec.default_extension_api()
     }
 
     body =
@@ -1047,7 +1071,11 @@ defmodule Noizu.Tessera.Component do
             Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
           end
 
+        # `internal:` rides the translated entry (advisory CEM grouping + the
+        # runtime's warn-on-interception); carried from inherited entries so a
+        # redeclaration MAY flip it (§5.3, §8.2).
         %{name: entry.name, js: js, fn_ast: entry[:fn_ast], line: entry.line}
+        |> then(fn e -> if entry[:internal], do: Map.put(e, :internal, true), else: e end)
         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)
       end)
 
@@ -1328,6 +1356,25 @@ defmodule Noizu.Tessera.Component do
         description:
           "tessera :js option must be a plain colocated filename ending in .mjs " <>
             "(e.g. \"persona_card.mjs\"), got: #{inspect(js)}"
+    end
+  end
+
+  # §8.3 declaration lane: `use Noizu.Tessera.Component, extension_api: "1.0.0"`
+  # must be an EXACT literal semver version — the version this element PROVIDES.
+  # Requirement ranges (`~> 1.0`, `^1.0.0`) are PINS and belong on the
+  # derivation `use Base, extension_api:` (Extension.check_pin!/3).
+  defp validate_extension_api_option!(nil, _file, _line), do: :ok
+
+  defp validate_extension_api_option!(value, file, line) do
+    unless is_binary(value) and match?({:ok, _}, Version.parse(value)) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera :extension_api option must be an exact literal semver version " <>
+            "(e.g. \"1.0.0\") — requirement ranges like \"~> 1.0\" are pins and belong " <>
+            "on `use Base, extension_api:` (EXTENSION-CONTRACT.md §8.3/§8.4), got: " <>
+            "#{inspect(value)}"
     end
   end
 

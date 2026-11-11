@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfTemplate extends TesseraElement(LitElement, contract) {
+class TsrConfTemplate extends TesseraElement(LitElement, contract, {state: ["flag","items"], actions: ["toggle_flag"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       flag: { type: Boolean },
       items: { type: Array },
@@ -49,14 +49,14 @@ class TsrConfTemplate extends TesseraElement(LitElement, contract) {
     for (const k of Object.keys(next)) this[k] = next[k];
   }
 
+  // Template-bound invocations (the lowered `$click`/`$event` bindings)
+  // route through the SAME action pipeline as the public dispatchAction
+  // (EXTENSION-CONTRACT.md §6.4): interceptable by onAction interceptors,
+  // vetoable, async-chained, and a committed transition fires
+  // tsr-state-change. Errors are captured into the DispatchResult (the
+  // internal invocation "catches" — the returned Promise never rejects).
   __tesseraRunAction(name, params = {}, ev = null) {
-    const handler = this[`__action_${name}`];
-    if (typeof handler !== "function") {
-      console.warn(`[tessera] <tsr-conf-template> has no action "${name}"`);
-      return;
-    }
-    const next = handler.call(this, params, ev);
-    if (next != null && typeof next === "object") this.__tesseraSetState(next);
+    return this.__tesseraDispatch(name, params, ev);
   }
 
       __action_toggle_flag(params = {}, ev = null) {

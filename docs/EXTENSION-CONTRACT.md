@@ -578,18 +578,26 @@ surface.
   `JSON.stringify(el.state)` and object spread expose camelCase only; aliases
   can never diverge because the snapshot is regenerated per access. A read
   Proxy was considered and rejected — traps complicate snapshot identity for
-  no gain over frozen aliases. `[PENDING TIER-1: snapshot + alias construction
-  (T1-6).]`
+  no gain over frozen aliases. (Implemented, brief 2a: `makeSnapshot` in
+  `priv/js/src/pipeline.mjs` — fresh frozen object per access, top-level freeze
+  only, snake alias attached only when it differs from the canonical camel
+  key; pinned by conformance case X-05.)
 - `tsr-state-change` — composed, bubbling `CustomEvent` (same dispatch shape
   as `emit`), fired after a state transition commits:
 
   ```ts
-  detail: { keys: string[]; state: TesseraStateSnapshot }
+  detail: { keys: string[]; state: TesseraStateSnapshot; action: string }
   ```
 
   `keys` are camelCase (D3), covering exactly the keys the transition changed;
-  one event per transition (an action changing three keys fires one event, not
-  three). Timing: after the transition is applied and rendering scheduled —
+  `action` is the snake-canonical name of the dispatched action (additive
+  payload — consumers MUST ignore unknown detail keys); one event per
+  transition (an action changing three keys fires one event, not three).
+  A transition exists only when the action produced a next-state object —
+  a handler that returns `null`/`undefined` applied nothing and fires nothing;
+  a next-state object that changes nothing fires exactly one event with
+  `keys: []`.
+  Timing: after the transition is applied and rendering scheduled —
   Lit: subscribers awaiting `el.updateComplete` see the new DOM; Tier 2: the
   commit point is after Hologram's synchronous re-render — `#processActionResult`
   calls `Hologram.render()` before scheduling follow-up actions, so
@@ -622,8 +630,11 @@ el.dispatchAction("reset", { keep_selection: false });  // same dispatch — eit
   params are rejected (`reason: "error"`).
 - Return: the pipeline result as `DispatchResult` — or `Promise<DispatchResult>`
   when any stage is async. Callers MUST treat both shapes as possible.
-  [PENDING TIER-1: `value` normalization from the spike's internal next-state
-  return, which currently exposes nothing.]
+  (Implemented, brief 2a — T1-5 resolved: sync dispatch returns the result
+  directly, an async stage makes the whole call a Promise (which never
+  rejects); `value` normalizes to the POST-transition camelCase snapshot on
+  `ok: true` (U1/Q3), to the vetoing stage's return value on
+  `reason: "vetoed"`, and is absent on `unknown-action` / `error` / stale.)
 - Dispatching an `internal:`-annotated action works like any other (the
   annotation warns on *interception*, not dispatch — §6.4, §10).
 - `dispatchAction` is the ONLY sanctioned invocation path for page scripts.
@@ -652,7 +663,9 @@ const off = el.onAction("increment", (params, next) => {
 - **Async.** If any stage returns a Promise, the pipeline result is a Promise
   chaining every stage; the final state application is awaited on it. A stage
   resolving after the element disconnected MUST NOT apply state or emit
-  (stale-resolution drop).
+  (stale-resolution drop). (Implemented, brief 2a — U6: a dropped dispatch
+  resolves to `{ ok: false, reason: "vetoed" }` with no value — the stale-drop
+  REUSES `vetoed`; the `reason` enum gains no new member. X-10.)
 - **Params flow (D3).** Entry params are normalized snake-canonical (§6.3,
   either input casing). Interceptors receive the params projected to
   **camelCase**; `next(paramsOverride?)` replaces params for all downstream
@@ -665,7 +678,9 @@ const off = el.onAction("increment", (params, next) => {
   stages. A stage SHOULD NOT throw after `next` — the action may already have
   committed; the error still surfaces but cannot roll back.
 - **Internal invocations** (template-bound `$click={:action}`) pass through
-  the same pipeline and are interceptable by the same rules.
+  the same pipeline and are interceptable by the same rules. (Implemented,
+  brief 2a: the generated `__tesseraRunAction` delegates to
+  `__tesseraDispatch` — pinned by X-08's click leg.)
 - **All actions are interceptable (D2).** There is no private-action
   restriction. An interceptor registered against an `internal:`-annotated
   action (§5.3) triggers a dev-mode warn-once per tag+action at registration —
@@ -788,7 +803,7 @@ attach internals to an element that did not. [PENDING TIER-1] and
 | Axis | Versions | Where | Today |
 |---|---|---|---|
 | **Wire contract** (`contract.version`) | attrs/props/events/slots naming, contract-module shape, DOM shape, bridge | CONTRACT §2 `version`, `tesseraContractVersion` | 1 |
-| **Extension API** (`extension_api`) | §3's surface: derivation shape + the `use Vendor.Element` macro expansion (§5.3, §5.9), action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | none yet; first stable value `1.0.0` |
+| **Extension API** (`extension_api`) | §3's surface: derivation shape + the `use Vendor.Element` macro expansion (§5.3, §5.9), action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | `1.0.0` (declared per component; unset ⇒ first stable `1.0.0`) |
 
 The axes move independently. This document itself is versioned separately
 (draft v0.1 → 1.0.0 at first stable release).
@@ -823,8 +838,11 @@ the runtime static `tesseraExtensionApi`. The base declares; a derived element
 inherits unless it declares its own (then §5.7's pin check applies). A
 `tag: :inherit` extension keeps the base tag's declaration unless it widens
 the action set, in which case the extending app's emitted CEM lists the merged
-`actions`. [PENDING TIER-1: the spec struct gains the field; nothing reads it
-today.]
+`actions`. [LANDED TIER-1, brief 2b: the spec field flows to
+`to_manifest_map/1` (`"extension_api"`, key always present — defaulted to
+`1.0.0` when the component declares none), `Codegen.cem/1` (per-module
+`tessera` field), the `TesseraElement` descriptor (`extensionApi`) and the
+mixin static `tesseraExtensionApi`; X-15 pins the agreement.]
 
 ### 8.4 Pinning and mismatch
 
@@ -981,11 +999,14 @@ rides `extension_api` 2.0.0, not this document.
 - T1-3 — event-rename rewrite pass over compiled emission points; binding-prop
   regeneration.
 - T1-4 — type-change reference-graph pass over compiled template/action ASTs.
-- T1-5 — `dispatchAction` sync/async return contract; `DispatchResult.value`
-  normalization.
-- T1-6 — `el.state` getter + `tsr-state-change` commit point relative to Lit's
-  update cycle; snapshot alias construction (non-enumerable snake aliases over
-  canonical camel keys, §6.2).
+- T1-5 — resolved (brief 2a): sync dispatch returns `DispatchResult` directly,
+  any async stage makes the call `Promise<DispatchResult>`; `value` =
+  post-transition snapshot on commit, the vetoing stage's return on veto
+  (§6.3).
+- T1-6 — resolved (brief 2a): `makeSnapshot` (non-enumerable snake aliases
+  over canonical camel keys, fresh frozen per access, §6.2); `tsr-state-change`
+  fires after the apply + `requestUpdate` schedule, so `el.updateComplete`
+  resolves on the new DOM.
 - T1-7 — `extension_api` in spec/codegen/CEM; pin checking.
 - T1-8 — form participation (`formAssociated`) implementation.
 - T1-9 — derived-element artifact set; whether `js:` may be omitted when the

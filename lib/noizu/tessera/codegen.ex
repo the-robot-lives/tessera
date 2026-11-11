@@ -117,6 +117,8 @@ defmodule Noizu.Tessera.Codegen do
   with type, `json` flag and JSON-literal default), `events` (name +
   camelCase detail schema), `slots`, `cssProperties` (name + default) and
   `cssParts` — the last two fed by the spec DSL's `css`/`part` declarations.
+  Each module carries the §8.3 custom field `tessera: {extensionApi, actions}`
+  — the extension-api version axis and every declared action name (D2).
   """
   @spec cem([Spec.t()]) :: map()
   def cem(specs) when is_list(specs) do
@@ -267,12 +269,31 @@ defmodule Noizu.Tessera.Codegen do
                 end)
             }
           end),
+        # Action docs (EXTENSION-CONTRACT.md §5.3): declared names in
+        # declaration order; `internal: true` only on the advisory-annotated
+        # subset (grouping under internal docs — NEVER access control, §10).
+        "actions" =>
+          Enum.map(spec.actions, fn a ->
+            base = %{"name" => Atom.to_string(a.name)}
+            if a[:internal], do: Map.put(base, "internal", true), else: base
+          end),
         "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
         "cssProperties" => cem_css_properties(spec),
         "cssParts" => cem_css_parts(spec)
       }
     ]
 
-    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations}
+    # §8.3 per-module custom field `tessera`: the extension-api axis (defaulted
+    # to the first stable 1.0.0 when the spec declares none) plus EVERY action
+    # name in declaration order (D2 — the open surface; `internal:` annotation
+    # lives in the declaration-level doc entries above). CEM consumers ignore
+    # unknown keys by convention.
+    tessera_field = %{
+      "extensionApi" => spec.extension_api || Spec.default_extension_api(),
+      "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name))
+    }
+
+    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations,
+      "tessera" => tessera_field}
   end
 end

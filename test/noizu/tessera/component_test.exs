@@ -259,6 +259,26 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
 
+    test "non-round-tripping state name raises (X-20 compile guard)" do
+      assert_raise CompileError, ~r/tessera state :col_2_width.*Rename it/s, fn ->
+        compile_source("state :col_2_width, :integer, default: 0")
+      end
+    end
+
+    test "action internal: annotation lands on the spec entry only when set (D2 advisory)" do
+      mod =
+        compile_source("""
+        template ~TSR"<div></div>"
+        action :plain, fn state, _params -> state end
+        action :cached, fn state, _params -> state end, internal: true
+        """)
+
+      [plain, cached] = mod.__tessera_spec__().actions
+      # common entry shape stays byte-identical (no :internal key at all)
+      refute Map.has_key?(plain, :internal)
+      assert cached.internal == true
+    end
+
     test "non-literal DSL opts raise with a clear message" do
       assert_raise CompileError, ~r/must be compile-time literals/, fn ->
         compile_source("""
@@ -273,6 +293,76 @@ defmodule Noizu.Tessera.ComponentTest do
         compile_source("cy :atom_hook")
       end
     end
+  end
+
+  describe "extension_api declaration (§8.3) — X-15 agreement" do
+    alias Noizu.Tessera.Codegen
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp tagged(id, api_opt) do
+      ~s|tag: "ext-api-#{id}", js: "ext_api_#{id}.mjs"#{api_opt}|
+    end
+
+    test "an element component with no declaration defaults to 1.0.0 everywhere" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(tagged(id, ""), "")
+      spec = mod.__tessera_spec__()
+
+      assert spec.extension_api == "1.0.0"
+
+      # X-15: spec / manifest / CEM / generated static all agree — the same
+      # spec object feeds each emitter, so the §8.3 value is byte-identical.
+      assert mod.__tessera_manifest__()["extension_api"] == "1.0.0"
+      assert hd(Codegen.cem([spec])["modules"])["tessera"]["extensionApi"] == "1.0.0"
+      assert LitCodegen.element_module(spec) =~ ~s|extensionApi: "1.0.0"|
+    end
+
+    test "a declared extension_api flows into spec, manifest, CEM and the element" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(tagged(id, ~s|, extension_api: "2.5.1"|), "")
+      spec = mod.__tessera_spec__()
+
+      assert spec.extension_api == "2.5.1"
+      assert mod.__tessera_manifest__()["extension_api"] == "2.5.1"
+      assert hd(Codegen.cem([spec])["modules"])["tessera"] == %{"extensionApi" => "2.5.1", "actions" => []}
+      assert LitCodegen.element_module(spec) =~ ~s|extensionApi: "2.5.1"|
+    end
+
+    test "a non-version extension_api declaration raises with a pointed message" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/:extension_api option must be an exact literal semver/, fn ->
+        compile_source(tagged(id, ~s|, extension_api: "~> 1.0"|), "")
+      end
+
+      assert_raise CompileError, ~r/:extension_api option must be an exact literal semver/, fn ->
+        compile_source(tagged(id, ~s|, extension_api: "1"|), "")
+      end
+    end
+
+    test "the derived lane keeps the base's version when it declares no pin" do
+      base_id = :erlang.unique_integer([:positive])
+      base = compile_source(tagged(base_id, ~s|, extension_api: "1.2.0"|), "")
+
+      derived_id = :erlang.unique_integer([:positive])
+      derived_path = Path.join(@tmp_dir, "tessera_derived_#{derived_id}.ex")
+
+      [{derived, _}] =
+        Code.compile_string(
+          """
+          defmodule Tessera.Inline.D#{derived_id} do
+            use #{inspect(base)}, tag: "ext-api-derived-#{derived_id}"
+          end
+          """,
+          derived_path
+        )
+
+      assert derived.__tessera_spec__().extension_api == "1.2.0"
+    end
+
+    # MAJOR→CompileError / minor→warning proof-of-firing lives in
+    # extension_test.exs (check_pin!/3) — compile-time behavior of the
+    # `use Base, extension_api:` pin, covered there since brief 2c.
   end
 
   describe "styles DSL" do

@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class SpikeWidget extends TesseraElement(LitElement, contract) {
+class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       count: { type: Number, attribute: false },
       label: { type: String, attribute: "custom-label", reflect: true },
@@ -49,14 +49,14 @@ class SpikeWidget extends TesseraElement(LitElement, contract) {
     for (const k of Object.keys(next)) this[k] = next[k];
   }
 
+  // Template-bound invocations (the lowered `$click`/`$event` bindings)
+  // route through the SAME action pipeline as the public dispatchAction
+  // (EXTENSION-CONTRACT.md §6.4): interceptable by onAction interceptors,
+  // vetoable, async-chained, and a committed transition fires
+  // tsr-state-change. Errors are captured into the DispatchResult (the
+  // internal invocation "catches" — the returned Promise never rejects).
   __tesseraRunAction(name, params = {}, ev = null) {
-    const handler = this[`__action_${name}`];
-    if (typeof handler !== "function") {
-      console.warn(`[tessera] <spike-widget> has no action "${name}"`);
-      return;
-    }
-    const next = handler.call(this, params, ev);
-    if (next != null && typeof next === "object") this.__tesseraSetState(next);
+    return this.__tesseraDispatch(name, params, ev);
   }
 
       __action_increment(params = {}, ev = null) {

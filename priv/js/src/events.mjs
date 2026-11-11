@@ -32,6 +32,25 @@ function camelCase(key) {
 }
 
 /**
+ * Single-key case conversions (CONTRACT §1). Exported for the action
+ * pipeline (priv/js/src/pipeline.mjs) — one SOURCE OF TRUTH shared with the
+ * deep converters below, so the snapshot projection, action-name
+ * normalization and the bridge's param conversion can never drift.
+ *
+ * @param {string} key
+ */
+export function snakeCaseKey(key) {
+  return snakeCase(key);
+}
+
+/**
+ * @param {string} key
+ */
+export function camelCaseKey(key) {
+  return camelCase(key);
+}
+
+/**
  * True for plain `{}`-style objects only: arrays, Dates, Maps, class
  * instances and DOM nodes must pass through untouched (JSON-safety is the
  * author's job; mangling a non-plain object here would only hide the bug).

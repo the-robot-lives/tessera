@@ -268,6 +268,7 @@ defmodule Noizu.Tessera.SpecTest do
 
       assert map == %{
                "contractVersion" => 1,
+               "extension_api" => "1.0.0",
                "tag" => "persona-card",
                "module" => "Some.Mod",
                "file" => "/x/persona_card.ex",
@@ -323,6 +324,17 @@ defmodule Noizu.Tessera.SpecTest do
       assert hd(map["state"])["attribute"] == false
       assert map["lifecycle"] == ["should_update", "updated"]
       assert is_binary(Jason.encode!(map))
+    end
+
+    test "extension_api always rides the manifest — declared value or the §8.1 default" do
+      declared = Spec.to_manifest_map(%Spec{tag: "v-card", extension_api: "1.2.0"})
+      assert declared["extension_api"] == "1.2.0"
+
+      # §8.3: a spec that declares no version still ships the key, defaulted
+      # to the first stable 1.0.0 (the static/CEM sides read the same default).
+      unset = Spec.to_manifest_map(%Spec{tag: "v-card"})
+      assert unset["extension_api"] == "1.0.0"
+      assert Spec.default_extension_api() == "1.0.0"
     end
   end
 
