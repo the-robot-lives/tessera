@@ -8,8 +8,11 @@ defmodule Noizu.Tessera.Component.LitCodegen do
 
     * `<tag>.element.generated.mjs` — a `LitElement` subclass mixed with
       `TesseraElement` (CONTRACT.md §4): reactive properties from state +
-      attrs + props, a `render()` built from the template, one method per
-      action (running the JS translated at compile time), `emit` routed
+      attrs + props (with Lit property options — `attribute` rename/disable,
+      `reflect`, typed converters incl. `Array` for `:list`), a `render()`
+      built from the template, one method per action (running the JS
+      translated at compile time), one method per declared lifecycle hook
+      (`shouldUpdate`/`willUpdate`/`firstUpdated`/`updated`), `emit` routed
       through `@noizu/tessera-core`'s `emit` (so the `data-tsr-on` Hologram
       bridge keeps working), and an exported `register()`.
     * `<snake>.mjs` — the `:js` entry wrapper (`register();` top-level —
@@ -99,7 +102,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         if (next != null && typeof next === "object") this.__tesseraSetState(next);
       }
 
-    #{action_methods(spec)}
+    #{action_methods(spec)}#{lifecycle_block(spec)}
 
       render() {
         return #{spec.template[:render_js]};
@@ -218,29 +221,53 @@ defmodule Noizu.Tessera.Component.LitCodegen do
 
   defp properties_object(%Spec{} = spec) do
     entries =
-      Enum.map(state_props(spec) ++ attr_props(spec) ++ prop_props(spec), fn {key, type} ->
-        "#{key}: { type: #{lit_type(type)} }"
+      Enum.map(state_props(spec) ++ attr_props(spec) ++ prop_props(spec), fn {key, entry} ->
+        "#{key}: { #{property_options_js(entry)} }"
       end)
 
     "{\n      " <> Enum.join(entries, ",\n      ") <> ",\n    }"
   end
 
   defp state_props(%Spec{} = spec) do
-    Enum.map(spec.state, fn s -> {Atom.to_string(s.name), s.type} end)
+    Enum.map(spec.state, fn s -> {Atom.to_string(s.name), s} end)
   end
 
   defp attr_props(%Spec{} = spec) do
-    Enum.map(spec.attrs, fn a -> {Naming.snake_to_camel(a.name), a.type} end)
+    Enum.map(spec.attrs, fn a -> {Naming.snake_to_camel(a.name), a} end)
   end
 
   defp prop_props(%Spec{} = spec) do
-    Enum.map(spec.props, fn p -> {Naming.snake_to_camel(p.name), p.type} end)
+    Enum.map(spec.props, fn p -> {Naming.snake_to_camel(p.name), p} end)
+  end
+
+  # Lit property options: type always; attribute (rename / false) and reflect
+  # only when the author declared them. converter/hasChanged are pass-through
+  # for a future spec that carries raw JS — NOT author-exposed in the DSL
+  # (restricted subset; lit-parity 4a accepts them with an escape hatch).
+  defp property_options_js(entry) do
+    opts = ["type: #{lit_type(entry.type)}"]
+
+    opts =
+      case entry[:attribute] do
+        nil -> opts
+        false -> opts ++ ["attribute: false"]
+        name when is_binary(name) -> opts ++ ["attribute: #{Spec.json_literal(name)}"]
+      end
+
+    opts = if entry[:reflect] == true, do: opts ++ ["reflect: true"], else: opts
+    opts = if is_binary(entry[:converter]), do: opts ++ ["converter: #{entry[:converter]}"], else: opts
+
+    opts =
+      if is_binary(entry[:has_changed]), do: opts ++ ["hasChanged: #{entry[:has_changed]}"], else: opts
+
+    Enum.join(opts, ", ")
   end
 
   defp lit_type(:integer), do: "Number"
   defp lit_type(:float), do: "Number"
   defp lit_type(:string), do: "String"
   defp lit_type(:boolean), do: "Boolean"
+  defp lit_type(:list), do: "Array"
   defp lit_type(_), do: "Object"
 
   defp constructor_defaults(%Spec{} = spec) do
@@ -258,7 +285,18 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         end
       end)
 
-    (state_lines ++ Enum.reject(attr_lines, &(&1 == "")))
+    # Prop defaults initialize here too — a standalone Lit host (no Hologram
+    # feeding props) must see the declared default before the first render.
+    prop_lines =
+      Enum.map(spec.props, fn p ->
+        if p[:default] != nil do
+          "        this.#{Naming.snake_to_camel(p.name)} = #{Spec.json_literal(p[:default])};"
+        else
+          ""
+        end
+      end)
+
+    (state_lines ++ attr_lines ++ prop_lines)
     |> Enum.reject(&(&1 == ""))
     |> case do
       [] -> ""
@@ -282,6 +320,56 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         "            return #{a.js};\n" <>
         "          }"
     end)
+  end
+
+  # -- lifecycle lowering (lit-parity 1c) --------------------------------------
+  #
+  # Only declared hooks emit methods. `changed` is a plain-object snapshot of
+  # Lit's changedProperties Map (Object.fromEntries) — keys are property names
+  # (camelCase attrs/props, snake state), values are the OLD values; it is NOT
+  # a live Map. shouldUpdate returns the hook value (false freezes the update);
+  # willUpdate applies an object result as next state; firstUpdated/updated
+  # evaluate for side effects (emit) and discard the result.
+
+  @lifecycle_order [:should_update, :will_update, :first_updated, :updated]
+
+  defp lifecycle_block(%Spec{lifecycle: lifecycle}) when lifecycle == %{}, do: ""
+
+  defp lifecycle_block(%Spec{} = spec) do
+    methods =
+      @lifecycle_order
+      |> Enum.filter(&Map.has_key?(spec.lifecycle, &1))
+      |> Enum.map_join("\n\n", fn hook -> lifecycle_method(hook, spec.lifecycle[hook].js) end)
+
+    "\n\n" <> methods
+  end
+
+  defp lifecycle_method(:should_update, js) do
+    "      shouldUpdate(changedProperties) {\n" <>
+      "            const state = this.__tesseraState();\n" <>
+      "            const changed = Object.fromEntries(changedProperties);\n" <>
+      "            return #{js};\n" <>
+      "          }"
+  end
+
+  defp lifecycle_method(:will_update, js) do
+    "      willUpdate(changedProperties) {\n" <>
+      "            const state = this.__tesseraState();\n" <>
+      "            const changed = Object.fromEntries(changedProperties);\n" <>
+      "            const next = #{js};\n" <>
+      "            if (next != null && typeof next === \"object\") this.__tesseraSetState(next);\n" <>
+      "          }"
+  end
+
+  defp lifecycle_method(hook, js) when hook in [:first_updated, :updated] do
+    name = if hook == :first_updated, do: "firstUpdated", else: "updated"
+
+    "      #{name}(changedProperties) {\n" <>
+      "            const state = this.__tesseraState();\n" <>
+      "            const changed = Object.fromEntries(changedProperties);\n" <>
+      "            // side-effects only (emit) — the hook's return value is discarded\n" <>
+      "            const next = #{js};\n" <>
+      "          }"
   end
 
   defp write_if_changed(path, content) do

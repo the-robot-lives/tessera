@@ -32,18 +32,30 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       assert js =~ ~S|import contract from "./spike_widget.contract.generated.mjs"|
 
       # reactive properties from state + attrs + props (snake state keys stay
-      # snake; attr/prop keys camelCase)
-      assert js =~ "count: { type: Number }"
-      assert js =~ "label: { type: String }"
-      assert js =~ "items: { type: Object }"
+      # snake; attr/prop keys camelCase) with Lit property options + Array
+      assert js =~ "count: { type: Number, attribute: false }"
+      assert js =~ ~S|label: { type: String, attribute: "custom-label", reflect: true }|
+      assert js =~ "items: { type: Array }"
 
-      # constructor defaults from state + attr defaults
+      # constructor defaults from state + attr + prop defaults
       assert js =~ "this.count = 0;"
       assert js =~ ~S|this.label = "Count";|
+      assert js =~ "this.items = [];"
 
       # translated action runs through __tesseraRunAction state flow
       assert js =~ "__action_increment(params = {}, ev = null)"
       assert js =~ "return (() => { return ({ ...state, count: (state.count + 1) }); })();"
+
+      # lifecycle lowering: one method per declared hook, changed snapshot
+      assert js =~ "shouldUpdate(changedProperties) {"
+      assert js =~ "const changed = Object.fromEntries(changedProperties);"
+      assert js =~ "return (state.count < 10);"
+      assert js =~ "willUpdate(changedProperties) {"
+      assert js =~ "const next = ({ ...state, count: (state.count + 1) });"
+      assert js =~ ~S|if (next != null && typeof next === "object") this.__tesseraSetState(next);|
+      assert js =~ "firstUpdated(changedProperties) {"
+      assert js =~ "updated(changedProperties) {"
+      assert js =~ ~S|const next = emit(this, "count-change", {count: state.count});|
 
       # render body from the template
       assert js =~ "return html`<div>${__t(this.count)}</div>`;"
@@ -136,6 +148,98 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       js = LitCodegen.element_module(spec())
       assert js =~ "connectedCallback() {\n    super.connectedCallback();"
       assert js =~ ~s|this.setAttribute("part", "root");|
+    end
+  end
+
+  describe "property options (lit-parity 1c)" do
+    test "no options → bare type entries (pre-1c bytes)" do
+      plain = %Spec{
+        spec()
+        | attrs: [%{name: :label, type: :string, line: 2}],
+          state: [%{name: :count, type: :integer, default: 0, line: 3}],
+          lifecycle: %{}
+      }
+
+      js = LitCodegen.element_module(plain)
+      assert js =~ "count: { type: Number }"
+      assert js =~ "label: { type: String }"
+      refute js =~ "attribute:"
+      refute js =~ "reflect:"
+      refute js =~ "shouldUpdate"
+      refute js =~ "willUpdate"
+      refute js =~ "firstUpdated"
+      refute js =~ "updated(changedProperties)"
+    end
+
+    test "attribute: false disables the attribute; reflect: false is not emitted" do
+      opts = %Spec{
+        spec()
+        | attrs: [%{name: :label, type: :string, attribute: false, reflect: false, line: 2}]
+      }
+
+      js = LitCodegen.element_module(opts)
+      assert js =~ "label: { type: String, attribute: false }"
+      refute js =~ "reflect:"
+    end
+
+    test "converter/hasChanged pass through when a spec carries raw JS (not DSL-exposed)" do
+      opts = %Spec{
+        spec()
+        | props: [
+            %{
+              name: :items,
+              type: :list,
+              converter: "{ fromAttribute: (v) => JSON.parse(v) }",
+              has_changed: "(a, b) => a !== b",
+              line: 7
+            }
+          ]
+      }
+
+      js = LitCodegen.element_module(opts)
+      assert js =~ "converter: { fromAttribute: (v) => JSON.parse(v) }"
+      assert js =~ "hasChanged: (a, b) => a !== b"
+    end
+
+    test ":list maps to Array everywhere (state, attr, prop)" do
+      lists = %Spec{
+        spec()
+        | state: [%{name: :queue, type: :list, default: [], line: 3}],
+          attrs: [%{name: :tags, type: :list, line: 2}],
+          props: [%{name: :items, type: :list, line: 7}]
+      }
+
+      js = LitCodegen.element_module(lists)
+      assert js =~ "queue: { type: Array }"
+      assert js =~ "tags: { type: Array }"
+      assert js =~ "items: { type: Array }"
+    end
+  end
+
+  describe "lifecycle lowering (lit-parity 1c)" do
+    test "only declared hooks emit methods, in canonical order" do
+      partial = %Spec{spec() | lifecycle: %{updated: %{js: "null", line: 11}}}
+      js = LitCodegen.element_module(partial)
+
+      assert js =~ "updated(changedProperties) {"
+      refute js =~ "shouldUpdate"
+      refute js =~ "willUpdate"
+      refute js =~ "firstUpdated"
+    end
+
+    test "firstUpdated/updated discard the hook result (no setState, no return)" do
+      js = LitCodegen.element_module(spec())
+      [_, rest] = String.split(js, "updated(changedProperties) {")
+      [updated_body, _] = String.split(rest, "\n          }")
+
+      refute updated_body =~ "__tesseraSetState"
+      refute updated_body =~ ~r/^\s*return /m
+      assert updated_body =~ "const next = emit"
+    end
+
+    test "shouldUpdate returns the hook value verbatim (false freezes the update)" do
+      veto = %Spec{spec() | lifecycle: %{should_update: %{js: "false", line: 8}}}
+      assert LitCodegen.element_module(veto) =~ "return false;"
     end
   end
 

@@ -294,6 +294,7 @@ defmodule Noizu.Tessera.SpecTest do
                "parts" => ["select-button"],
                "state" => [],
                "actions" => [],
+               "lifecycle" => [],
                "template" => nil,
                "styles" => []
              }
@@ -301,6 +302,57 @@ defmodule Noizu.Tessera.SpecTest do
       # Must be JSON-encodable (the manifest task writes it verbatim).
       assert is_binary(Jason.encode!(map))
       assert Naming.known_type?(:any)
+    end
+
+    test "property options + lifecycle hooks ride the manifest (canonical hook order)" do
+      spec = %Spec{
+        tag: "opts-card",
+        attrs: [%{name: :tone, type: :string, attribute: "data-tone", reflect: true, line: 1}],
+        props: [%{name: :items, type: :list, attribute: false, line: 2}],
+        state: [%{name: :count, type: :integer, attribute: false, line: 3}],
+        lifecycle: %{
+          updated: %{js: "null", line: 9},
+          should_update: %{js: "true", line: 8}
+        }
+      }
+
+      map = Spec.to_manifest_map(spec)
+      assert hd(map["attrs"])["attribute"] == "data-tone"
+      assert hd(map["attrs"])["reflect"] == true
+      assert hd(map["props"])["attribute"] == false
+      assert hd(map["state"])["attribute"] == false
+      assert map["lifecycle"] == ["should_update", "updated"]
+      assert is_binary(Jason.encode!(map))
+    end
+  end
+
+  describe "validate! property options (lit-parity 1c)" do
+    test "accepts attribute rename, attribute: false, reflect booleans, and absence" do
+      for opts <- [
+            %{type: :string},
+            %{type: :string, attribute: "data-x"},
+            %{type: :string, attribute: false},
+            %{type: :string, reflect: true},
+            %{type: :string, reflect: false}
+          ] do
+        assert Spec.validate!(:attr, :tone, opts, "t.ex", 1) == :ok
+        assert Spec.validate!(:prop, :tone, opts, "t.ex", 1) == :ok
+        assert Spec.validate!(:state, :tone, opts, "t.ex", 1) == :ok
+      end
+    end
+
+    test "rejects non-string/non-false attribute values with a pointed message" do
+      for bad <- [true, 123, "", "bad name", "a=b", "a<b"] do
+        assert_raise CompileError, ~r/attribute:/, fn ->
+          Spec.validate!(:attr, :tone, %{type: :string, attribute: bad}, "t.ex", 1)
+        end
+      end
+    end
+
+    test "rejects non-boolean reflect values" do
+      assert_raise CompileError, ~r/reflect:/, fn ->
+        Spec.validate!(:prop, :tone, %{type: :string, reflect: "yes"}, "t.ex", 1)
+      end
     end
   end
 end

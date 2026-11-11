@@ -8,6 +8,7 @@ export default {
     "test/components/counter_test.mjs",
     "test/components/toggle_chip_test.mjs",
     "test/components/styles_panel_test.mjs",
+    "test/components/props_panel_test.mjs",
   ],
   concurrentBrowsers: 1,
   concurrency: 1,
