@@ -3,7 +3,7 @@
 export default {
   version: 1,
   tag: "tsr-conf-slots",
-  attrs:  [{ name: "label", key: "label", type: "string", required: false, default: "slots" }],
+  attrs:  [],
   props:  [],
   events: [],
   slots:  ["header", "fb"],

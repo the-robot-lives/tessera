@@ -182,6 +182,65 @@ defmodule Noizu.Tessera.Component.TemplateTest do
     end
   end
 
+  describe "directive lowering (lit-parity 1d, D-01/D-02/D-06/T-06)" do
+    test "class_map in attribute position emits class=${classMap({...})} — unquoted, no __t" do
+      js = render!(~S|<div class={class_map(%{selected: @selected, count: @count})}></div>|)
+
+      assert js ==
+               ~S|html`<div class=${classMap({selected: this.selected, count: this.count})}></div>`|
+    end
+
+    test "style_map keeps camelCase keys and quotes custom-property string keys" do
+      js =
+        render!(
+          ~S|<div style={style_map(%{backgroundColor: @label, "--tsr-x-accent": @label})}></div>|
+        )
+
+      assert js ==
+               ~S|html`<div style=${styleMap({backgroundColor: this.label, "--tsr-x-accent": this.label})}></div>`|
+    end
+
+    test "if_defined in attribute position emits unquoted, no __t" do
+      js = render!(~S|<div title={if_defined(@label)}></div>|)
+      assert js == ~S|html`<div title=${ifDefined(this.label)}></div>`|
+    end
+
+    test "nothing in attribute position emits unquoted (removes the attribute)" do
+      js = render!(~S|<div title={nothing}></div>|)
+      assert js == ~S|html`<div title=${nothing}></div>`|
+    end
+
+    test "nothing in child position emits ${nothing} without __t" do
+      js = render!(~S|<div>{nothing}</div>|)
+      assert js == ~S|html`<div>${nothing}</div>`|
+    end
+
+    test "class_map in child position emits the directive without __t" do
+      js = render!(~S|<div>{class_map(%{selected: @selected})}</div>|)
+      assert js == ~S|html`<div>${classMap({selected: this.selected})}</div>`|
+    end
+
+    test "a non-directive single expression attribute stays quoted and __t-wrapped" do
+      js = render!(~S|<div title={@label}></div>|)
+      assert js == ~S|html`<div title="${__t(this.label)}"></div>`|
+    end
+
+    test "both lexers render directive templates identically" do
+      for markup <- [
+            ~S|<div class={class_map(%{selected: @selected})}></div>|,
+            ~S|<div style={style_map(%{backgroundColor: @label})}></div>|,
+            ~S|<div title={if_defined(@label)}></div>|,
+            ~S|<div title={nothing}>{nothing}</div>|
+          ] do
+        {:ok, holo_tree} = Template.parse(markup)
+
+        assert Template.to_lit_render(holo_tree, ctx()) ==
+                 Template.to_lit_render(minimal_tree(markup), ctx()),
+               "lexer divergence for #{markup}"
+      end
+    end
+  end
+
   describe "<slot> grammar (non-void, fallback content)" do
     test "explicit close tag parses (Hologram treats slot as void — pre-pass fixes it)" do
       assert {:ok, {:element, "div", [], [{:element, "slot", [], []}]}} =

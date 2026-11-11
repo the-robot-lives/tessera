@@ -39,11 +39,12 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     shared = shared_imports(spec)
 
     imports =
-      [
-        ~s|import { LitElement, html, css } from "lit";|,
-        ~s|import { defineOnce, TesseraElement, emit } from "@noizu/tessera-core";|,
-        ~s|import contract from "./#{snake}.contract.generated.mjs";|
-      ] ++
+      [lit_import(spec)] ++
+        directive_imports(spec) ++
+        [
+          ~s|import { defineOnce, TesseraElement, emit } from "@noizu/tessera-core";|,
+          ~s|import contract from "./#{snake}.contract.generated.mjs";|
+        ] ++
         Enum.map(shared, fn {binding, path} ->
           ~s|import { styles as #{binding} } from #{Spec.json_literal(path)};|
         end)
@@ -176,6 +177,35 @@ defmodule Noizu.Tessera.Component.LitCodegen do
 
   # -- internals ----------------------------------------------------------------
 
+  # Directive imports (lit-parity 1d): emitted only when the directive name
+  # appears in the compiled render body. Word-boundary scans of render_js are
+  # deterministic and need no ctx threading; a false positive (the word in
+  # escaped text) only adds an unused import, never a wrong one.
+  @directive_imports [
+    {"classMap", "lit/directives/class-map.js"},
+    {"styleMap", "lit/directives/style-map.js"},
+    {"ifDefined", "lit/directives/if-defined.js"}
+  ]
+
+  defp render_js(%Spec{template: nil}), do: ""
+  defp render_js(%Spec{template: template}), do: template[:render_js] || ""
+
+  defp lit_import(%Spec{} = spec) do
+    if Regex.match?(~r/\bnothing\b/, render_js(spec)) do
+      ~s|import { LitElement, html, css, nothing } from "lit";|
+    else
+      ~s|import { LitElement, html, css } from "lit";|
+    end
+  end
+
+  defp directive_imports(%Spec{} = spec) do
+    js = render_js(spec)
+
+    for {name, path} <- @directive_imports, Regex.match?(~r/\b#{name}\b/, js) do
+      ~s|import { #{name} } from "#{path}";|
+    end
+  end
+
   # Shared style modules (lit-parity row 92): one import binding per distinct
   # path, first-declaration order. The binding joins the static styles array
   # at the entry's declared position.
@@ -225,7 +255,12 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         "#{key}: { #{property_options_js(entry)} }"
       end)
 
-    "{\n      " <> Enum.join(entries, ",\n      ") <> ",\n    }"
+    # A template-only component (no attrs/props/state) has no reactive
+    # properties — emit a valid empty object, never "{ , }" (a SyntaxError).
+    case entries do
+      [] -> "{}"
+      _ -> "{\n      " <> Enum.join(entries, ",\n      ") <> ",\n    }"
+    end
   end
 
   defp state_props(%Spec{} = spec) do
@@ -255,10 +290,14 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       end
 
     opts = if entry[:reflect] == true, do: opts ++ ["reflect: true"], else: opts
-    opts = if is_binary(entry[:converter]), do: opts ++ ["converter: #{entry[:converter]}"], else: opts
 
     opts =
-      if is_binary(entry[:has_changed]), do: opts ++ ["hasChanged: #{entry[:has_changed]}"], else: opts
+      if is_binary(entry[:converter]), do: opts ++ ["converter: #{entry[:converter]}"], else: opts
+
+    opts =
+      if is_binary(entry[:has_changed]),
+        do: opts ++ ["hasChanged: #{entry[:has_changed]}"],
+        else: opts
 
     Enum.join(opts, ", ")
   end

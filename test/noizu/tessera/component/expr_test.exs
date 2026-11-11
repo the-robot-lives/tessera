@@ -214,6 +214,48 @@ defmodule Noizu.Tessera.Component.ExprTest do
     end
   end
 
+  describe "Lit directives (lit-parity 1d)" do
+    test "class_map lowers a map literal to classMap({...})" do
+      assert translate!(quote do: class_map(%{active: state.count > 0, disabled: false})) ==
+               "classMap({active: (state.count > 0), disabled: false})"
+    end
+
+    test "style_map keeps camelCase keys and quotes custom-property string keys" do
+      assert translate!(quote do: style_map(%{backgroundColor: @label, "--x": @step})) ==
+               ~S|styleMap({backgroundColor: this.label, "--x": this.step})|
+    end
+
+    test "if_defined wraps any subset expression" do
+      assert translate!(quote do: if_defined(@label)) == "ifDefined(this.label)"
+    end
+
+    test "bare nothing is the sentinel identifier (not null)" do
+      assert translate!(quote do: nothing) == "nothing"
+    end
+
+    test "nothing composes inside an if expression" do
+      assert translate!(quote do: if(state.count > 0, do: nothing, else: @label)) ==
+               "((state.count > 0) ? (nothing) : (this.label))"
+    end
+
+    test "class_map rejects a non-map argument by name" do
+      reject!("class_map", "class_map(@label)")
+    end
+
+    test "class_map rejects a map update by name" do
+      reject!("class_map", "class_map(%{state | active: true})")
+    end
+
+    test "style_map rejects a non-map argument by name" do
+      reject!("style_map", "style_map(123)")
+    end
+
+    test "directive wrong arity is rejected by name" do
+      reject!("if_defined", "if_defined()")
+      reject!("class_map", "class_map(a, b)")
+    end
+  end
+
   describe "action arity/shape errors" do
     test "one-argument fn rejected" do
       error =
