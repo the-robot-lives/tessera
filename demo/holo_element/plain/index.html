@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tessera tier 2 — plain HTML host</title>
+  <style>
+    body {font-family: system-ui, sans-serif; margin: 2rem; max-width: 60rem;}
+    .panel {border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem 0;}
+    h2 {margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555;}
+    .tsr-list-item {cursor: pointer; padding: 2px 6px; border-radius: 4px;}
+    .tsr-list-item.is-selected {background: #bde3ff;}
+    .tsr-list-item.is-editing {outline: 2px solid #2a7ae2;}
+    .tsr-list-error {color: #c0392b; margin-left: 0.5rem;}
+    button {cursor: pointer;}
+  </style>
+</head>
+<body>
+  <h1 data-cy="plain-title">plain HTML host (tier 2)</h1>
+
+  <div class="panel" data-cy="panel-counter">
+    <h2>counter — baseline</h2>
+    <tsr-holo-counter id="counter" label="pings" step="2" data-cy="plain-counter"></tsr-holo-counter>
+    <p>count-changed heard: <strong data-cy="plain-count-value">0</strong>
+      (<span data-cy="plain-count-delta">-</span>)</p>
+  </div>
+
+  <div class="panel" data-cy="panel-vendor">
+    <h2>editable list — vendor element (markup, upgraded at define)</h2>
+    <tsr-holo-editable-list
+      id="vendor-list"
+      title="Planets"
+      data-cy="vendor-list"
+      tsr-props='{"items":[{"id":1,"name":"Mercury"},{"id":2,"name":"Venus"},{"id":3,"name":"Earth"},{"id":4,"name":"Mars"}]}'
+    ></tsr-holo-editable-list>
+  </div>
+
+  <div class="panel" data-cy="panel-layered">
+    <h2>editable list — same-tag layered extension (appended after takeover)</h2>
+    <p>ThirdParty.TidyList took over the vendor tag AFTER the markup above was
+      upgraded — this element (created dynamically) resolves the layered
+      module; the vendor one above keeps the vendor module. Saving downcases.</p>
+  </div>
+
+  <div class="panel" data-cy="panel-fancy">
+    <h2>fancy list — custom-tag extension (upcased rows + archive)</h2>
+    <fancy-list
+      id="fancy-list"
+      title="Fancy planets"
+      data-cy="fancy-list"
+      tsr-props='{"items":[{"id":1,"name":"Mercury"},{"id":2,"name":"Venus"},{"id":3,"name":"Earth"},{"id":4,"name":"Mars"}]}'
+    ></fancy-list>
+    <p>
+      <button data-cy="fancy-archive-btn" type="button">dispatchAction("archive", {id: 2})</button>
+      archived: <strong data-cy="fancy-archived-value">0</strong>
+    </p>
+  </div>
+
+  <div class="panel" data-cy="panel-ext-b">
+    <h2>JS runtime extension (item B — no Hologram imports)</h2>
+    <p>
+      <button data-cy="select-via-dispatch" type="button">vendor.dispatchAction("selectItem", {id: 3})</button>
+      <button data-cy="read-state" type="button">read el.state</button>
+    </p>
+    <p>
+      state.selectedId (camel): <strong data-cy="state-camel">-</strong> ·
+      state.selected_id (snake alias): <strong data-cy="state-snake">-</strong>
+    </p>
+    <p>typing <code>Mars!!</code> or <code>Ma--rs</code> in the VENDOR list's
+      edit draft gets normalized by the two composed onAction hooks (both
+      registered, run in order).</p>
+  </div>
+
+  <div class="panel" data-cy="panel-observed">
+    <h2>subclass overriding a documented hook</h2>
+    <p><code>class ObservedList extends customElements.get("tsr-holo-editable-list")</code>
+      overriding <code>transformProps</code> (title suffix):</p>
+  </div>
+
+  <!-- vendor element first, then takeover: ordering is the layering demo -->
+  <script src="../dist/tessera-holo/tessera-runtime.umd.js"></script>
+  <script src="../dist/tessera-holo/counter.umd.js"></script>
+  <script src="../dist/tessera-holo/editable_list.umd.js"></script>
+  <script src="../dist/tessera-holo/fancy_list.umd.js"></script>
+  <script src="../dist/tessera-holo/tidy_list.umd.js"></script>
+  <script>
+    const T = window.TesseraHoloBundle;
+
+    const planets = {
+      items: [
+        {id: 1, name: "Mercury"},
+        {id: 2, name: "Venus"},
+        {id: 3, name: "Earth"},
+        {id: 4, name: "Mars"},
+      ],
+    };
+
+    // vendor-first registrations — markup elements upgrade against these
+    T.defineElement("tsr-holo-counter", "HoloKit.Components.Counter");
+    T.defineElement("tsr-holo-editable-list", "HoloKit.Components.EditableList");
+    T.defineElement("fancy-list", "ThirdParty.FancyList");
+
+    // --- same-tag layering (§5.9): repoint the tag to the layered module ---
+    T.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
+
+    const layered = document.createElement("tsr-holo-editable-list");
+    layered.id = "layered-list";
+    layered.setAttribute("title", "Tidy planets");
+    layered.setAttribute("data-cy", "layered-list");
+    layered.setAttribute("tsr-props", JSON.stringify(planets));
+    document.querySelector("[data-cy=panel-layered]").appendChild(layered);
+
+    // --- item B: composed onAction chain (names in kebab, params camel) ---
+    const vendor = document.getElementById("vendor-list");
+
+    vendor.onAction("draft-changed", (params, next) => {
+      // extender 1: strip trailing "!"
+      next({event: {value: params.event.value.replace(/!+$/, "")}});
+    });
+    vendor.onAction("draftChanged", (params, next) => {
+      // extender 2 (camel name — same action): collapse "--" runs. Runs AFTER
+      // extender 1 because hooks compose in registration order.
+      next({event: {value: params.event.value.replace(/-{2,}/g, "-")}});
+    });
+
+    // --- item B: dispatchAction + state snapshot ---
+    document.querySelector("[data-cy=select-via-dispatch]").addEventListener("click", () => {
+      vendor.dispatchAction("selectItem", {id: 3});
+      vendor.dispatchAction("select-item", {id: 3}); // either case, idempotent
+      renderState();
+    });
+
+    document.querySelector("[data-cy=read-state]").addEventListener("click", renderState);
+
+    function renderState() {
+      const snap = vendor.state;
+      document.querySelector("[data-cy=state-camel]").textContent = String(snap.selectedId);
+      document.querySelector("[data-cy=state-snake]").textContent = String(snap.selected_id);
+    }
+
+    // --- item B: subclass overriding the documented transformProps hook ---
+    class ObservedList extends customElements.get("tsr-holo-editable-list") {
+      transformProps(props) {
+        return {...props, title: (props.title || "") + " (observed)"};
+      }
+    }
+
+    T.defineElement("observed-list", "HoloKit.Components.EditableList", ObservedList);
+
+    const observed = document.createElement("observed-list");
+    observed.setAttribute("title", "Watched");
+    observed.setAttribute("data-cy", "observed-list");
+    observed.setAttribute("tsr-props", JSON.stringify(planets));
+    document.querySelector("[data-cy=panel-observed]").appendChild(observed);
+
+    // --- event listeners: composed CustomEvents cross the shadow boundary ---
+    document.addEventListener("count-changed", (event) => {
+      document.querySelector("[data-cy=plain-count-value]").textContent =
+        String(event.detail.count);
+      document.querySelector("[data-cy=plain-count-delta]").textContent =
+        String(event.detail.delta);
+    });
+
+    document.addEventListener("item-archived", (event) => {
+      document.querySelector("[data-cy=fancy-archived-value]").textContent =
+        String(event.detail.itemId);
+    });
+
+    document.querySelector("[data-cy=fancy-archive-btn]").addEventListener("click", () => {
+      document.getElementById("fancy-list").dispatchAction("archive", {id: 2});
+    });
+  </script>
+</body>
+</html>

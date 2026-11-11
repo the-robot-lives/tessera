@@ -1,0 +1,183 @@
+// Tier-2 conformance harness — Hologram-in-element (Cypress).
+//
+// lit-parity §4.2 / EXTENSION-CONTRACT §9: Tier 2 runs the SAME tier-agnostic
+// cases as Tier 1, mounted as standalone Hologram custom elements with an init
+// wait. The host is the demo Hologram app's /holo_runtime page, whose glue
+// registers `tsr-holo-counter` (HoloKit.Components.Counter) via the
+// priv/tessera_holo runtime.
+//
+// Mount handle contract (identical to Tier 1 — see test/conformance/README.md):
+//   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?), settle() }
+//
+// Case bodies are pure DOM + awaited plain promises (no cy commands inside a
+// case), so the shared Tier-1 bodies run here unchanged. The window is captured
+// ONCE in visitTier2Host(); mount() then creates a fresh element and polls for
+// its shadow mount (the runtime mounts asynchronously — the init wait). Every
+// accessor uses the live element, never a stale Cypress subject snapshot.
+
+/// <reference types="cypress" />
+
+const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
+
+export type ConformanceHandle = {
+  el: HTMLElement;
+  tag: string;
+  shadowRoot: ShadowRoot;
+  win: Window;
+  waitFor: (fn: () => boolean, timeout?: number) => Promise<void>;
+  nextEvent: (name: string, node?: EventTarget, timeout?: number) => Promise<any>;
+  settle: () => Promise<void>;
+};
+
+// Tier-2 fixture tags. The shared counter (C/T/E family) + the state probe
+// (extension-contract X-03) + the pipeline probe (HoloKit.Components.
+// PipelineProbe — the exact Hologram mirror of the Tier-1 `tsr-conf-pipeline`
+// fixture: same state keys, same bump/select_item/seed_cache semantics, same
+// internal: annotation) — the shared X-05…X-11/X-20 bodies mount "pipeline".
+// "lifecycle" (tsr-holo-lifecycle, brief 3c) is the Counter module wrapped in a
+// recording subclass: el.tesseraLifecycleLog gains {hook, changed, domText}
+// entries per render — the LC family + C-13/C-14 mount it. Cases outside these
+// fixtures are adapter-pending on Tier 2 (their fixtures land with the
+// remaining feature briefs).
+const FIXTURES: Record<string, string> = {
+  counter: "tsr-holo-counter",
+  state: "tsr-holo-state-probe",
+  pipeline: "tsr-holo-pipeline-probe",
+  lifecycle: "tsr-holo-lifecycle",
+  // brief 3e: "slots" is the SlotProbe fixture — the template's data-tsr-slot
+  // markers become real <slot> elements via the shim's vnode rewrite
+  // (priv/tessera_holo/src/tessera_holo.mjs, rewriteSlotVnodes); the SD case
+  // selectors ([data-cy=conf-slots-*] slot) hit them. "form" is the
+  // FormProbe fixture — manifest-declared formAssociated ⇒ ElementInternals,
+  // driven through the glue recording subclass (setFormValue on render,
+  // reset_value on formResetCallback, signals in el.tesseraFormSignals).
+  slots: "tsr-holo-slot-probe",
+  form: "tsr-holo-form-probe",
+  // brief 3f: the §5.9 takeover chain mounts the chain-OUTERMOST layer
+  // (glue registered vendor + three tag: :inherit module layers; the
+  // wrapper re-pointed the mount module to TakeoverProbeExtCcc whose
+  // compiled base_action/3 spine contains every layer). "derived" is the
+  // §5.10 derivation fixture — the vendor derived onto its OWN tag with a
+  // new :reset action (X-16).
+  takeover: "tsr-holo-takeover-probe",
+  derived: "tsr-holo-takeover-derived",
+  // X-13 (§6.6): the subclass-hooks fixture — the SAME StateProbe module
+  // mounted through the glue's StateSubProbeElement subclass (every
+  // documented hook overridden with a real super call, traced into
+  // el.x13Trace). The shared subclassHooksBody mounts it and proves the
+  // super-chains + reserved-member enforcement on the instance.
+  subclass: "tsr-holo-state-sub",
+};
+
+let ctx: {win: Window} | null = null;
+const mounted: HTMLElement[] = [];
+
+/** Visit the Hologram-in-element host and capture the AUT window (init wait). */
+export function visitTier2Host(): void {
+  cy.visit(`${HOLO}/holo_runtime`);
+  cy.get('[data-cy="hr-title"]', {timeout: 15_000}).should("contain", "holo runtime");
+  cy.window({log: false}).then((win) => {
+    ctx = {win: win as unknown as Window};
+  });
+  // Prove the runtime registered + mounted a counter before any case runs.
+  cy.get('[data-cy="panel-hr-counter"] tsr-holo-counter', {timeout: 15_000})
+    .shadow()
+    .find('[data-cy="holo-counter-root"]')
+    .should("exist");
+}
+
+function makeWaitFor(win: Window) {
+  return (fn: () => boolean, timeout = 5_000): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const start = Date.now();
+      const tick = () => {
+        let ok = false;
+        try {
+          ok = fn();
+        } catch {
+          ok = false;
+        }
+        if (ok) return resolve();
+        if (Date.now() - start > timeout) return reject(new Error("conformance: waitFor timed out"));
+        win.setTimeout(tick, 25);
+      };
+      tick();
+    });
+}
+
+function makeNextEvent(win: Window) {
+  return (name: string, node: EventTarget = win.document, timeout = 5_000): Promise<any> =>
+    new Promise((resolve, reject) => {
+      const timer = win.setTimeout(() => {
+        node.removeEventListener(name, handler);
+        reject(new Error(`conformance: nextEvent("${name}") timed out`));
+      }, timeout);
+      function handler(event: Event) {
+        win.clearTimeout(timer);
+        node.removeEventListener(name, handler);
+        resolve((event as CustomEvent).detail);
+      }
+      node.addEventListener(name, handler);
+    });
+}
+
+/**
+ * mount(spec) — create a fresh fixture element on the host page, apply attrs,
+ * connect it, and wait for the runtime to mount its shadow root (init wait).
+ */
+export function mount(spec: {fixture: string; attrs?: Record<string, string>}): Promise<ConformanceHandle> {
+  const tag = FIXTURES[spec.fixture];
+  if (!tag) return Promise.reject(new Error(`conformance: unknown Tier-2 fixture "${spec.fixture}"`));
+  if (!ctx) return Promise.reject(new Error("conformance: visitTier2Host() must run before mount()"));
+  const win = ctx.win;
+  return new Promise((resolve, reject) => {
+    const el = win.document.createElement(tag);
+    for (const [name, value] of Object.entries(spec.attrs ?? {})) el.setAttribute(name, value);
+    win.document.body.appendChild(el);
+    mounted.push(el);
+    const start = Date.now();
+    const wait = () => {
+      const sr = el.shadowRoot;
+      if (sr) {
+        // Tier-agnostic settle (§9): brief 3c gives the shim a real render-
+        // commit fence — el.updateComplete resolves once the snabbdom patch of
+        // an in-flight render commits (Tier 2 renders SYNCHRONOUSLY inside
+        // dispatchAction/setProps, so at idle it resolves immediately with the
+        // DOM already current). settle() = that fence + a macrotask flush, the
+        // Tier-1 "await el.updateComplete" equivalent.
+        const settle = () => {
+          const fence = (el as unknown as {updateComplete?: Promise<unknown>}).updateComplete;
+          return Promise.resolve(fence).then(
+            () => new Promise<void>((flush) => win.setTimeout(() => void flush(), 0)),
+          );
+        };
+        const handle: ConformanceHandle = {
+          el,
+          tag,
+          shadowRoot: sr,
+          win,
+          waitFor: makeWaitFor(win),
+          nextEvent: makeNextEvent(win),
+          settle,
+        };
+        // Init wait also rides the fence: the first render commits during
+        // connectedCallback, so every case starts from a settled first render.
+        void settle().then(() => resolve(handle));
+      } else if (Date.now() - start > 15_000) {
+        reject(new Error(`conformance: <${tag}> never mounted a shadow root`));
+      } else {
+        win.setTimeout(wait, 25);
+      }
+    };
+    wait();
+  });
+}
+
+/** afterEach cleanup — remove mounted elements (pure DOM, no cy command). */
+export function cleanup(): void {
+  if (!ctx) return;
+  while (mounted.length) {
+    const el = mounted.pop();
+    el?.remove();
+  }
+}

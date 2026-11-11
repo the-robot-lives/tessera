@@ -1,0 +1,19 @@
+{
+  "name": "spike-kit-tests",
+  "private": true,
+  "type": "module",
+  "description": "SpikeKit \u2014 SPIKE (spike/elixir-to-lit) element package: WTR harness + esbuild ESM/UMD packaging for the generated Lit elements.",
+  "scripts": {
+    "test": "wtr --config web-test-runner.config.mjs",
+    "test:watch": "wtr --config web-test-runner.config.mjs --watch",
+    "test:runtime": "npm run build:bundles && wtr --config web-test-runner.runtime.config.mjs",
+    "build:bundles": "node scripts/build-bundles.mjs"
+  },
+  "devDependencies": {
+    "@open-wc/testing": "^4.0.0",
+    "@web/test-runner": "^0.20.2",
+    "lit": "^3.3.3",
+    "@noizu/tessera-core": "file:../../priv/js",
+    "esbuild": "^0.25.0"
+  }
+}

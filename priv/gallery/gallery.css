@@ -1,0 +1,197 @@
+/* tessera gallery chrome — framework-agnostic, self-contained (no CDN).
+   Neutral slate/indigo palette; all controls are native, keyboard-operable
+   elements with visible focus. */
+
+:root {
+  --tsr-gallery-bg: #f8fafc;
+  --tsr-gallery-surface: #ffffff;
+  --tsr-gallery-border: #cbd5e1;
+  --tsr-gallery-text: #1e293b;
+  --tsr-gallery-muted: #475569;
+  --tsr-gallery-accent: #4338ca;
+  --tsr-gallery-accent-soft: #eef2ff;
+  --tsr-gallery-invalid: #b91c1c;
+}
+
+body {
+  margin: 0;
+  background: var(--tsr-gallery-bg);
+  color: var(--tsr-gallery-text);
+  font-family: system-ui, -apple-system, sans-serif;
+  line-height: 1.45;
+}
+
+.tsr-gallery-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+.tsr-gallery-page > header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.tsr-gallery-page > header p {
+  margin: 0 0 1.5rem;
+  color: var(--tsr-gallery-muted);
+}
+
+.tsr-gallery-component {
+  background: var(--tsr-gallery-surface);
+  border: 1px solid var(--tsr-gallery-border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.tsr-gallery-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-family: ui-monospace, monospace;
+  color: var(--tsr-gallery-accent);
+}
+
+.tsr-gallery-desc {
+  margin: 0.25rem 0 0;
+  color: var(--tsr-gallery-muted);
+  font-size: 0.9rem;
+}
+
+.tsr-gallery-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 800px) {
+  .tsr-gallery-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tsr-gallery-group {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tsr-gallery-muted);
+}
+
+.tsr-gallery-stage {
+  border: 1px dashed var(--tsr-gallery-border);
+  border-radius: 8px;
+  padding: 1rem;
+  min-height: 3rem;
+  background: var(--tsr-gallery-bg);
+}
+
+.tsr-gallery-events,
+.tsr-gallery-parts {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--tsr-gallery-muted);
+}
+
+.tsr-gallery-detail-schema {
+  font-family: ui-monospace, monospace;
+}
+
+.tsr-gallery-log {
+  margin: 0;
+  padding: 0.5rem 0.5rem 0.5rem 1.75rem;
+  list-style: decimal;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  min-height: 2.5rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.tsr-gallery-log-line {
+  padding: 1px 0;
+  word-break: break-word;
+}
+
+.tsr-gallery-log-name {
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+.tsr-gallery-clear {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--tsr-gallery-muted);
+  background: none;
+  border: 1px solid var(--tsr-gallery-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.tsr-gallery-row {
+  margin-bottom: 0.6rem;
+}
+
+.tsr-gallery-row label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.15rem;
+  font-size: 0.85rem;
+}
+
+.tsr-gallery-control-name {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+
+.tsr-gallery-badge {
+  font-size: 0.7rem;
+  color: var(--tsr-gallery-accent);
+  background: var(--tsr-gallery-accent-soft);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.tsr-gallery-row input[type="text"],
+.tsr-gallery-row input[type="number"],
+.tsr-gallery-row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--tsr-gallery-text);
+  background: var(--tsr-gallery-surface);
+  border: 1px solid var(--tsr-gallery-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.tsr-gallery-row textarea {
+  font-family: ui-monospace, monospace;
+  resize: vertical;
+}
+
+.tsr-gallery-row input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--tsr-gallery-accent);
+}
+
+.tsr-gallery-invalid {
+  border-color: var(--tsr-gallery-invalid) !important;
+  outline: 1px solid var(--tsr-gallery-invalid);
+}
+
+.tsr-gallery-row input:focus-visible,
+.tsr-gallery-row textarea:focus-visible,
+.tsr-gallery-clear:focus-visible {
+  outline: 2px solid var(--tsr-gallery-accent);
+  outline-offset: 1px;
+}

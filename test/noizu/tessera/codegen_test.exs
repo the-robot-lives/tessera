@@ -78,6 +78,179 @@ defmodule Noizu.Tessera.CodegenTest do
       assert cem["schemaVersion"] == "1.0.0"
       assert [%{"kind" => "javascript-module", "path" => "bare_thing.ex"}] = cem["modules"]
     end
+
+    test "per-module `tessera` custom field carries extensionApi + every action name (§8.3)" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        actions: [
+          %{name: :bump, js: "x", line: 1},
+          %{name: :seed_cache, js: "x", line: 2, internal: true}
+        ]
+      }
+
+      [module] = Codegen.cem([spec])["modules"]
+
+      # Defaulted to the first stable version when the spec declares none;
+      # EVERY action name in declaration order (D2 — the open surface,
+      # `internal:` included). The `internal:` annotation lives in the
+      # declaration-level doc entries above, not in this flat name list.
+      assert module["tessera"] == %{"extensionApi" => "1.0.0", "actions" => ["bump", "seed_cache"]}
+
+      declared =
+        Codegen.cem([%Spec{spec | extension_api: "2.1.0"}])["modules"] |> hd()
+
+      assert declared["tessera"] == %{"extensionApi" => "2.1.0", "actions" => ["bump", "seed_cache"]}
+    end
+
+    test "the `tessera` field carries formAssociated ONLY when the spec declares it (§6.7)" do
+      spec = %Spec{tag: "bare-thing", module: Some.Mod}
+
+      assert hd(Codegen.cem([spec])["modules"])["tessera"] == %{
+               "extensionApi" => "1.0.0",
+               "actions" => []
+             }
+
+      form =
+        Codegen.cem([%Spec{spec | form_associated: true}])["modules"] |> hd()
+
+      assert form["tessera"]["formAssociated"] == true
+    end
+
+    test "action docs list declared names in order; internal flag only on annotated ones (§5.3)" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        actions: [
+          %{name: :bump, js: "x", line: 1},
+          %{name: :seed_cache, js: "x", line: 2, internal: true},
+          %{name: :from_base, js: "x", line: 3, inherited: true}
+        ]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      # declaration order preserved; internal: true rides as ADVISORY docs only
+      # (D2: never access control); inherited flag is not documented
+      assert declaration["actions"] == [
+               %{"name" => "bump"},
+               %{"name" => "seed_cache", "internal" => true},
+               %{"name" => "from_base"}
+             ]
+    end
+
+    test "styles DSL: every tag-scoped var() read is declared with its fallback, sorted (EXTENSION-CONTRACT §7)" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        styles: [
+          %{
+            kind: :css,
+            value: "a{color:var(--tsr-bare-thing-z, 1px); gap:var(--tsr-bare-thing-a, 2px)}",
+            line: 1
+          },
+          %{kind: :css, value: "b{color:var(--tsr-bare-thing-z, 9px)}", line: 2},
+          %{kind: :shared, value: "./s.mjs", line: 3}
+        ]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["cssProperties"] == [
+               %{"name" => "--tsr-bare-thing-a", "default" => "2px"},
+               %{"name" => "--tsr-bare-thing-z", "default" => "1px"}
+             ]
+    end
+
+    test "explicit css declarations win over scanned reads of the same name" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        css_properties: [%{name: "--tsr-bare-thing-a", default: "9px", line: 1}],
+        styles: [%{kind: :css, value: "a{gap:var(--tsr-bare-thing-a, 2px)}", line: 2}]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["cssProperties"] == [
+               %{"name" => "--tsr-bare-thing-a", "default" => "9px"}
+             ]
+    end
+
+    test "cssParts: root plus template-declared parts; spec-only components claim no root" do
+      templated = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        template: %{
+          lexer: :minimal,
+          raw: ~s(<div part="row"><b part="cell row"></b></div>),
+          render_js: "html``",
+          line: 1
+        }
+      }
+
+      [declaration] = Codegen.cem([templated])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["cssParts"] == [
+               %{"name" => "root"},
+               %{"name" => "row"},
+               %{"name" => "cell"}
+             ]
+
+      [spec_only] =
+        Codegen.cem([%Spec{tag: "bare-thing", module: Some.Mod}])["modules"]
+        |> hd()
+        |> Map.fetch!("declarations")
+
+      assert spec_only["cssParts"] == []
+      assert spec_only["cssProperties"] == []
+    end
+
+    test "members carry camelCase names, json flags and JSON-literal defaults" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      members = Map.new(decl["members"], &{&1["name"], &1})
+
+      assert members["tagList"]["default"] == "[]"
+      assert members["tagList"]["json"] == true
+      assert members["filters"]["default"] == "{}"
+      assert members["maxCount"]["default"] == "10"
+      refute Map.has_key?(members["maxCount"], "json")
+    end
+
+    test "css properties and parts come from the spec DSL declarations (+ styles scans)" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+
+      # Explicit `css` declaration first, then the styles DSL's scanned
+      # tag-scoped reads (sorted) — the unified theming surface.
+      assert decl["cssProperties"] == [
+               %{"name" => "--persona-card-accent", "default" => "#6366f1"},
+               %{"name" => "--tsr-persona-card-accent", "default" => "#6cf"},
+               %{"name" => "--tsr-persona-card-gap", "default" => "4px"}
+             ]
+
+      assert decl["cssParts"] == [%{"name" => "select-button"}]
+    end
+
+    test "events carry a camelCase detail schema; empty specs emit empty css lists" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      select = Enum.find(decl["events"], &(&1["name"] == "persona-select"))
+
+      assert select["type"] == %{"text" => "CustomEvent"}
+
+      assert select["detail"] == %{
+               "personaId" => %{"text" => "string"},
+               "clickCount" => %{"text" => "integer"}
+             }
+
+      bare = Codegen.cem([%Spec{tag: "bare-thing"}])
+      [bare_decl] = hd(bare["modules"])["declarations"]
+      assert bare_decl["cssProperties"] == []
+      assert bare_decl["cssParts"] == []
+      assert bare_decl["slots"] == [%{"name" => "default"}]
+    end
   end
 
   describe "write_contract_module/2" do

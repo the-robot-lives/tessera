@@ -117,6 +117,15 @@ export function getBridge() {
     tags: new Set(),
     /** @type {Map<string, Set<Function>>} tag → behavior fns (behaviors.mjs) */
     behaviors: new Map(),
+    /**
+     * @type {Map<string, Array<{mixin: Function, depth: number, priority: number, module: string, seq: number}>}}
+     * tag → queued tag-takeover mixins (extend.mjs, EXTENSION-CONTRACT.md §5.9),
+     * consumed by defineOnce at the tag's first definition. Bridge-held so
+     * duplicate module copies share ONE queue.
+     */
+    extensions: new Map(),
+    /** Registration-order counter for the extensions queue (§6.4 onion tie). */
+    extendSeq: 0,
     registerEvents,
     parseTsrOn,
   };

@@ -6,7 +6,8 @@
 import { tesseraSteps as steps } from "../support/tessera/steps";
 import { tesseraAsserts as asserts } from "../support/tessera/asserts";
 
-describe("tessera hologram demo — Link navigation round trip", () => {
+// @fast: core-claim smoke (Link navigation) — runs in the fast per-change lane.
+describe("tessera hologram demo — Link navigation round trip", { tags: "@fast" }, () => {
   it("(e) main → second → main keeps tessera elements live", () => {
     // Given the main page with a mounted card
     steps.visitHologramMain();

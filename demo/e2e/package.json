@@ -4,9 +4,13 @@
   "description": "Cypress e2e for the tessera demo apps (Hologram host + plain HTML)",
   "scripts": {
     "open": "cypress open",
-    "run": "cypress run"
+    "run": "cypress run",
+    "test": "cypress run",
+    "test:fast": "cypress run --expose grepTags=@fast",
+    "test:slow": "cypress run --expose grepTags=@slow"
   },
   "devDependencies": {
+    "@cypress/grep": "^7.0.0",
     "cypress": "15.20.0",
     "typescript": "^5.5.0"
   }
