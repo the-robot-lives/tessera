@@ -28,11 +28,14 @@ export type ConformanceHandle = {
   nextEvent: (name: string, node?: EventTarget, timeout?: number) => Promise<any>;
 };
 
-// Tier-2 fixture tags. Only the counter fixture is wired today; the props /
-// events fixtures (and the rest of the surface) land with the feature briefs,
-// so those cases are adapter-pending on Tier 2.
+// Tier-2 fixture tags. The shared counter (C/T/E family) + the state probe
+// (extension-contract X family — HoloKit.Components.StateProbe, behaviorally
+// the Hologram mirror of the Tier-1 `tsr-conf-state` fixture). Cases outside
+// these fixtures are adapter-pending on Tier 2 (their fixtures land with the
+// remaining feature briefs).
 const FIXTURES: Record<string, string> = {
   counter: "tsr-holo-counter",
+  state: "tsr-holo-state-probe",
 };
 
 let ctx: {win: Window} | null = null;

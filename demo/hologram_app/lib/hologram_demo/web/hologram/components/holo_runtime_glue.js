@@ -38,11 +38,15 @@ export function loadHoloRuntime() {
     const rt = await import(BASE + BUNDLE);
 
     await import(BASE + "counter.esm.js");
+    await import(BASE + "state_probe.esm.js");
     await import(BASE + "editable_list.esm.js");
     await import(BASE + "fancy_list.esm.js");
     await import(BASE + "tidy_list.esm.js");
 
     rt.defineElement("tsr-holo-counter", "HoloKit.Components.Counter");
+    // Tier-2 conformance fixture for the extension-contract state/action
+    // surface (brief 3d; mirrors the Tier-1 `state` fixture behaviorally).
+    rt.defineElement("tsr-holo-state-probe", "HoloKit.Components.StateProbe");
     // takeover first: markup elements upgrade against the layered module
     rt.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
     // the untouched vendor element stays mountable under an explicit alias

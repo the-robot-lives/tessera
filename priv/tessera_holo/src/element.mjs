@@ -1,4 +1,4 @@
-// Tessera Holo element shell (Tier 2 spike).
+// Tessera Holo element shell (Tier 2).
 //
 // Standard custom element: one isolated Hologram component instance per
 // element, mounted into the element's open shadow root.
@@ -11,23 +11,34 @@
 //     re-dispatched as composed, bubbling CustomEvents — picked up by the
 //     existing `data-tsr-on` bridge on Hologram hosts, plain
 //     addEventListener anywhere else,
-//   * spike item B element API (no Hologram imports, no
-//     globalThis.Hologram access from the extender's side):
-//       el.onAction(name, (params, next) => ...)
-//       el.dispatchAction(name, params)
-//       el.state                      // read-only plain-object snapshot
+//   * the element implements the EXTENSION-CONTRACT §6 instance surface,
+//     identical to Tier 1 (§9 runtime equivalence):
+//       el.state                      // fresh frozen camelCase snapshot +
+//                                     // non-enumerable snake aliases (§6.2);
+//                                     // frozen {} pre-mount, never null
+//       el.onAction(name, interceptor) // element-owned onion chain (first =
+//                                     // outermost); returns unsubscribe;
+//                                     // survives disconnect/reconnect, works
+//                                     // pre-mount (§6.4)
+//       el.dispatchAction(name, params) // DispatchResult | Promise<...>
+//                                     // (§6.3); either casing; open surface
 //       el.setProps({...})            // property/JS API
-//       class X extends customElements.get("...") { transformProps(p) {...} }
-//         — documented overridable hooks: `transformProps(props)` (last
-//         chance to alter props before mount/update) and `onActionError(name, error)`.
+//       transitions fire `tsr-state-change` on the element after re-render
+//       (§6.2 — not bridge traffic); pipeline failures fire
+//       `tsr-action-error` (§6.4)
+//     class X extends customElements.get("...") { transformProps(p) {...} }
+//       — documented overridable hooks: `transformProps(props)` (last
+//       chance to alter props before mount/update) and `onActionError(name, error)`.
 
 import {
   isRuntimeReady,
   mountComponent,
   getDescriptor,
+  normalizeActionName,
   kebabToSnake,
   camelKeysDeep,
   snakeKeysDeep,
+  EMPTY_SNAPSHOT,
 } from "./tessera_holo.mjs";
 
 const RESERVED_ATTRS = new Set(["tsr-props", "module", "class", "id", "style", "slot"]);
@@ -37,6 +48,16 @@ const tagModules = new Map();
 export class TesseraHoloElement extends HTMLElement {
   static get observedAttributes() {
     return ["tsr-props"];
+  }
+
+  constructor() {
+    super();
+
+    // Element-owned action hooks (EXTENSION-CONTRACT §6.4): the registry
+    // lives on the ELEMENT, not the mount instance — registrations survive
+    // disconnect/reconnect and can be made pre-mount. mountComponent mounts
+    // this same Map into its instance, so live mounts see it immediately.
+    this.__tesseraHooks = new Map();
   }
 
   // Documented overridable hook: alter props before every mount/update.
@@ -91,6 +112,8 @@ export class TesseraHoloElement extends HTMLElement {
 
     this.__mount.destroy();
     this.__mount = null;
+    // __tesseraHooks deliberately SURVIVES — interceptor registrations are
+    // per-element and outlive connections (§6.4).
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
@@ -108,32 +131,65 @@ export class TesseraHoloElement extends HTMLElement {
     this.__mount.setProps(this.transformProps({...this.#gatherProps(), ...snakeKeysDeep(props)}));
   }
 
-  // spike item B — intercept an action before the Hologram interpreter
-  // runs it; `next(params?)` continues (with replacement params), not
-  // calling it swallows the action.
+  // EXTENSION-CONTRACT §6.4 — intercept an action before the Hologram
+  // interpreter runs it. Name accepted in snake/camel/kebab case; storage is
+  // element-owned, so registration works pre-mount and across
+  // disconnect/reconnect. Onion order: FIRST-registered OUTERMOST (D3).
+  // Returns the unsubscribe function. `next(params?)` continues (with
+  // replacement params in either casing); not calling it VETOES the action —
+  // no downstream stage runs, no state change, no events (§6.4). A stage
+  // that throws surfaces to the pipeline (tsr-action-error +
+  // {ok:false, reason:"error"}) after onActionError observes it.
   onAction(actionName, hook) {
-    if (!this.__mount) return;
+    const key = normalizeActionName(actionName);
+    const chain = this.__tesseraHooks.get(key) || [];
 
-    this.__mount.hook(actionName, (params, next) => {
+    const wrapped = (params, next) => {
       try {
         return hook(params, next);
       } catch (error) {
         this.onActionError(actionName, error);
-        return undefined;
+        throw error;
       }
-    });
+    };
+
+    chain.push(wrapped);
+    this.__tesseraHooks.set(key, chain);
+
+    return () => {
+      const current = this.__tesseraHooks.get(key) || [];
+      const at = current.indexOf(wrapped);
+
+      if (at >= 0) current.splice(at, 1);
+    };
   }
 
-  // spike item B — invoke a component action from host JS
+  // EXTENSION-CONTRACT §6.3 — invoke a component action from host JS.
+  // Returns DispatchResult (or Promise<DispatchResult> when a stage is
+  // async): {ok:true, value: post-transition snapshot} on commit;
+  // {ok:false, reason:"unknown-action"} on unknown names (warn, nothing
+  // emitted); {ok:false, reason:"vetoed"} on stage cancellation or a stale
+  // post-disconnect resolution (U6); {ok:false, reason:"error"} on stage /
+  // action errors (plus tsr-action-error).
   dispatchAction(actionName, params) {
-    if (!this.__mount) return undefined;
+    if (!this.__mount) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[tessera-holo] dispatchAction('${actionName}') before mount — no component instance`,
+      );
+
+      return {ok: false, reason: "error"};
+    }
 
     return this.__mount.dispatchAction(actionName, params);
   }
 
-  // spike item B — read-only plain-object state snapshot
+  // EXTENSION-CONTRACT §6.2 — fresh frozen snapshot per access: canonical
+  // camelCase keys + NON-ENUMERABLE snake_case aliases; top-level frozen
+  // only (nested values shared, treat as read-only). Pre-mount /
+  // post-destroy: the frozen EMPTY snapshot — never null.
   get state() {
-    return this.__mount ? this.__mount.stateSnapshot() : null;
+    return this.__mount ? this.__mount.stateSnapshot() || EMPTY_SNAPSHOT : EMPTY_SNAPSHOT;
   }
 
   // private methods --------------------------------------------------------
@@ -145,6 +201,7 @@ export class TesseraHoloElement extends HTMLElement {
 
     this.__mount = mountComponent(this.shadowRoot, moduleName, this.transformProps(this.#gatherProps()), {
       element: this,
+      hooks: this.__tesseraHooks,
     });
   }
 
@@ -238,6 +295,17 @@ export function defineElement(tagName, moduleName, elementClass = TesseraHoloEle
     // already used for another tag (NotSupportedError).
     const Base = elementClass;
     const TagClass = class extends Base {};
+
+    // §6.1 static surface, read off the component manifest. manifest.actions
+    // / manifest.extension_api populate from the compiled spec with brief 3f;
+    // until then the documented fallbacks stand (open-surface list [] —
+    // dispatch stays name-driven, D2).
+    const manifest = getDescriptor(moduleName);
+
+    TagClass.tesseraTag = tagName.toLowerCase();
+    TagClass.tesseraContractVersion = 1;
+    TagClass.tesseraExtensionApi = (manifest && manifest.extension_api) || "1.0.0";
+    TagClass.tesseraActions = Object.freeze([...((manifest && manifest.actions) || [])]);
 
     customElements.define(tagName, TagClass);
   }
