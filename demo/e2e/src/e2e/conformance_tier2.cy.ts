@@ -33,13 +33,15 @@ type ConfCase = {
   run: ((mount: typeof mount, expect: Chai.ExpectStatic) => Promise<void>) | null;
 };
 
-// Registers the before/afterEach hooks + one it() per case. Pending cases
-// (registry-level or adapter-level) are skipped — never green.
+// Registers a fresh-host visit + one it() per case. Pending cases (registry-
+// level or adapter-level) are skipped — never green.
+//
+// Each runnable case gets its OWN host visit: the standalone Hologram runtime
+// keeps per-document interpreter state, and reusing one page across cases let
+// a prior case's mounted/removed elements leak into the next (the case promise
+// then never resolved). A fresh visit per case reproduces the isolated,
+// proven-green pattern and keeps cases independent.
 function registerCases(cases: ConfCase[]): void {
-  before(() => {
-    visitTier2Host();
-  });
-
   afterEach(() => {
     cleanup();
   });
@@ -48,7 +50,12 @@ function registerCases(cases: ConfCase[]): void {
     it(`${k.id} — ${k.title}`, function () {
       if (k.status === "pending") this.skip(); // unimplemented / accepted-as-gap
       if (!SUPPORTED.has(k.id)) this.skip(); // Tier-2 fixture not wired yet
-      return k.run!(mount, expect);
+      visitTier2Host(); // fresh page + ctx per case
+      // The case body is a tier-agnostic async fn whose waitFor/nextEvent poll
+      // via the AUT window's timers (cross-realm). Hand it to Cypress through a
+      // .then command so the runner awaits it (a bare returned promise is torn
+      // down mid-await); the assertions still run unchanged (non-vacuous).
+      return cy.window({log: false}).then(() => k.run!(mount, expect));
     });
   }
 }

@@ -13,7 +13,22 @@ defmodule HologramDemo.MixProject do
       # priv/static/hologram (part of `mix compile`).
       compilers: Mix.compilers() ++ [:hologram],
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps()
+    ]
+  end
+
+  # Tier-2 serving bundles. The /holo_runtime glue (holo_runtime_glue.js)
+  # dynamic-imports /tessera/tessera-runtime.esm.js + the four component
+  # bundles, served by the endpoint's Plug.Static from priv/static/tessera.
+  # `mix tessera.install` only wires assets/npm — it does NOT emit these
+  # bundles; without this step every page whose bundle carries the glue
+  # 404s on the runtime (the e2e-smoke RED bug). CI + scripts/acceptance.sh
+  # run `mix tessera.bundles` BEFORE booting the demo.
+  defp aliases do
+    [
+      "tessera.bundles":
+        "tessera.compile_component HoloKit.Components.EditableList HoloKit.Components.Counter ThirdParty.FancyList ThirdParty.TidyList --out priv/static/tessera"
     ]
   end
 

@@ -13,9 +13,12 @@ const PICKER = '[data-cy="gallery-component"][data-tag="persona-picker"]';
 const cardDemo = `${CARD} [data-cy="gallery-demo"] persona-card`;
 const pickerDemo = `${PICKER} [data-cy="gallery-demo"] persona-picker`;
 
-// @fast: gallery acceptance (CEM-driven live demos + editors + event log) —
-// quick (3s) and core to the gallery claim, so it gates the fast lane.
-describe("tessera component gallery (persona_kit)", { tags: "@fast" }, () => {
+// @slow: gallery acceptance (CEM-driven live demos + editors + event log).
+// The gallery is a component vitrine, NOT part of the shadow-event core claim
+// (docs/notes/test-tiering.md) — it moved out of the blocking fast gate so
+// e2e-smoke boots only :5586 + :5587. Coverage is kept: the nightly full suite
+// boots the gallery (:5588) and runs these 7 scenarios there.
+describe("tessera component gallery (persona_kit)", { tags: "@slow" }, () => {
   beforeEach(() => {
     // Given the generated gallery serves the package's CEM + bundles
     steps.visitGallery();

@@ -25,6 +25,13 @@ defmodule NoizuTessera.MixProject do
     ]
   end
 
+  # `mix test.fast` is an alias, so Mix does not auto-switch it to :test the
+  # way the built-in `mix test` does — pin the env so it runs the test suite
+  # from any caller (local runner, CI) without an explicit MIX_ENV.
+  def cli do
+    [preferred_envs: ["test.fast": :test]]
+  end
+
   # Test tiering (docs/notes/test-tiering.md). The fast per-change lane runs
   # `mix test.fast`, which excludes anything tagged `:slow` or `:nightly`;
   # plain `mix test` still runs the WHOLE suite (integration + nightly lanes).
