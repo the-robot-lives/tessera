@@ -26,7 +26,8 @@ fixtures = [
   Tessera.TestFixtures.Conformance.State,
   Tessera.TestFixtures.Conformance.Template,
   Tessera.TestFixtures.Conformance.Styles,
-  Tessera.TestFixtures.Conformance.Slots
+  Tessera.TestFixtures.Conformance.Slots,
+  Tessera.TestFixtures.Conformance.Directives
 ]
 
 out_dir = Path.expand("js/test/fixtures/conformance", File.cwd!())

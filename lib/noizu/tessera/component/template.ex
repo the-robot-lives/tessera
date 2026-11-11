@@ -656,7 +656,18 @@ defmodule Noizu.Tessera.Component.Template do
   end
 
   defp node_js({:text, s}, _ctx), do: escape_lit_text(s)
-  defp node_js({:expr, ast}, ctx), do: "${__t(#{Expr.translate(ast, ctx)})}"
+
+  # Child position: a directive (class_map/style_map/if_defined) or the bare
+  # `nothing` sentinel emits WITHOUT the __t wrapper — directives are valid
+  # child expressions and `nothing` must reach lit-html untouched (__t would
+  # pass it through anyway, but the unquoted form is the canonical one).
+  defp node_js({:expr, ast}, ctx) do
+    if directive_ast?(ast) do
+      "${#{Expr.translate(ast, ctx)}}"
+    else
+      "${__t(#{Expr.translate(ast, ctx)})}"
+    end
+  end
 
   defp node_js({:if, ast, children, []}, ctx) do
     inner = Enum.map_join(children, "", &node_js(&1, ctx))
@@ -718,6 +729,20 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp attr_js({name, {:static, s}}, _ctx) do
     ~s(#{name}="#{escape_attr(s)}")
+  end
+
+  # A single directive expression in attribute position (class={class_map(…)},
+  # style={style_map(…)}, title={if_defined(…)}, title={nothing}) emits UNQUOTED
+  # and without __t — lit-html directive part position. A quoted directive is
+  # treated as a string; `nothing` unquoted removes the attribute.
+  defp attr_js({name, {:parts, [{:expr, e}]}}, ctx) do
+    ast = if is_binary(e), do: to_ast(e, ctx), else: e
+
+    if directive_ast?(ast) do
+      "#{name}=${#{Expr.translate(ast, ctx)}}"
+    else
+      "#{name}=\"${__t(#{Expr.translate(ast, ctx)})}\""
+    end
   end
 
   defp attr_js({name, {:parts, parts}}, ctx) do
@@ -833,6 +858,14 @@ defmodule Noizu.Tessera.Component.Template do
           description: "invalid template expression `#{expr}`: #{msg}"
     end
   end
+
+  # Directive forms recognized in template expression position (lit-parity 1d).
+  # `nothing` is the bare identifier (nil/atom context), never a call with args.
+  defp directive_ast?({:class_map, _, [_]}), do: true
+  defp directive_ast?({:style_map, _, [_]}), do: true
+  defp directive_ast?({:if_defined, _, [_]}), do: true
+  defp directive_ast?({:nothing, _, ctx}) when is_atom(ctx), do: true
+  defp directive_ast?(_), do: false
 
   defp component_tag?(<<?_, _::binary>>), do: false
 

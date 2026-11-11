@@ -243,6 +243,83 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
     end
   end
 
+  describe "empty properties (template-only component regression)" do
+    # A template-bearing component with ZERO attrs/props/state used to emit
+    # `static properties = { , }` (a SyntaxError). It must emit a valid `{}`.
+    defp bare_spec do
+      %Spec{spec() | attrs: [], props: [], state: [], actions: [], lifecycle: %{}}
+    end
+
+    test "no attrs/props/state emits a valid empty object, never { , }" do
+      js = LitCodegen.element_module(bare_spec())
+      assert js =~ "static properties = {};"
+      refute js =~ "{ , }"
+      refute js =~ "{\n      ,"
+    end
+
+    test "the template-only element module is valid JavaScript (node --check)" do
+      js = LitCodegen.element_module(bare_spec())
+      dir = Path.join(System.tmp_dir!(), "tessera-empty-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      path = Path.join(dir, "bare.element.generated.mjs")
+      File.write!(path, js)
+
+      # node is the WTR runtime dep; when present, prove the bytes parse as ESM.
+      # The substring assertion above is the unconditional regression guard.
+      if System.find_executable("node") do
+        {out, status} = System.cmd("node", ["--check", path], stderr_to_stdout: true)
+        assert status == 0, "node --check rejected the generated module:\n#{out}"
+      end
+    end
+  end
+
+  describe "directive imports (lit-parity 1d)" do
+    test "no directives → plain lit import, no directive subpath imports" do
+      js = LitCodegen.element_module(spec())
+      assert js =~ ~S|import { LitElement, html, css } from "lit";|
+      refute js =~ "lit/directives/"
+      refute js =~ ~S|import { LitElement, html, css, nothing }|
+    end
+
+    test "each directive import (and nothing) is emitted when used" do
+      with_dir = %Spec{
+        spec()
+        | template: %{
+            lexer: :minimal,
+            raw: "x",
+            line: 6,
+            render_js:
+              ~S|html`<div class=${classMap({a: true})} style=${styleMap({color: "red"})} title=${ifDefined(this.x)}>${nothing}</div>`|
+          }
+      }
+
+      js = LitCodegen.element_module(with_dir)
+      assert js =~ ~S|import { LitElement, html, css, nothing } from "lit";|
+      assert js =~ ~S|import { classMap } from "lit/directives/class-map.js";|
+      assert js =~ ~S|import { styleMap } from "lit/directives/style-map.js";|
+      assert js =~ ~S|import { ifDefined } from "lit/directives/if-defined.js";|
+    end
+
+    test "a single directive imports only its own module" do
+      only_class = %Spec{
+        spec()
+        | template: %{
+            lexer: :minimal,
+            raw: "x",
+            line: 6,
+            render_js: ~S|html`<div class=${classMap({a: true})}></div>`|
+          }
+      }
+
+      js = LitCodegen.element_module(only_class)
+      assert js =~ ~S|import { classMap } from "lit/directives/class-map.js";|
+      refute js =~ "style-map.js"
+      refute js =~ "if-defined.js"
+      refute js =~ ~S|import { LitElement, html, css, nothing }|
+    end
+  end
+
   describe "write_element_module/2" do
     test "writes when absent, :unchanged when identical, rewrites when different" do
       dir = Path.join(System.tmp_dir!(), "tessera-lit-#{System.unique_integer([:positive])}")
