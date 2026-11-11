@@ -367,7 +367,7 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
 
       # the §6 extension descriptor carries the MERGED state + actions (brief 2a)
       assert js =~
-               ~s|class DerivedWidget extends TesseraElement(WidgetBase, contract, {state: ["count","extra"], actions: ["increment","bump"], internalActions: []})|
+               ~s|class DerivedWidget extends TesseraElement(WidgetBase, contract, {state: ["count","extra"], actions: ["increment","bump"], internalActions: [], extensionApi: "1.0.0"})|
       assert js =~ ~S|import { WidgetBase } from "./widget-base.element.generated.mjs"|
       assert js =~ ~S|import contract from "./derived_widget.contract.generated.mjs"|
       # base artifacts are referenced, never re-emitted
@@ -411,7 +411,7 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
     test "a fresh (non-derived) spec still lowers through the fresh path" do
       js = LitCodegen.element_module(spec())
       assert js =~
-               ~s|class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: []})|
+               ~s|class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: [], extensionApi: "1.0.0"})|
       assert js =~ "const baseStyles = css`"
       # template-bound invocations ride the public action pipeline (§6.4)
       assert js =~ "return this.__tesseraDispatch(name, params, ev);"
@@ -424,7 +424,7 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
         |> LitCodegen.element_module()
 
       assert js =~
-               ~s|extends TesseraElement(LitElement, contract, {state: ["count","selected_id","meta"], actions: ["bump","select_item","seed_cache"], internalActions: ["seed_cache"]})|
+               ~s|extends TesseraElement(LitElement, contract, {state: ["count","selected_id","meta"], actions: ["bump","select_item","seed_cache"], internalActions: ["seed_cache"], extensionApi: "1.0.0"})|
 
       # the legacy direct-handler RunAction body is GONE — everything routes
       # through __tesseraDispatch (interceptors see template-bound invocations)

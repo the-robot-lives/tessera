@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfSlots extends TesseraElement(LitElement, contract, {state: [], actions: [], internalActions: []}) {
+class TsrConfSlots extends TesseraElement(LitElement, contract, {state: [], actions: [], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {};
 
   static styles = [baseStyles];

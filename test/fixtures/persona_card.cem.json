@@ -110,7 +110,11 @@
         }
       ],
       "kind": "javascript-module",
-      "path": "persona_card.mjs"
+      "path": "persona_card.mjs",
+      "tessera": {
+        "actions": [],
+        "extensionApi": "1.0.0"
+      }
     }
   ],
   "schemaVersion": "1.0.0"

@@ -20,7 +20,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfDirectives extends TesseraElement(LitElement, contract, {state: ["active","highlight"], actions: ["toggle_active","toggle_highlight"], internalActions: []}) {
+class TsrConfDirectives extends TesseraElement(LitElement, contract, {state: ["active","highlight"], actions: ["toggle_active","toggle_highlight"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       active: { type: Boolean },
       highlight: { type: Boolean },

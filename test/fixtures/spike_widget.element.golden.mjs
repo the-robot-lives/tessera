@@ -17,7 +17,7 @@ const baseStyles = css`
 }
 `;
 
-class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: []}) {
+class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       count: { type: Number, attribute: false },
       label: { type: String, attribute: "custom-label", reflect: true },

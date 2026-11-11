@@ -18,7 +18,7 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfStyles extends TesseraElement(LitElement, contract, {state: [], actions: [], internalActions: []}) {
+class TsrConfStyles extends TesseraElement(LitElement, contract, {state: [], actions: [], internalActions: [], extensionApi: "1.0.0"}) {
   static properties = {
       tone: { type: String },
     };
