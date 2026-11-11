@@ -78,6 +78,58 @@ defmodule Noizu.Tessera.CodegenTest do
       assert cem["schemaVersion"] == "1.0.0"
       assert [%{"kind" => "javascript-module", "path" => "bare_thing.ex"}] = cem["modules"]
     end
+
+    test "declares every tag-scoped var() read with its fallback, sorted (EXTENSION-CONTRACT §7)" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        styles: [
+          %{
+            kind: :css,
+            value: "a{color:var(--tsr-bare-thing-z, 1px); gap:var(--tsr-bare-thing-a, 2px)}",
+            line: 1
+          },
+          %{kind: :css, value: "b{color:var(--tsr-bare-thing-z, 9px)}", line: 2},
+          %{kind: :shared, value: "./s.mjs", line: 3}
+        ]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["cssCustomProperties"] == [
+               %{"name" => "--tsr-bare-thing-a", "default" => "2px"},
+               %{"name" => "--tsr-bare-thing-z", "default" => "1px"}
+             ]
+    end
+
+    test "parts: root plus template-declared parts; spec-only components claim none" do
+      templated = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        template: %{
+          lexer: :minimal,
+          raw: ~s(<div part="row"><b part="cell row"></b></div>),
+          render_js: "html``",
+          line: 1
+        }
+      }
+
+      [declaration] = Codegen.cem([templated])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["parts"] == [
+               %{"name" => "root"},
+               %{"name" => "row"},
+               %{"name" => "cell"}
+             ]
+
+      [spec_only] =
+        Codegen.cem([%Spec{tag: "bare-thing", module: Some.Mod}])["modules"]
+        |> hd()
+        |> Map.fetch!("declarations")
+
+      assert spec_only["parts"] == []
+      assert spec_only["cssCustomProperties"] == []
+    end
   end
 
   describe "write_contract_module/2" do

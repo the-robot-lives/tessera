@@ -44,6 +44,7 @@ end
 | `event "name-detail"` | CustomEvent the element emits | binding prop `on_persona_select`, default action `persona_select`, `data-tsr-on="persona-select:action@target"` |
 | `slot "name"` | declared slot (documented in manifest) | passthrough `<slot />` |
 | `cy "name"` | `data-cy` value | rendered verbatim |
+| `styles ~CSS"…"` / `styles […]` | author CSS for the generated Lit element | `static styles = [baseStyles, …author entries]` |
 
 All DSL options must be compile-time literals (variables and module attributes
 raise a `CompileError` pointing at the call site).
@@ -75,6 +76,50 @@ passed by every caller or declare a `default:`**, otherwise the template's
 are declared). This bites json props referenced via `tsr-props` in particular:
 give every json prop a `default:` (`[]`, `%{}`) unless you guarantee callers
 always pass it.
+
+### Styles
+
+`styles` declares author CSS for the generated Lit element (lit-parity §2.5;
+theming contract in EXTENSION-CONTRACT.md §7). Entries are compile-time
+literals: a `~CSS` sigil block, a plain string, or a `{:shared, "path.mjs"}`
+tuple naming a Lit shared-styles module (`export const styles = css`…``).
+A single entry or a static list composes; repeated declarations append in
+order:
+
+```elixir
+styles [
+  {:shared, "./shared_styles.mjs"},
+  ~CSS"""
+  :host { padding: var(--tsr-my-card-padding, 8px); }
+  :host([tone="dark"]) { background: #111; }
+  ::slotted(p) { margin: 0; }
+  """,
+  ".row { display: flex; }"
+]
+```
+
+The generated element composes `static styles = [baseStyles, …author entries]`
+— `baseStyles` carries tessera's fixed `:host` defaults (`display: block`,
+system font stack) and always comes first; author entries follow in
+declaration order, so later entries win the cascade. `:host`, `:host([attr])`,
+`:host(.class)` and `::slotted()` pass through verbatim; Lit validates the CSS
+at runtime (tessera does not parse it). Backticks, `${` and backslashes in
+author CSS are escaped for the `css`` literal.
+
+**Theming contract (EXTENSION-CONTRACT.md §7).** Every custom property the
+element reads must be `--tsr-<tag>-<prop>` (tag verbatim, prop lower-kebab)
+and MUST carry a `var()` fallback — a tag-scoped read without one raises a
+`CompileError` naming the property. Reads are declared in the CEM
+(`cssCustomProperties`, with the fallback default); un-prefixed globals and
+other tags' properties pass through but are not this element's declared
+surface. The host exposes a `root` part; `part="…"` attributes in the template
+are declared in the CEM (`parts`) and reachable via `::part()` from the outer
+tree. Properties read only inside a `{:shared, …}` module are JS-side and not
+scanned — declare them in the component's own `styles` block too.
+
+`styles` without a `template` is legal: the entries flow to the manifest and
+CEM (spec-only / hand-written-JS components declare their theming surface the
+same way); only template-bearing components get a generated element.
 
 ## What `mix compile` generates
 
@@ -108,15 +153,18 @@ call. See docs/CONTRACT.md §3/§5 for the render + bridge mechanics.
 
 ## Test goldens (contributors)
 
-The ExUnit suite pins the generators' byte output for the `PersonaCard`
-fixture against checked-in goldens (`test/fixtures/persona_card.contract.golden.mjs`
-— the wire interface, CONTRACT.md §2 — and `persona_card.cem.json`). They are
-never bootstrapped by the tests: a missing or stale golden FAILS the suite.
-After an INTENTIONAL generator change, regenerate both explicitly and review
-the diff against CONTRACT.md §2 before committing:
+The ExUnit suite pins the generators' byte output against checked-in goldens:
+the `PersonaCard` fixture's contract module (`test/fixtures/persona_card.contract.golden.mjs`
+— the wire interface, CONTRACT.md §2) and CEM (`persona_card.cem.json`), plus
+the generated Lit element for the hand-built spike-widget spec
+(`spike_widget.element.golden.mjs`, shared with `mix tessera.golden` via
+`test/support/spike_widget_spec.ex`). They are never bootstrapped by the
+tests: a missing or stale golden FAILS the suite. After an INTENTIONAL
+generator change, regenerate all three explicitly and review the diff against
+CONTRACT.md §2 before committing:
 
 ```sh
-MIX_ENV=test mix tessera.golden        # rewrites both goldens
+MIX_ENV=test mix tessera.golden        # rewrites all three goldens
 MIX_ENV=test mix tessera.golden --check  # verify-only
 ```
 

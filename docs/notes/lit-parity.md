@@ -459,26 +459,26 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 79 | css tag | static styles = css`` | 🔌 Hand-written | 🔌 fixed boilerplate | 🔌 Wrapper has static styles; Hologram styles are separate | Tier 2: Hologram's CSS lives in Hologram's own system · Tier 1: css`` is emitted but content is fixed :host boilerplate (lit_codegen.ex:50-55); no Elixir CSS DSL exists |
+| 79 | css tag | static styles = css`` | 🔌 Hand-written | ✅ styles DSL emits author css`` blocks | 🔌 Wrapper has static styles; Hologram styles are separate | Tier 2: Hologram's CSS lives in Hologram's own system · Tier 1 (2026-11-11): `styles ~CSS`/string/list DSL; codegen emits one css`` block per author entry (escaped for the literal) |
 | 80 | Static styles (Constructable Stylesheets) | static styles | 🔌 Hand-written Lit styles | ✅ confirmed: output uses static styles | 🟡 Wrapper uses static styles; Hologram content styled separately | Tier 1: output does use static styles (golden fixture:18-23) — prior 🔌 was an underclaim |
-| 81 | Style array composition | [a, b, css``] | 🔌 Hand-written | ❌ | 🔌 Wrapper composes styles | Tier 1: single fixed css``; no composition |
-| 82 | Style inheritance | [...Parent.styles] | 🔌 Hand-written | ❌ | 🔌 Wrapper inherits | Tier 1: not modeled |
-| 83 | :host selector | :host { ... } | 🔌 Hand-written | 🔌 boilerplate only | 🔌 Wrapper uses :host | Tier 1: :host present in the fixed boilerplate only (golden fixture:19-22); author cannot add rules |
-| 84 | :host([attr]) | :host([active]) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses :host([attr]) | Tier 1: boilerplate has plain :host only |
-| 85 | :host(.class) | :host(.primary) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses :host(.class) | Tier 1: not modeled |
-| 86 | :host-context(.theme) | :host-context(.dark) | ❌ | ❌ | 🔌 | host styles any part (open root); no scoped sheet shipped · Tier 1: not modeled |
-| 87 | ::slotted() | ::slotted(p) { ... } | 🔌 Hand-written | ❌ | 🔌 Wrapper uses ::slotted | Tier 1: not modeled |
+| 81 | Style array composition | [a, b, css``] | 🔌 Hand-written | ✅ [baseStyles, …author entries] | 🔌 Wrapper composes styles | Tier 1 (2026-11-11): css blocks + shared-module bindings compose in declaration order = cascade order (WTR S-06) |
+| 82 | Style inheritance | [...Parent.styles] | 🔌 Hand-written | ✅ baseStyles inherited via array composition | 🔌 Wrapper inherits | Tier 1 (2026-11-11): every element composes [baseStyles, …author] — the tessera base's styles are the inherited parent entry; cross-component vendor derivation ([...Vendor.styles]) rides EXTENSION-CONTRACT §5 (pending) |
+| 83 | :host selector | :host { ... } | 🔌 Hand-written | ✅ author :host rules | 🔌 Wrapper uses :host | Tier 1 (2026-11-11): author :host rules append after baseStyles (WTR S-01) |
+| 84 | :host([attr]) | :host([active]) | 🔌 Hand-written | ✅ passthrough | 🔌 Wrapper uses :host([attr]) | Tier 1 (2026-11-11): :host([tone="dark"]) verified toggling with the attribute (WTR S-02) |
+| 85 | :host(.class) | :host(.primary) | 🔌 Hand-written | ✅ passthrough | 🔌 Wrapper uses :host(.class) | Tier 1 (2026-11-11): :host(.highlighted) verified toggling with the class (WTR S-02) |
+| 86 | :host-context(.theme) | :host-context(.dark) | ❌ | ❌ | 🔌 | host styles any part (open root); no scoped sheet shipped · Tier 1: not modeled (verbatim passthrough would reach Lit, untested) |
+| 87 | ::slotted() | ::slotted(p) { ... } | 🔌 Hand-written | ✅ passthrough | 🔌 Wrapper uses ::slotted | Tier 1 (2026-11-11): ::slotted(p) verified on a slotted child (WTR S-03) |
 | 88 | :defined | my-el:defined | 🔌 Native browser CSS | 🔌 Native | 🔌 Native | |
-| 89 | ::part() (exportparts) | ::part(button) | ❌ | ❌ | 🔌 | moot — open root, everything styleable · Tier 1: fixed styles; no exportparts |
-| 90 | CSS custom properties | var(--name, fallback) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses CSS custom properties | Tier 1: boilerplate uses no var(); no author CSS |
-| 91 | CSS custom property naming | --comp-name-prop | 🟡 Manual convention | ❌ | 🟡 Manual convention | Tier 1: nothing generated |
-| 92 | Shared style modules | export const styles = css`` | 🔌 Hand-written | ❌ | 🔌 Wrapper imports shared styles | Tier 1: not modeled |
-| 93 | unsafeCSS | unsafeCSS(str) | ❌ | ❌ | ❌ | no dynamic CSS string injection · Tier 1: not modeled |
+| 89 | ::part() (exportparts) | ::part(button) | ❌ | 🟡 parts exposed; exportparts not modeled | 🔌 | Tier 1 (2026-11-11): host exposes a `root` part + template `part="…"` attrs, declared in CEM `parts`; outer-tree ::part(accent) styling verified (WTR X-14); composite exportparts re-exposure still unmodeled |
+| 90 | CSS custom properties | var(--name, fallback) | 🔌 Hand-written | ✅ var(--tsr-<tag>-*, fallback) | 🔌 Wrapper uses CSS custom properties | Tier 1 (2026-11-11): fallback REQUIRED at compile time for tag-scoped reads; declared in CEM cssCustomProperties; ancestor overrides verified (WTR S-04/X-14) |
+| 91 | CSS custom property naming | --comp-name-prop | 🟡 Manual convention | ✅ --tsr-<tag>-<prop> | 🟡 Manual convention | Tier 1 (2026-11-11): the scanner only recognizes --tsr-<tag>-<lower-kebab> reads (EXTENSION-CONTRACT §7); other var() reads pass through undeclared |
+| 92 | Shared style modules | export const styles = css`` | 🔌 Hand-written | ✅ {:shared, "path.mjs"} | 🔌 Wrapper imports shared styles | Tier 1 (2026-11-11): imports the module's `styles` CSSResult into the array at the declared position; deduped per path (WTR S-05) |
+| 93 | unsafeCSS | unsafeCSS(str) | ❌ | ❌ | ❌ | no dynamic CSS string injection · Tier 1: not modeled (deliberate — author CSS is static and escaped) |
 | 94 | shadowRootOptions | static shadowRootOptions | 🔌 Hand-written | ❌ | 🔌 Wrapper sets shadowRootOptions | Tier 1: not emitted |
 | 95 | delegatesFocus | delegatesFocus: true | 🔌 Hand-written | ❌ | 🔌 Wrapper sets delegatesFocus | Tier 1: not emitted |
 | 96 | createRenderRoot (light DOM) | createRenderRoot() { return this; } | ❌ | ❌ | 🔌 | open shadow today; light-DOM root is a small wrapper change, not implemented · Tier 1: not modeled |
-| 97 | Design system token pattern | Two-level tokens | 🟡 Manual in CSS | ❌ | 🟡 Manual | Tier 1: no token DSL |
-| 98 | Theme switching | CSS custom property overrides | 🔌 Hand-written | ❌ | 🔌 Wrapper | Tier 1: boilerplate references no custom properties |
+| 97 | Design system token pattern | Two-level tokens | 🟡 Manual in CSS | ❌ | 🟡 Manual | Tier 1: no token DSL (var() chains work in author CSS, unmodeled) |
+| 98 | Theme switching | CSS custom property overrides | 🔌 Hand-written | ✅ ancestor --tsr-* overrides | 🔌 Wrapper | Tier 1 (2026-11-11): setting --tsr-<tag>-* on an ancestor re-themes host + shadow content (WTR S-04) |
 
 ### 2.6 Shadow DOM
 
@@ -670,18 +670,20 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 Both tier columns of §2 are now fully investigated against their spikes: Tier 1 against the completed compiler spike (`spike/elixir-to-lit` @ `103c776`), Tier 2 against the in-progress runtime spike (`spike/hologram-runtime-element`, +2517 LOC WIP @ `9db5bb6`, verdicts merged in 6f79246). Every cell carries a verdict with evidence in Notes — except the single open row **#164** (Tier 2 framework SSR integrations, §2.12), kept ❓ with its reason.
 
-Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/🟡/🔌/❌/❓`. Under the Tier 1 audit's folded convention (🟡 + 🔌 reported together), Tier 1 is **39 ✅ / 95 🔌 / 93 ❌** — identical to the audit's published P-counts.
+Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/🟡/🔌/❌/❓`. Under the Tier 1 audit's folded convention (🟡 + 🔌 reported together), Tier 1 is **50 ✅ / 94 🔌 / 83 ❌** (2026-11-11 styles-DSL recount; the original audit published 39 ✅ / 95 🔌 / 93 ❌).
 
 ### 3.1 Headline counts (per Lit priority)
 
 | Priority | Phase 1 today | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) |
 |---|---|---|---|
-| P0 (80) | 0/13/62/5/0 | **32**/0/29/**19**/0 | 4/14/47/15/0 |
-| P1 (83) | 0/3/40/**40**/0 | 7/2/31/**43**/0 | 5/2/43/33/0 |
-| P2 (64) | 0/0/17/47/0 | 0/0/33/31/0 | 1/0/27/35/1 |
-| **Total (227)** | 0/16/119/**92**/0 | **39**/2/93/**93**/0 | 10/16/117/**83**/1 |
+| P0 (80) | 0/13/62/5/0 | **40**/0/27/**13**/0 | 4/14/47/15/0 |
+| P1 (83) | 0/3/40/**40**/0 | 10/2/31/**40**/0 | 5/2/43/33/0 |
+| P2 (64) | 0/0/17/47/0 | 0/1/33/30/0 | 1/0/27/35/1 |
+| **Total (227)** | 0/16/119/**92**/0 | **50**/3/91/**83**/0 | 10/16/117/**83**/1 |
 
-**Corrected gap framing (supersedes the old "Tier 1 P0 gap: 0" claim).** The audit removes the earlier claim that no P0 feature is strictly missing. Tier 1 has **19 unsupported P0 features**, and the reason is structural: `behaviors.add` runs only at connect/disconnect — it has **no update-time seam** — so it cannot cover `willUpdate`, `updated`, `changedProperties`, `classMap`, `styleMap`, or author CSS (there is no Elixir CSS DSL; codegen emits a fixed `:host` boilerplate). The escape hatches (`behaviors.add` + subclassing) remain real for imperative DOM and controller-shaped features at element granularity, but they do not reach the update phase or per-binding template positions.
+**2026-11-11 delta (styles DSL, `feature/styles-dsl` → `epic.tier1-parity`).** Tier 1 flips 12 §2.5 cells: P0 #79/#83 🔌→✅ and #81/#82/#84/#85/#90/#92 ❌→✅ (8); P1 #87/#91/#98 ❌→✅ (3); P2 #89 ❌→🟡 (parts exposed, exportparts still unmodeled). Evidence: `styles` DSL + composed `static styles` codegen, CEM `cssCustomProperties`/`parts`, ExUnit 214 + spike_kit WTR 20 (S-01…S-06, X-14) + core WTR 80. The original audit's counts (32/0/29/19 P0, 39/2/93/93 total) are preserved in the delta note above for provenance.
+
+**Corrected gap framing (supersedes the old "Tier 1 P0 gap: 0" claim; recount 2026-11-11).** The audit removes the earlier claim that no P0 feature is strictly missing. Tier 1 now has **13 unsupported P0 features** (was 19 before the styles DSL). The remaining band is structural: `behaviors.add` runs only at connect/disconnect — it has **no update-time seam** — so it cannot cover `willUpdate`, `updated`, `changedProperties`, `classMap`, `styleMap`; and there is no directive pipeline. Author CSS is no longer part of the gap — the `styles` DSL covers it. The escape hatches (`behaviors.add` + subclassing) remain real for imperative DOM and controller-shaped features at element granularity, but they do not reach the update phase or per-binding template positions.
 
 **Corrected Tier 2 status (supersedes the old "spike not started / zero commits" claim).** Tier 2 is no longer a paper architecture: `spike/hologram-runtime-element` carries a working wrapper — a plain `TesseraHoloElement extends HTMLElement` with an open shadow root and the Hologram interpreter/snabbdom inside, **no LitElement anywhere** — and its §2 verdicts are spike-confirmed. Where Tier 2 wins it wins on runtime reality: server round-trips, actions, live state, and a native `isServer` split (#161).
 
@@ -691,7 +693,7 @@ Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/�
 - **2.2 Reactive properties.** Both cover the P0 core (attr declarations, `@state`, static properties, attr→prop conversion, boolean semantics, immutable-update detection). Tier 1's generated `static properties = {key: {type}}` is decorator-free and contract-driven but option-poor: no attribute/reflect/converter/hasChanged options, four converter types with an Object fallback. Tier 2 does manifest-typed casting plus tsr-props JSON but also has no reflection — attrs flow one-way in. Phase 1's hand-written bridge is the only place property options remain reachable.
 - **2.3 Templates.** Tier 1 compiles a fixed-grammar DSL to real lit-html: child/attr parts, `$event`→`@event`, `{%if}` ternaries, `{%for}`→`Array.prototype.map`, nested templates, lit-native caching. Tier 2's renderer is Hologram's own (no lit-html), but its conditionals and lists are native to that system. Tier 1 rejects boolean `?attr` syntax and component tags at compile time; Tier 2 has no lit-html parts at all.
 - **2.4 Directives.** The starkest Tier 1 gap: **no directive pipeline in codegen**. classMap/styleMap/repeat/cache/guard/live/keyed/unsafeHTML/unsafeSVG are ❌; when/map/join/ifDefined are ternary or Array-method lookalikes, not the directives; custom/async directives survive only as behaviors.add element-granularity approximations. Tier 2's wrapper could use directives in its own markup, but none apply to Hologram-rendered content.
-- **2.5 Styles.** Tier 1 emits a fixed `:host` boilerplate `css`` block: `static styles` is genuinely ✅ (the audit corrected the earlier underclaim), but everything above it — composition, inheritance, `:host` variants, `::slotted`, custom properties, tokens, themes, shadowRootOptions — is unmodeled because there is no Elixir CSS DSL. Alongside directives, this is Tier 1's biggest corrected gap. Tier 2 keeps a wrapper static styles with Hologram content styled in its own system.
+- **2.5 Styles.** Tier 1 (2026-11-11) has a real Elixir CSS DSL: `styles` accepts `~CSS` blocks, plain strings and `{:shared, "path.mjs"}` modules, composing `static styles = [baseStyles, …author entries]` in declaration order. `:host`/`:host([attr])`/`:host(.class)`/`::slotted()` pass through verbatim; `var(--tsr-<tag>-*, fallback)` reads require a fallback at compile time and are declared in the CEM (`cssCustomProperties`), as are the host `root` part and template `part="…"` names (`parts`). Theming via ancestor `--tsr-*` overrides is WTR-verified (S-01…S-06, X-14). Still unmodeled: `:host-context` (untested passthrough), `unsafeCSS` (deliberate), shadowRootOptions/delegatesFocus, light-DOM render root, a two-level token DSL, and composite `exportparts`. Tier 2 keeps a wrapper static styles with Hologram content styled in its own system.
 - **2.6 Shadow DOM.** Slots work in both via markup passthrough (Tier 1's `slot` declaration validates but is never consumed by codegen); the @query family is behaviors.add-reachable in Tier 1 and shadowRoot-queryable in Tier 2's open root. Slot wiring (assignedElements/Nodes, slotchange into the component) is unimplemented in the Tier 2 spike; closed shadow roots are unavailable in Tier 1 (no shadowRootOptions emission).
 - **2.7 Events.** Tier 1's `emit/2` is a real composed+bubbles CustomEvent with camelCase detail keys — the P0 event path is solid — but fixed-shape: no cancelable, no listener options, no conditional binding, no dispatch-after-render, one-way detail. Tier 2 wins the richer patterns: composed bubbling by design, and the onAction-intercept request/response shape (#123) is one of its ✅s (e2e pending).
 - **2.8 Reactive controllers.** Neither tier has the controller host API. Tier 1's behaviors.add matches hostConnected/hostDisconnected and multi-behavior composition, but hostUpdate/hostUpdated are ❌ — behaviors have no update-time hook. Tier 2 offers subclass connected/disconnected hooks with the same update-phase hole.
@@ -710,9 +712,9 @@ Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/�
 
 Per the approved parity plan (2026-11-11):
 
-1. **Tier 1 leads the implementation lane** — it is the only tier with a completed, byte-proven compiler spike and real packaging. Land its P0 first; the 19-feature P0 ❌ band above is the honest worklist, split into "unreachable without an update-time seam" (lifecycle/hooks) and "unreachable without a directive/CSS pipeline" (styles).
+1. **Tier 1 leads the implementation lane** — it is the only tier with a completed, byte-proven compiler spike and real packaging. Land its P0 first; the 13-feature P0 ❌ band above is the honest worklist (was 19 before the 2026-11-11 styles DSL), split into "unreachable without an update-time seam" (lifecycle/hooks) and "unreachable without a directive pipeline" (directives).
 2. **The extension contract is the deliverable** — both tiers compile into it; consumers target it, not tier internals.
-3. **Accept the 43 universal gaps** — the audit's P1 ❌ band (directives, styles DSL, lifecycle hooks, i18n/CEM/.d.ts generation) is accepted as out of scope for the DSL, covered by escape hatches where possible and documented as unsupported elsewhere.
+3. **Accept the 40 universal gaps** — the audit's P1 ❌ band (directives, lifecycle hooks, i18n/CEM/.d.ts generation; the styles-DSL rows landed 2026-11-11) is accepted as out of scope for the DSL, covered by escape hatches where possible and documented as unsupported elsewhere.
 4. **Tier 2 continues as the WIP stateful-component lane** (+2517 LOC @ 9db5bb6) behind the same contract; its remaining ❓/#164-class questions (framework SSR integrations, Declarative Shadow DOM) ride the Phase 2 host-swap work.
 
 **Decision framing.** Choose **Tier 1** when the goal is Lit-grade interop and distribution — npm/UMD/import-map consumption, ecosystem tooling over rendered elements, zero-JS authorship from Elixir. Choose **Tier 2** when the goal is stateful Hologram-native components — server round-trips, actions, live state, native server/client split. Neither approximates the other's core: Tier 1 cannot model the Hologram runtime; Tier 2 cannot model Lit's update lifecycle, directives, or styles DSL. Both feed the same extension contract.

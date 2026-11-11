@@ -252,7 +252,8 @@ defmodule Noizu.Tessera.SpecTest do
                "slots" => ["header"],
                "state" => [],
                "actions" => [],
-               "template" => nil
+               "template" => nil,
+               "styles" => []
              }
 
       # Must be JSON-encodable (the manifest task writes it verbatim).

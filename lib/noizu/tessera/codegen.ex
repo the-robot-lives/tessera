@@ -17,6 +17,7 @@ defmodule Noizu.Tessera.Codegen do
   `test/fixtures/` pin their exact output.
   """
 
+  alias Noizu.Tessera.Component.Styles
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Spec
 
@@ -152,6 +153,35 @@ defmodule Noizu.Tessera.Codegen do
 
   defp inline_list(entries), do: "[#{Enum.join(entries, ", ")}]"
 
+  # Theming contract (EXTENSION-CONTRACT.md §7): every --tsr-<tag>-* property
+  # the element's author CSS reads, with its var() fallback default. Reads
+  # inside {:shared, …} modules are JS-side and not scanned — the consuming
+  # component declares those in its own styles block.
+  defp cem_css_custom_properties(%Spec{tag: nil}), do: []
+
+  defp cem_css_custom_properties(%Spec{} = spec) do
+    spec.styles
+    |> Enum.filter(&(&1.kind == :css))
+    |> Enum.flat_map(&Styles.custom_property_reads(&1.value, spec.tag))
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.sort_by(& &1.name)
+    |> Enum.map(fn
+      %{name: name, default: nil} -> %{"name" => name}
+      %{name: name, default: default} -> %{"name" => name, "default" => default}
+    end)
+  end
+
+  # The generated element exposes a `root` part on the host plus every part
+  # declared in the template markup. Spec-only components (no template) have
+  # no generated DOM to make that claim about.
+  defp cem_parts(%Spec{template: nil}), do: []
+
+  defp cem_parts(%Spec{} = spec) do
+    ["root" | Styles.parts(spec.template.raw)]
+    |> Enum.uniq()
+    |> Enum.map(&%{"name" => &1})
+  end
+
   defp cem_module(%Spec{} = spec) do
     path = if spec.js, do: spec.js, else: snake_tag(spec) <> ".ex"
 
@@ -198,7 +228,9 @@ defmodule Noizu.Tessera.Codegen do
                 end)
             }
           end),
-        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end)
+        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
+        "cssCustomProperties" => cem_css_custom_properties(spec),
+        "parts" => cem_parts(spec)
       }
     ]
 
