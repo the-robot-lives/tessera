@@ -1,0 +1,94 @@
+{
+  "modules": [
+    {
+      "declarations": [
+        {
+          "attributes": [
+            {
+              "name": "display-name",
+              "required": true,
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "default": "false",
+              "name": "disabled",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "customElements": false,
+          "description": "tessera component persona-card (spec: Tessera.TestFixtures.PersonaCard)",
+          "events": [
+            {
+              "detail": {
+                "clickCount": {
+                  "text": "integer"
+                },
+                "personaId": {
+                  "text": "string"
+                }
+              },
+              "name": "persona-select",
+              "type": {
+                "text": "CustomEvent"
+              }
+            },
+            {
+              "detail": {
+                "hovered": {
+                  "text": "boolean"
+                }
+              },
+              "name": "persona-hover",
+              "type": {
+                "text": "CustomEvent"
+              }
+            }
+          ],
+          "kind": "custom-element-definition",
+          "members": [
+            {
+              "json": true,
+              "kind": "field",
+              "name": "tagList",
+              "type": {
+                "text": "list"
+              }
+            },
+            {
+              "json": true,
+              "kind": "field",
+              "name": "filters",
+              "type": {
+                "text": "map"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "maxCount",
+              "type": {
+                "text": "integer"
+              }
+            }
+          ],
+          "name": "persona-card",
+          "slots": [
+            {
+              "name": "header"
+            },
+            {
+              "name": "footer"
+            }
+          ],
+          "tagName": "persona-card"
+        }
+      ],
+      "kind": "javascript-module",
+      "path": "persona_card.mjs"
+    }
+  ],
+  "schemaVersion": "1.0.0"
+}

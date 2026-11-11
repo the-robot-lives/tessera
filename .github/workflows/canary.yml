@@ -1,0 +1,57 @@
+# Upstream-drift canary: compile + test the library against
+# noizu-forks/hologram branch `dev` instead of the hex pin.
+#
+# The adapter compiles against Hologram 0.10.x internals (init-pair callback
+# semantics, Hologram.Component presence check) while demos pin hex
+# `~> 0.10.1` — upstream changes otherwise land with zero tessera signal.
+# SCHEDULED + MANUAL ONLY: this never runs on pull requests, so it is
+# non-blocking by construction (if it is ever added to PR CI, keep
+# continue-on-error: true).
+
+name: Canary (noizu-forks/hologram dev)
+
+on:
+  schedule:
+    - cron: "37 5 * * 1" # weekly, Mondays 05:37 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exunit-fork-hologram:
+    runs-on: ubuntu-latest
+    env:
+      # Read by mix.exs deps/0: swaps the hex pin for the git fork.
+      TESSERA_HOLOGRAM: git
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - name: Restore deps + build (fork cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-canary-${{ runner.os }}-${{ github.sha }}
+          restore-keys: mix-canary-${{ runner.os }}-
+
+      # mix.lock pins the hex hologram — unlock so deps.get resolves the git
+      # fork this run exists to test (the lockfile itself is not modified in
+      # the checkout; CI is ephemeral).
+      - name: Resolve deps against the fork
+        run: rm -f mix.lock && mix deps.get
+
+      - name: Compile + test against noizu-forks/hologram@dev
+        run: |
+          mix compile --warnings-as-errors
+          mix test
