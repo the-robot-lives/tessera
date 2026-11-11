@@ -29,7 +29,22 @@ export const cases = [
   }),
 
   pendingCase({id: "X-02", family: "X", fast: false, title: "runtime attrs/props/events/slots match the generated contract exactly", reason: "full contract-surface fixture owed (2a/2b)"}),
-  pendingCase({id: "X-03", family: "X", fast: true, title: "contract events dispatch composed+bubbling CustomEvents, camelCase detail", reason: "contract-declared event fixture owed (2a); E-family pins the emit boundary"}),
+  defineCase({
+    id: "X-03",
+    family: "X",
+    fast: true,
+    title: "contract events dispatch composed+bubbling CustomEvents, camelCase detail",
+    async run(mount, expect) {
+      // Compiled-DSL "state" fixture declares conf-state-ping (detail count /
+      // delta); the action emits it through @noizu/tessera-core's emit().
+      const h = await mount({fixture: "state"});
+      // document is OUTSIDE the shadow tree — only a composed event reaches it.
+      const detail = h.nextEvent("conf-state-ping", h.win.document);
+      clickCy(h, "conf-state-inc");
+      const got = await detail;
+      expect(got).to.deep.equal({count: 1, delta: 1});
+    },
+  }),
 
   defineCase({
     id: "X-04",
@@ -58,7 +73,23 @@ export const cases = [
   pendingCase({id: "X-11", family: "X", fast: true, title: "error path — throwing stage ⇒ tsr-action-error + ok:false", reason: "action error path lands with brief 2a"}),
   pendingCase({id: "X-12", family: "X", fast: true, title: "behaviors — add/connect/cleanup, throw isolation, remove, unsubscribe", reason: "behaviors conformance fixture owed (2f); core pinned by js/test/element.test.mjs"}),
   pendingCase({id: "X-13", family: "X", fast: false, title: "subclass hooks — allowed set super-chains; reserved members enforced", reason: "subclass hooks land with brief 2e / 3f"}),
-  pendingCase({id: "X-14", family: "X", fast: true, title: "theming — declared parts exist; custom properties resolve with fallbacks", reason: "theming contract landed (1b); compiled-element fixture owed"}),
+  defineCase({
+    id: "X-14",
+    family: "X",
+    fast: true,
+    title: "theming — declared parts exist; custom properties resolve with fallbacks",
+    async run(mount, expect) {
+      const h = await mount({fixture: "styles"});
+      // The host exposes a root part (connectedCallback); the template declares
+      // row + accent parts.
+      expect(h.el.getAttribute("part")).to.equal("root");
+      expect(h.shadowRoot.querySelector("[part=row]")).to.not.equal(null);
+      expect(h.shadowRoot.querySelector("[part=accent]")).to.not.equal(null);
+      // A declared tag-scoped custom property resolves via its fallback.
+      const accent = h.shadowRoot.querySelector("[data-cy=conf-styles-accent]");
+      expect(h.win.getComputedStyle(accent).color).to.equal("rgb(102, 204, 255)");
+    },
+  }),
   pendingCase({id: "X-15", family: "X", fast: false, title: "tesseraExtensionApi / manifest / CEM agree; major-mismatch pin warns", reason: "extension_api versioning lands with brief 2b"}),
   pendingCase({id: "X-16", family: "X", fast: true, title: "Elixir derivation end-to-end — derived tag registers, base untouched", reason: "derivation macro lands with brief 2c / 3f"}),
   pendingCase({id: "X-17", family: "X", fast: true, title: "region replacement — override renders on derived; unknown region fails", reason: "template regions land with brief 2d"}),

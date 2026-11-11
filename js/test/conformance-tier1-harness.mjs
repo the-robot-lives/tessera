@@ -19,6 +19,17 @@ import {defineOnce} from "../../priv/js/src/define.mjs";
 import {emit} from "../../priv/js/src/events.mjs";
 import {CASES, tally} from "../../test/conformance/support/registry.mjs";
 
+// Compiled-DSL fixtures (brief 4b case-fill): REAL Lit elements generated from
+// test/support/conformance/*.ex by the element DSL + LitCodegen, committed
+// under fixtures/conformance/ (regenerate: MIX_ENV=test mix run
+// test/conformance/support/generate_fixtures.exs). Each auto-registers on
+// import via defineOnce; the core import is rewritten to ../../../../priv/js/src
+// so these share the SAME runtime module instances as the JS-core fixtures.
+import {tag as STATE_TAG, TsrConfState} from "./fixtures/conformance/tsr-conf-state.element.generated.mjs";
+import {tag as TEMPLATE_TAG, TsrConfTemplate} from "./fixtures/conformance/tsr-conf-template.element.generated.mjs";
+import {tag as STYLES_TAG, TsrConfStyles} from "./fixtures/conformance/tsr-conf-styles.element.generated.mjs";
+import {tag as SLOTS_TAG, TsrConfSlots} from "./fixtures/conformance/tsr-conf-slots.element.generated.mjs";
+
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
 const EVENTS_TAG = "tsr-conf-events";
@@ -101,6 +112,12 @@ const FIXTURES = {
   counter: {tag: COUNTER_TAG, ctor: ConfCounter},
   props: {tag: PROPS_TAG, ctor: ConfProps},
   events: {tag: EVENTS_TAG, ctor: ConfEvents},
+  // Compiled-DSL fixtures (Tier-1 only; Tier-2 reports these adapter-pending
+  // until its compiled fixtures land with the feature briefs).
+  state: {tag: STATE_TAG, ctor: TsrConfState},
+  template: {tag: TEMPLATE_TAG, ctor: TsrConfTemplate},
+  styles: {tag: STYLES_TAG, ctor: TsrConfStyles},
+  slots: {tag: SLOTS_TAG, ctor: TsrConfSlots},
 };
 
 let defined = false;
@@ -181,10 +198,12 @@ export function cleanup() {
 // Cases whose behavior + Tier-1 fixture are wired today. A case outside this
 // set is adapter-pending on Tier 1 (its fixture lands with a feature brief).
 const SUPPORTED = new Set([
-  "C-01", "C-03", "C-04", "C-05", "C-06", "C-10",
-  "T-01",
+  "C-01", "C-03", "C-04", "C-05", "C-06", "C-07", "C-10",
+  "T-01", "T-02", "T-04", "T-05", "T-07", "T-08", "T-09",
+  "S-01", "S-02", "S-03", "S-04", "S-05", "S-06",
+  "SD-01", "SD-02",
   "E-01", "E-02", "E-03",
-  "X-01", "X-04", "X-18",
+  "X-01", "X-03", "X-04", "X-14", "X-18",
 ]);
 
 /**
