@@ -21,15 +21,15 @@ defmodule Tessera.TestFixtures.Conformance.State do
 
   cy("conf-state-root")
 
-  template ~TSR"""
+  template(~TSR"""
   <div data-cy="conf-state-root">
     <button type="button" data-cy="conf-state-inc" $click={:bump}>+</button>
     <span data-cy="conf-state-count">{@count}</span>
   </div>
-  """
+  """)
 
-  action :bump, fn state, _params ->
+  action(:bump, fn state, _params ->
     emit("conf-state-ping", %{count: state.count + @step, delta: @step})
     %{state | count: state.count + @step}
-  end
+  end)
 end

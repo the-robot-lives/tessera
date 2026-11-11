@@ -25,7 +25,7 @@ defmodule Tessera.TestFixtures.Conformance.Template do
 
   cy("conf-template-root")
 
-  template ~TSR"""
+  template(~TSR"""
   <div data-cy="conf-template-root" title="{@label}">
     <input data-cy="conf-template-input" .value="{@label}">
     <span data-cy="conf-template-flag">{%if @flag}ON{%else}OFF{/if}</span>
@@ -33,9 +33,9 @@ defmodule Tessera.TestFixtures.Conformance.Template do
     <ul data-cy="conf-template-list">{%for item <- @items}<li class="item">{item}</li>{/for}</ul>
     <div data-cy="conf-template-nested">{%for item <- @items}<span class="nest"><b>{item}</b></span>{/for}</div>
   </div>
-  """
+  """)
 
-  action :toggle_flag, fn state, _params ->
+  action(:toggle_flag, fn state, _params ->
     %{state | flag: not state.flag}
-  end
+  end)
 end

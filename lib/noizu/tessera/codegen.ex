@@ -306,8 +306,12 @@ defmodule Noizu.Tessera.Codegen do
       }
       |> put_tessera_opt("formAssociated", if(spec.form_associated, do: true, else: nil))
 
-    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations,
-      "tessera" => tessera_field}
+    %{
+      "kind" => "javascript-module",
+      "path" => path,
+      "declarations" => declarations,
+      "tessera" => tessera_field
+    }
   end
 
   defp put_tessera_opt(map, _key, nil), do: map

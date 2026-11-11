@@ -90,6 +90,9 @@ jobs:
           export HOLOGRAM_START=1
           mix deps.get
           mix tessera.install
+          # tessera.bundles shells out to Hologram's own esbuild — install its
+          # assets first (no lockfile in the hex tarball → npm install).
+          npm install --prefix deps/hologram/assets --no-audit --no-fund
           # Tier-2 serving bundles (the /holo_runtime glue imports them from
           # /tessera/) — same emit step as the fast lane, before boot.
           mix tessera.bundles

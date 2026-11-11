@@ -42,8 +42,8 @@ defmodule PersonaKit.PersonaCard do
   # Theming + styling hooks surfaced in the CEM (and the gallery): the
   # element's border reads --persona-card-accent, and the select button is
   # exposed as ::part(select-button).
-  css "--persona-card-accent", default: "#6366f1"
-  part "select-button"
+  css("--persona-card-accent", default: "#6366f1")
+  part("select-button")
 
   cy("persona-card-root")
 

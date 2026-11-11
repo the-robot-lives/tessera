@@ -13,8 +13,8 @@ defmodule Tessera.TestFixtures.Conformance.TakeoverExtAaa do
 
   event("conf-ext-aaa", detail: %{layer: :string})
 
-  action :bump, fn state, params ->
+  action(:bump, fn state, params ->
     emit("conf-ext-aaa", %{layer: "aaa"})
     base_action(:bump, state, params)
-  end
+  end)
 end

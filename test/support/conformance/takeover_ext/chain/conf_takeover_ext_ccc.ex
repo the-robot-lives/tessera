@@ -18,8 +18,8 @@ defmodule Tessera.TestFixtures.Conformance.TakeoverExtCcc do
 
   event("conf-ext-ccc", detail: %{layer: :string})
 
-  action :bump, fn state, params ->
+  action(:bump, fn state, params ->
     emit("conf-ext-ccc", %{layer: "ccc"})
     base_action(:bump, state, params)
-  end
+  end)
 end

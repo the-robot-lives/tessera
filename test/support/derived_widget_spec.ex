@@ -83,7 +83,11 @@ defmodule Tessera.TestFixtures.DerivedWidgetSpec do
       ],
       styles: [
         %{kind: :css, value: ":host { color: red; }", line: 6, inherited: true},
-        %{kind: :css, value: ":host { border: 1px solid var(--derived-widget-accent, #6cf); }", line: 25}
+        %{
+          kind: :css,
+          value: ":host { border: 1px solid var(--derived-widget-accent, #6cf); }",
+          line: 25
+        }
       ],
       template: %{
         lexer: :minimal,

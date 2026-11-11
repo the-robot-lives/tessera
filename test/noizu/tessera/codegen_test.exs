@@ -95,12 +95,18 @@ defmodule Noizu.Tessera.CodegenTest do
       # EVERY action name in declaration order (D2 — the open surface,
       # `internal:` included). The `internal:` annotation lives in the
       # declaration-level doc entries above, not in this flat name list.
-      assert module["tessera"] == %{"extensionApi" => "1.0.0", "actions" => ["bump", "seed_cache"]}
+      assert module["tessera"] == %{
+               "extensionApi" => "1.0.0",
+               "actions" => ["bump", "seed_cache"]
+             }
 
       declared =
         Codegen.cem([%Spec{spec | extension_api: "2.1.0"}])["modules"] |> hd()
 
-      assert declared["tessera"] == %{"extensionApi" => "2.1.0", "actions" => ["bump", "seed_cache"]}
+      assert declared["tessera"] == %{
+               "extensionApi" => "2.1.0",
+               "actions" => ["bump", "seed_cache"]
+             }
     end
 
     test "the `tessera` field carries formAssociated ONLY when the spec declares it (§6.7)" do

@@ -41,7 +41,7 @@ defmodule Tessera.TestFixtures.Conformance.Slots do
   </div>
   """)
 
-  action :slot_changed, fn state, _params ->
+  action(:slot_changed, fn state, _params ->
     %{state | slot_changes: state.slot_changes + 1}
-  end
+  end)
 end

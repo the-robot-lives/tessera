@@ -25,18 +25,26 @@ defmodule Tessera.TestFixtures.Conformance.Form do
 
   cy("conf-form-root")
 
-  template ~TSR"""
+  template(~TSR"""
   <div data-cy="conf-form-root">
     <button type="button" data-cy="conf-form-set" $click={:set_value, value: "clicked"}>set</button>
     <span data-cy="conf-form-value">{@value}</span>
   </div>
-  """
+  """)
 
-  action :set_value, fn state, params ->
-    %{state | value: (if params.value do params.value else state.value end)}
-  end
+  action(:set_value, fn state, params ->
+    %{
+      state
+      | value:
+          if params.value do
+            params.value
+          else
+            state.value
+          end
+    }
+  end)
 
-  action :reset_value, fn state, _params ->
+  action(:reset_value, fn state, _params ->
     %{state | value: "initial"}
-  end
+  end)
 end
