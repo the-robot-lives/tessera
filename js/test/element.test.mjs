@@ -76,6 +76,41 @@ describe("TesseraElement over plain HTMLElement", () => {
     el.remove();
   });
 
+  it("coerces map/list attributes through JSON (Lit Object/Array parity, C-06/#21)", () => {
+    const JSON_TAG = "tsr-el-json";
+    const jsonContract = {
+      version: 1,
+      tag: JSON_TAG,
+      attrs: [
+        { name: "payload", key: "payload", type: "map" },
+        { name: "tags", key: "tags", type: "list" },
+      ],
+      props: [],
+      events: [],
+      slots: [],
+    };
+    class JsonEl extends TesseraElement(HTMLElement, jsonContract) {}
+    defineOnce(JSON_TAG, JsonEl);
+
+    const el = document.createElement(JSON_TAG);
+    el.setAttribute("payload", '{"a":1}');
+    el.setAttribute("tags", '["x","y"]');
+    document.body.appendChild(el);
+    expect(el.payload).to.deep.equal({ a: 1 });
+    expect(el.tags).to.deep.equal(["x", "y"]);
+
+    // live updates parse too; parse failure keeps the raw string (Lit parity)
+    el.setAttribute("payload", '{"b":2}');
+    expect(el.payload).to.deep.equal({ b: 2 });
+    el.setAttribute("payload", "not-json");
+    expect(el.payload).to.equal("not-json");
+
+    // removal ⇒ null
+    el.removeAttribute("tags");
+    expect(el.tags).to.equal(null);
+    el.remove();
+  });
+
   it("parses tsr-props into properties (pre-upgrade assignment included)", () => {
     const el = make({}, { tagList: ["a", "b"], meta: { maxScore: 9 } });
     expect(el.tagList).to.deep.equal(["a", "b"]);
