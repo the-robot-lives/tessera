@@ -61,6 +61,10 @@ defmodule Noizu.Tessera.Naming do
   """
   @spec snake_to_camel(snake()) :: camel()
   def snake_to_camel(name) when is_atom(name) do
+    # `trim: false` (vs `true`) is equivalent-in-context — names with a
+    # leading underscore never reach this conversion (rejected upstream by
+    # snake_regex) — but keeping the exact JS-core split rule byte-exact is
+    # worth more than deleting the dead branch.
     [first | rest] = name |> Atom.to_string() |> String.split("_", trim: false)
 
     rest

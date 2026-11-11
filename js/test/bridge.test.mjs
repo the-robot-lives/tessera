@@ -63,6 +63,34 @@ describe("parseTsrOn", () => {
     });
     expect(warns.length).to.equal(3);
   });
+
+  // Grammar characters inside VALUES. Generated markup can never carry them
+  // (compile-time spec validation + render-time adapter guard), but the
+  // parser's behavior for hand-written attributes is pinned here — in
+  // particular WHICH `@` terminates the action (MUT-8 gap).
+  it("an `@` inside the action: the LAST @ separates action from target", () => {
+    const map = parseTsrOn("evt:a@b@page");
+    expect(map.get("evt")).to.deep.equal({ action: "a@b", target: "page" });
+  });
+
+  it("a `:` inside the action: only the FIRST colon splits the event", () => {
+    const map = parseTsrOn("evt:a:b:c@page");
+    expect(map.get("evt")).to.deep.equal({ action: "a:b:c", target: "page" });
+  });
+
+  it("a `:` after the @ stays in the target (tolerant parse, compile-time guard upstream)", () => {
+    const map = parseTsrOn("evt:action@page:extra");
+    expect(map.get("evt")).to.deep.equal({ action: "action", target: "page:extra" });
+  });
+
+  it("a `;` inside a value terminates the entry — both halves are malformed and warned", () => {
+    const warns = captureWarns(() => {
+      // "evt:ac" has no @; "ion@page" has no colon. Neither may silently bind.
+      expect(parseTsrOn("evt:ac;ion@page").size).to.equal(0);
+    });
+    expect(warns.length).to.equal(2);
+    for (const w of warns) expect(w).to.include("malformed data-tsr-on entry");
+  });
 });
 
 describe("bridge dispatch", () => {

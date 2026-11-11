@@ -68,12 +68,17 @@ bundles every `js_import` into each page bundle) don't double-warn. To own the
 tag you must evaluate before the package's element module does — import your
 subclass module first, or re-register via `defineOnce` from an
 earlier-bundled entry. If you cannot control load order, use behaviors (§1)
-or the element swap (§3) instead.
+instead of the element swap (§3, not yet implemented).
 
-## 3. Swapping the element via `use ..., element:`
+## 3. Swapping the element via `use ..., element:` — Phase 2, NOT YET IMPLEMENTED
 
-The Elixir side lets a host application replace the JS module that gets
-`js_import`'d for a component:
+**This option does not exist yet.** `use Noizu.Tessera.Component` reads only
+`tag:` and `js:`; an `element:` option is silently ignored today (planned for
+Phase 2 — tracked in the Phase 1 review, F-04). Do not write code against the
+sample below until this section says "implemented"; while it is missing, use
+§1 (behaviors) or §2 (subclass + `defineOnce`) to own the element.
+
+The planned shape, for reference:
 
 ```elixir
 use PersonaKit.PersonaCard,
@@ -82,7 +87,7 @@ use PersonaKit.PersonaCard,
 
 `MyAppWeb.MyCardJS` must export the same surface as the package element
 module (`register/0`-style no-arg function returning the ctor, per
-`CONTRACT.md` §5). This is the escape hatch when the tag must be YOUR class
+`CONTRACT.md` §5). It is the escape hatch when the tag must be YOUR class
 from the start — the adapter never imports the package's element for that
 component, so there is no race with `defineOnce`.
 
@@ -133,7 +138,7 @@ any, stays private to the composer's internals.
 |---|---|
 | Attach DOM behavior/listeners to a shipped element | `behaviors.add` |
 | Override the template or lifecycle | subclass + `defineOnce` before the package loads |
-| Replace the element per host app, controlled from Elixir | `use ..., element:` |
+| Replace the element per host app, controlled from Elixir | `use ..., element:` — Phase 2, NOT yet implemented (§3) |
 | Expose events from a tessera child nested in your shadow DOM | re-emit with `emit()` from the outer element (§4) |
 | React to contract events from outside the element | plain `addEventListener` — events are composed and bubble (§1 of the contract) |
 | Send component data to a backend | `BusClient` seam (`@noizu/tessera-core/bus`); without a transport every call resolves `{ok: false, reason: "no-transport"}` |

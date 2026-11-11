@@ -106,6 +106,20 @@ Removing it means components render server-side but never upgrade on the
 client. `mix compile` emits a warning when a component's `.mjs` is missing the
 call. See docs/CONTRACT.md §3/§5 for the render + bridge mechanics.
 
+## Test goldens (contributors)
+
+The ExUnit suite pins the generators' byte output for the `PersonaCard`
+fixture against checked-in goldens (`test/fixtures/persona_card.contract.golden.mjs`
+— the wire interface, CONTRACT.md §2 — and `persona_card.cem.json`). They are
+never bootstrapped by the tests: a missing or stale golden FAILS the suite.
+After an INTENTIONAL generator change, regenerate both explicitly and review
+the diff against CONTRACT.md §2 before committing:
+
+```sh
+MIX_ENV=test mix tessera.golden        # rewrites both goldens
+MIX_ENV=test mix tessera.golden --check  # verify-only
+```
+
 ## Known compiler behaviours (not bugs)
 
 - On Elixir 1.20+, every component that overrides `init/3` gets

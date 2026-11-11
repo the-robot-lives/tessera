@@ -27,7 +27,8 @@ The conversions in the table above are plain character transforms, not `Macro.un
 Spec keys MUST round-trip: `snake → camel → snake` is an identity, or a key written by the Elixir spec would arrive back at the bridge as something else. That rules out:
 
 - **digit-initial segments after `_`** — `col_2_width` → camel `col2Width` → snake `col2_width` ≠ `col_2_width`. Write `col2_width`.
-- **double, leading, or trailing underscores** — `my__key`, `_hidden`, `trailing_` all round-trip into different strings.
+- **double or trailing underscores** — `my__key`, `trailing_` round-trip into different strings.
+- **a leading underscore** — `_hidden` is rejected outright by the identifier grammar (`^[a-z][a-z0-9_]*$` does not admit a leading `_`), not by the round-trip rule: `:_hidden` would actually round-trip byte-identically. Leading underscores are tessera-internal (see the reserved-key guard in CONTRACT.md §4).
 - **consecutive capitals in JS-authored detail keys** — camel → snake splits per character, so `userID` → `user_i_d` and it never comes back. Write `userId`.
 
 The Elixir side validates these rules at compile time; the JS core does not police them at runtime — a non-round-tripping key silently mismatches.
@@ -60,7 +61,7 @@ Types: `string | integer | float | boolean | list | map | any`.
   data-cy="persona-card-root"></persona-card>
 ```
 
-`data-tsr-on` grammar: `entry (";" entry)*`, where `entry = event ":" action "@" target` and `target ∈ page | layout | <cid>`. A binding prop value of `:chose` means target `page`. A value of `{:chose, target: "layout"}` or `{:chose, target: "<cid>"}` (the tuple form — the only way to address a layout or a component `cid`) sets the target explicitly. A bare binary binding is rejected at render time with an `ArgumentError`. If an event has no binding, it gets no entry.
+`data-tsr-on` grammar: `entry (";" entry)*`, where `entry = event ":" action "@" target` and `target ∈ page | layout | <cid>`. **The characters `:`, `@`, `;` and whitespace are reserved** — they delimit the entry grammar, so they can never appear inside an event, action or target name. Declared names are rejected at compile time with a pointed `CompileError`; binding values only exist at render time, so the adapter rejects them there with an `ArgumentError` naming the component, the event and the value. A binding prop value of `:chose` means target `page`. A value of `{:chose, target: "layout"}` or `{:chose, target: "<cid>"}` (the tuple form — the only way to address a layout or a component `cid`) sets the target explicitly; the target must be a string. A bare binary (or any other non-atom) binding is rejected at render time with an `ArgumentError`. If an event has no binding, it gets no entry.
 
 ## 4. JS core runtime (`@noizu/tessera-core`)
 
@@ -81,7 +82,7 @@ Types: `string | integer | float | boolean | list | map | any`.
 
 - `js_import` paths must be **absolute**: build them from the component module's `__DIR__`, never a relative path. Relative paths resolve against the *caller's* file.
 - The JS export name must equal the binding name unless `as:` is given. Component modules export `register` (a no-arg function returning the ctor).
-- Hologram only bundles a `js_import` if the page's call graph references it. The adapter therefore calls `register` through `Hologram.JS.call/2` inside a generated `init/3`.
+- Hologram only bundles a `js_import` if the page's call graph references it. The adapter therefore calls `register` through `Hologram.JS.call/2` inside a generated `init/2` + `init/3` pair — BOTH arities, because Hologram 0.10.1 treats `init/2` (client mount) and `init/3` (server) as separate optional callbacks: the compiler never derives one from the other, a stateful client mount calls `init/2` directly, and stateless SSR never calls `init/3` at all (which is why the top-level `register()` call in the `.mjs` is load-bearing). Author overrides must target `__tessera_init__/2` and/or `__tessera_init__/3`, never the generated `init` pair.
 - `import Hologram.JS, only: [...]` **replaces** any earlier `only:` import, so always restate `js_import: 1, js_import: 2` alongside `call: 2`.
 - `~JS` sigil code cannot see imported bindings; use `call/2`.
 - Hologram `<Link>` drops unknown attributes. Don't rely on attrs placed on Link.

@@ -21,15 +21,21 @@ depend on it without pulling the framework.
 
 ## 2. Install the JS side
 
+Add the dependency yourself first (§1 above — `mix tessera.install` does NOT
+edit `mix.exs`), then run:
+
 ```sh
 mix tessera.install
 ```
 
-- adds `{:noizu_tessera, "~> 0.1"}` to `mix.exs` if missing;
 - wires `@noizu/tessera-core` into `assets/package.json` (`file:` link into
-  the installed dependency's `priv/js`, plus lit `^3` as a peer — existing
-  keys are never overwritten; re-runs are idempotent);
-- runs `npm install` unless you pass `--no-npm`.
+  the installed dependency's `priv/js`, always a relocatable RELATIVE path —
+  including when the dep lives outside the app tree — plus lit `^3` as a
+  peer; existing keys are never overwritten; re-runs are idempotent;
+  dependencies that ship their own tessera `priv/js` runtime get `file:`
+  entries too);
+- runs `npm install` unless you pass `--no-npm`; npm missing from PATH fails
+  with install guidance instead of a raw error.
 
 Hosts that manage their own JS packaging can skip the npm leg and add
 `@noizu/tessera-core` from their registry of choice themselves.

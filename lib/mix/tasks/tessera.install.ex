@@ -56,8 +56,15 @@ defmodule Mix.Tasks.Tessera.Install do
   defp tessera_core_relpath(root) do
     case Installer.core_js_dir(Mix.Project.deps_paths(), Mix.Project.deps_path()) do
       {:ok, core_js} ->
-        relpath = Path.relative_to(core_js, assets_dir(root))
-        {:ok, relpath}
+        # A REAL relative path even when the dep lives OUTSIDE the app tree —
+        # Path.relative_to/2 silently falls back to the host-absolute path
+        # there, which embeds a non-relocatable `file:` URL into
+        # assets/package.json. No relative path (different volume) fails
+        # loudly instead.
+        case Installer.relative_path(assets_dir(root), core_js) do
+          {:ok, relpath} -> {:ok, relpath}
+          {:error, msg} -> {:error, msg}
+        end
 
       :error ->
         core_js = Path.join([Mix.Project.deps_path(), "noizu_tessera", "priv", "js"])
@@ -80,15 +87,23 @@ defmodule Mix.Tasks.Tessera.Install do
   end
 
   defp maybe_npm_install(assets_dir, _opts) do
-    Mix.shell().info("tessera: running npm install in #{assets_dir} ...")
+    # Friendly failure when npm is absent (bare elixir docker images ship no
+    # node) instead of a raw :enoent ErlangError from System.cmd.
+    case Installer.find_npm() do
+      {:ok, _path} ->
+        Mix.shell().info("tessera: running npm install in #{assets_dir} ...")
 
-    case Installer.npm_install(assets_dir) do
-      {:ok, _output} ->
-        Mix.shell().info("tessera: npm install done")
+        case Installer.npm_install(assets_dir) do
+          {:ok, _output} ->
+            Mix.shell().info("tessera: npm install done")
 
-      {:error, code, output} ->
-        Mix.shell().error("tessera: npm install failed (exit #{code}):")
-        Mix.shell().error(output)
+          {:error, code, output} ->
+            Mix.shell().error("tessera: npm install failed (exit #{code}):")
+            Mix.shell().error(output)
+        end
+
+      {:error, guidance} ->
+        Mix.raise("tessera.install: " <> guidance)
     end
   end
 end
