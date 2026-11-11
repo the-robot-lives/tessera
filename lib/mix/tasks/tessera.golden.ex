@@ -32,6 +32,11 @@ defmodule Mix.Tasks.Tessera.Golden do
 
   alias Noizu.Tessera.Codegen
 
+  # The fixture spec lives in test/support (test env only), so this module
+  # compiles in :dev with the fixture undefined — suppress the static-call
+  # warning and rely on the runtime guard below for a friendly error.
+  @compile {:no_warn_undefined, Tessera.TestFixtures.PersonaCard}
+
   @switches [check: :boolean]
 
   @impl Mix.Task
@@ -39,6 +44,14 @@ defmodule Mix.Tasks.Tessera.Golden do
     {opts, _positionals, _invalid} = OptionParser.parse(args, strict: @switches)
 
     Mix.Task.run("compile")
+
+    unless Code.ensure_loaded?(Tessera.TestFixtures.PersonaCard) do
+      Mix.raise(
+        "tessera.golden: the PersonaCard fixture spec is not compiled — " <>
+          "it lives in test/support, which only compiles under MIX_ENV=test. " <>
+          "Run: MIX_ENV=test mix tessera.golden"
+      )
+    end
 
     spec = Tessera.TestFixtures.PersonaCard.__tessera_spec__()
     dir = Path.expand("test/fixtures", File.cwd!())
