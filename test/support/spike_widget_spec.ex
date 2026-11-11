@@ -19,11 +19,13 @@ defmodule Tessera.TestFixtures.SpikeWidgetSpec do
       file: "lib/spike_widget.ex",
       js: "spike_widget.mjs",
       cy: "spike-widget-root",
-      attrs: [%{name: :label, type: :string, default: "Count", line: 2}],
-      props: [%{name: :items, type: :list, line: 7}],
+      attrs: [
+        %{name: :label, type: :string, default: "Count", attribute: "custom-label", reflect: true, line: 2}
+      ],
+      props: [%{name: :items, type: :list, default: [], line: 7}],
       slots: [],
       events: [%{name: "count-change", detail: %{count: :integer}, line: 4}],
-      state: [%{name: :count, type: :integer, default: 0, line: 3}],
+      state: [%{name: :count, type: :integer, default: 0, attribute: false, line: 3}],
       actions: [
         %{
           name: :increment,
@@ -31,6 +33,12 @@ defmodule Tessera.TestFixtures.SpikeWidgetSpec do
           line: 5
         }
       ],
+      lifecycle: %{
+        should_update: %{js: "(state.count < 10)", line: 8},
+        will_update: %{js: "({ ...state, count: (state.count + 1) })", line: 9},
+        first_updated: %{js: ~S|emit(this, "count-change", {count: state.count})|, line: 10},
+        updated: %{js: ~S|emit(this, "count-change", {count: state.count})|, line: 11}
+      },
       template: %{
         lexer: :minimal,
         raw: "<div>{@count}</div>",

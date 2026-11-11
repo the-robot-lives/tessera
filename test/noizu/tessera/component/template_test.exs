@@ -28,6 +28,49 @@ defmodule Noizu.Tessera.Component.TemplateTest do
     Template.to_lit_render(tree, ctx())
   end
 
+  # -- dual-lexer parity helpers ----------------------------------------------
+  # The root suite runs the :hologram lexer via parse/1; minimal_lex/1 +
+  # treeify/3 build the minimal-lexer tree for the same markup. Attribute
+  # value shapes differ cosmetically between lexers ({:static, s} vs
+  # {:parts, [{:text, s}]}) — normalize to compare semantics.
+
+  defp minimal_tree(markup) do
+    {:ok, tokens} = Template.minimal_lex(markup)
+    {:ok, tree} = Template.treeify(tokens, [], [])
+    tree
+  end
+
+  defp walk({:element, _tag, _attrs, children} = node, acc),
+    do: Enum.reduce(children, [node | acc], &walk/2)
+
+  defp walk({:fragment, children}, acc), do: Enum.reduce(children, acc, &walk/2)
+  defp walk({:if, _ast, then_c, else_c}, acc), do: Enum.reduce(then_c ++ else_c, acc, &walk/2)
+  defp walk({:for, _var, _coll, children}, acc), do: Enum.reduce(children, acc, &walk/2)
+  defp walk(_leaf, acc), do: acc
+
+  defp elements(tree), do: tree |> walk([]) |> Enum.reverse()
+
+  defp norm_value({:static, s}), do: {:text, s}
+
+  defp norm_value({:parts, parts}) do
+    case parts do
+      [{:expr, e}] -> {:expr, e}
+      _ -> {:text, Enum.map_join(parts, "", fn {:text, s} -> s end)}
+    end
+  end
+
+  defp bool_attrs(tree) do
+    for {:element, _tag, attrs, _ch} <- elements(tree),
+        {:"$bool", name, value} <- attrs,
+        do: {name, norm_value(value)}
+  end
+
+  defp slot_shapes(tree) do
+    for {:element, "slot", attrs, children} <- elements(tree) do
+      {Enum.map(attrs, fn {n, v} -> {n, norm_value(v)} end), children}
+    end
+  end
+
   describe "lexer selection" do
     test "reports the active lexer" do
       assert Template.lexer() in [:hologram, :minimal]
@@ -90,6 +133,105 @@ defmodule Noizu.Tessera.Component.TemplateTest do
 
       assert js =~
                ~S|${(this.items ?? []).map((item) => html`<li class="item" data-cy="${__t(item.id)}">${__t(item.name)}</li>`)}|
+    end
+  end
+
+  describe "?attr boolean bindings (lit-parity 1c, T-03)" do
+    test "expression binding emits ?name=${expr} — no quotes, no __t" do
+      js = render!(~S|<div ?hidden={@selected}></div>|)
+      assert js == ~S|html`<div ?hidden=${this.selected}></div>`|
+    end
+
+    test "bare ?attr is a static presence attribute" do
+      js = render!("<div ?hidden></div>")
+      assert js == ~S|html`<div hidden></div>`|
+    end
+
+    test "static quoted ?attr is a presence attribute" do
+      js = render!(~S|<div ?hidden="hidden"></div>|)
+      assert js == ~S|html`<div hidden></div>`|
+    end
+
+    test "mixed text/expression boolean values are rejected by name" do
+      {:ok, tree} = Template.parse(~S|<div ?hidden="a{@selected}b"></div>|)
+
+      error = assert_raise CompileError, fn -> Template.to_lit_render(tree, ctx()) end
+      assert error.description =~ "?hidden" and error.description =~ "single {expr}"
+    end
+
+    test "both lexers produce the same $bool tokens (expression, bare, static)" do
+      for markup <- [
+            ~S|<div ?hidden={@selected}></div>|,
+            "<div ?hidden></div>",
+            ~S|<div ?hidden="x"></div>|
+          ] do
+        {:ok, holo_tree} = Template.parse(markup)
+
+        assert bool_attrs(holo_tree) == bool_attrs(minimal_tree(markup)),
+               "lexer divergence for #{markup}"
+      end
+    end
+
+    test "both lexers render ?attr identically" do
+      for markup <- [~S|<div ?hidden={@selected}></div>|, "<div ?hidden></div>"] do
+        {:ok, holo_tree} = Template.parse(markup)
+
+        assert Template.to_lit_render(holo_tree, ctx()) ==
+                 Template.to_lit_render(minimal_tree(markup), ctx())
+      end
+    end
+  end
+
+  describe "<slot> grammar (non-void, fallback content)" do
+    test "explicit close tag parses (Hologram treats slot as void — pre-pass fixes it)" do
+      assert {:ok, {:element, "div", [], [{:element, "slot", [], []}]}} =
+               Template.parse("<div><slot></slot></div>")
+    end
+
+    test "fallback content is preserved" do
+      assert {:ok, {:element, "div", [], [{:element, "slot", [], [text: "fb"]}]}} =
+               Template.parse("<div><slot>fb</slot></div>")
+
+      assert render!("<div><slot>fb</slot></div>") == ~S|html`<div><slot>fb</slot></div>`|
+    end
+
+    test "named slot with attributes and fallback" do
+      js = render!(~S|<div><slot name="header">fallback</slot></div>|)
+      assert js == ~S|html`<div><slot name="header">fallback</slot></div>`|
+    end
+
+    test "self-closing slot still works" do
+      assert {:ok, {:element, "div", [], [{:element, "slot", [], []}]}} =
+               Template.parse("<div><slot /></div>")
+    end
+
+    test "both lexers produce the same slot tokens (pair, fallback, self-closing)" do
+      for markup <- [
+            "<div><slot></slot></div>",
+            "<div><slot>fb</slot></div>",
+            "<div><slot /></div>",
+            ~S|<div><slot name="x">fb</slot></div>|
+          ] do
+        {:ok, holo_tree} = Template.parse(markup)
+
+        assert slot_shapes(holo_tree) == slot_shapes(minimal_tree(markup)),
+               "lexer divergence for #{markup}"
+      end
+    end
+
+    test "literal <slot> inside quoted values and expressions is not rewritten" do
+      markup = ~S|<div title="a <slot> b" data-x={@label == "<slot>"}></div>|
+      assert {:ok, tree} = Template.parse(markup)
+      {:element, "div", attrs, []} = tree
+      assert {"title", {:static, "a <slot> b"}} in attrs
+    end
+
+    test "the reserved placeholder tag is rejected under both lexers" do
+      assert {:error, msg} = Template.parse("<tsrslot></tsrslot>")
+      assert msg =~ "reserved"
+
+      assert {:error, msg} = Template.minimal_lex("<tsrslot></tsrslot>")
+      assert msg =~ "reserved"
     end
   end
 

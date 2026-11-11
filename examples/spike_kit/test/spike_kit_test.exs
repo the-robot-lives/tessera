@@ -8,7 +8,8 @@ defmodule SpikeKitTest do
       assert SpikeKit.components() == [
                SpikeKit.Counter,
                SpikeKit.ToggleChip,
-               SpikeKit.StylesPanel
+               SpikeKit.StylesPanel,
+               SpikeKit.PropsPanel
              ]
     end
   end
@@ -114,6 +115,58 @@ defmodule SpikeKitTest do
       element = File.read!(Path.join(dir, "spike-styles-panel.element.generated.mjs"))
       assert element =~ ~s|import { styles as __tsrSharedStyles0 } from "./shared_styles.mjs";|
       assert element =~ "static styles = ["
+    end
+  end
+
+  describe "SpikeKit.PropsPanel spec (property options + lifecycle, 1c)" do
+    test "property options ride the entries; :list maps to Array in the element" do
+      spec = SpikeKit.PropsPanel.__tessera_spec__()
+
+      label = Enum.find(spec.attrs, &(&1.name == :label))
+      assert label[:attribute] == "data-label"
+      assert label[:reflect] == true
+
+      tags = Enum.find(spec.attrs, &(&1.name == :tags))
+      assert tags[:attribute] == "data-tags"
+
+      frozen = Enum.find(spec.state, &(&1.name == :frozen))
+      assert frozen[:attribute] == false
+
+      dir = __DIR__ |> Path.join("../lib/spike_kit") |> Path.expand()
+      element = File.read!(Path.join(dir, "spike-props.element.generated.mjs"))
+      assert element =~ ~S|label: { type: String, attribute: "data-label", reflect: true }|
+      assert element =~ ~S|tags: { type: Array, attribute: "data-tags" }|
+      assert element =~ "items: { type: Array }"
+      assert element =~ "frozen: { type: Boolean, attribute: false }"
+    end
+
+    test "all four lifecycle hooks translate; changed reads the old-value snapshot" do
+      spec = SpikeKit.PropsPanel.__tessera_spec__()
+
+      assert spec.lifecycle[:should_update].js == "(!state.frozen)"
+      assert spec.lifecycle[:will_update].js =~
+               ~S|emit(this, "props-will", {ticks: changed.ticks})|
+
+      assert spec.lifecycle[:will_update].js =~ "{ ...state, will_seen: (state.will_seen + 1) }"
+      assert spec.lifecycle[:first_updated].js == ~s|emit(this, "props-first", {ticks: state.ticks})|
+      assert spec.lifecycle[:updated].js == ~s|emit(this, "props-updated", {ticks: state.ticks})|
+
+      assert SpikeKit.PropsPanel.__tessera_manifest__()["lifecycle"] ==
+               ["should_update", "will_update", "first_updated", "updated"]
+    end
+
+    test "?hidden compiles to a lit boolean binding under the MINIMAL lexer" do
+      spec = SpikeKit.PropsPanel.__tessera_spec__()
+      assert spec.template.lexer == :minimal
+      assert spec.template.render_js =~ ~S|?hidden=${this.hidden}|
+
+      dir = __DIR__ |> Path.join("../lib/spike_kit") |> Path.expand()
+      element = File.read!(Path.join(dir, "spike-props.element.generated.mjs"))
+      assert element =~ "shouldUpdate(changedProperties) {"
+      assert element =~ "willUpdate(changedProperties) {"
+      assert element =~ "firstUpdated(changedProperties) {"
+      assert element =~ "updated(changedProperties) {"
+      assert element =~ "const changed = Object.fromEntries(changedProperties);"
     end
   end
 end

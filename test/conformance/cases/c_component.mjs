@@ -7,6 +7,7 @@
 // lifecycle-hook cases are pending on the feature briefs (1c / 3c).
 
 import {defineCase, pendingCase} from "../support/case.mjs";
+import {clickCy, textCy} from "../support/dom.mjs";
 
 export const cases = [
   defineCase({
@@ -82,12 +83,22 @@ export const cases = [
     },
   }),
 
-  pendingCase({
+  defineCase({
     id: "C-07",
     family: "C",
     fast: true,
     title: "@state internal-state reactivity re-renders",
-    reason: "DSL state reactivity exercised by compiled-element fixtures (1c/3c); JS-core fixture has no internal state",
+    async run(mount, expect) {
+      // Compiled-DSL "state" fixture: an action returns the next state and the
+      // element re-renders {@count} reactively (no manual DOM write).
+      const h = await mount({fixture: "state"});
+      expect(textCy(h, "conf-state-count")).to.equal("0");
+      clickCy(h, "conf-state-inc");
+      await h.waitFor(() => textCy(h, "conf-state-count") === "1");
+      clickCy(h, "conf-state-inc");
+      await h.waitFor(() => textCy(h, "conf-state-count") === "2");
+      expect(textCy(h, "conf-state-count")).to.equal("2");
+    },
   }),
 
   pendingCase({

@@ -49,6 +49,19 @@ function coerceValue(def, value) {
       const n = Number.parseFloat(value);
       return Number.isNaN(n) ? (def.default ?? null) : n;
     }
+    case "map":
+    case "list": {
+      // Lit's Object/Array converters JSON-parse attribute values; match them
+      // so the contract coercion never clobbers a parsed value with the raw
+      // string (lit-parity C-06/#21). Parse failure keeps the raw string,
+      // exactly like Lit's defaultConverter.
+      if (value === null || value === undefined) return value;
+      try {
+        return JSON.parse(value);
+      } catch (_e) {
+        return value;
+      }
+    }
     default:
       // string (and any untyped/any attr) passes through verbatim; removal ⇒ null
       return value;

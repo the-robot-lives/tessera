@@ -84,6 +84,24 @@ Fixtures: `counter` (both tiers — Tier-1 `tsr-conf-counter`, Tier-2
 `props` and `events` (Tier-1 only today). Tier-2 `props`/`events` fixtures land
 with the feature briefs.
 
+**Compiled-DSL fixtures (Tier-1 only, brief 4b case-fill):** `state`,
+`template`, `styles`, `slots` — REAL Lit elements generated from the Elixir
+element DSL (`test/support/conformance/*.ex` → `LitCodegen`), committed under
+`js/test/fixtures/conformance/`. They exercise the landed Tier-1 surface
+(reactive state, template expressions, the styles DSL, shadow slots).
+Regenerate after a DSL/codegen change, then review the diff:
+
+```bash
+MIX_ENV=test mix run test/conformance/support/generate_fixtures.exs          # write
+MIX_ENV=test mix run test/conformance/support/generate_fixtures.exs -- --check  # verify current
+```
+
+The generator rewrites the `@noizu/tessera-core` import to a relative path into
+`priv/js/src` (the `js/` core tests import the source directly) and renames the
+contract module `<snake>.contract.mjs` (the repo gitignores
+`*.contract.generated.mjs`). Tier-2 reports these cases adapter-pending until
+its compiled fixtures land.
+
 ## Honesty rule (never green for an unimplemented feature)
 
 Two pending kinds, both reported as **skipped**, never passed:
@@ -126,20 +144,25 @@ npx cypress run --spec src/e2e/conformance_tier2.cy.ts        # all cases
 CI boots the Hologram demo on :5586 (`.github/workflows/ci.yml`); the Tier-2
 adapter visits `/holo_runtime` and mounts fresh `tsr-holo-counter` instances.
 
-## Current coverage (scaffold)
+## Current coverage
 
-- **Implemented + Tier-1 green:** C-01, C-03, C-04, C-05, C-06, C-10, T-01,
-  E-01, E-02, E-03, X-01, X-04, X-18 (13).
+- **Implemented + Tier-1 green (31):** C-01, C-03, C-04, C-05, C-06, C-07,
+  C-10, T-01, T-02, T-04, T-05, T-07, T-08, T-09, S-01…S-06, SD-01, SD-02,
+  SD-03, E-01, E-02, E-03, X-01, X-03, X-04, X-14, X-18.
+  - JS-core fixtures (`counter`/`props`/`events`): the original 13.
+  - Compiled-DSL fixtures (`state`/`template`/`styles`/`slots`, brief 4b
+    case-fill): C-07, T-02/T-04/T-05/T-07/T-08/T-09, S-01…S-06, SD-01/02/03,
+    X-03, X-14 (18). SD-03 (fallback content) uses brief 1c's slot pre-pass.
 - **Implemented + Tier-2 green (counter fixture):** C-01, T-01, E-01, E-02, E-03 (5).
-- **Pending:** the remainder of the 79-case registry — reflection / state /
-  lifecycle (1c/3c), directives (1d), styles fixtures (1b), slots/forms (3e),
-  the extension surface (2a–2f/3d/3f), and the accepted-gap families
-  (CT/RC/SSR). FM/RC/SSR ids are provisional placeholders.
+- **Pending (48):** reflection / property options / lifecycle (1c — landed;
+  cases owed to a follow-up 4b wave), directives classMap/styleMap/ifDefined/
+  nothing + when/choose (1d), the extension surface (2a–2f/3d/3f), and the
+  accepted-gap families (CT/RC/SSR). FM/RC/SSR ids are provisional placeholders.
 
 ## Owed next (not in this scaffold)
 
 - `lit-parity.md` §4 doc extension (LC/FM/RC/SSR/X tables + §4.2 runner-rule
   text) — plan sub-step 5, routed separately.
-- Compiled-DSL Tier-1 fixtures (`test/support/conformance/*.ex`) + Tier-2
-  props/events fixtures, so the template/styles/slots/extension cases flip green.
+- Tier-2 compiled-DSL fixtures (props/events/state/template/styles/slots), so
+  the Tier-1-only cases above flip green on the Tier-2 runner too.
 - D-CI tag wiring refinement once `epic.fast-ci` conventions settle.

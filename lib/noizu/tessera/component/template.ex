@@ -26,7 +26,13 @@ defmodule Noizu.Tessera.Component.Template do
       {:for_start, var, coll_ast} | :for_end
 
       attrs :: [{name, {:static, s} | {:parts, [{:text, s} | {:expr, expr_string}]}}
-                | {:"$event", dom_event, binding_src}]
+                | {:"$event", dom_event, binding_src}
+                | {:"$bool", name, {:static, s} | {:parts, [...]}}]
+
+  `?attr={expr}` (Lit boolean attribute binding) shares the `{:"$bool", …}`
+  form across both lexers; `<slot>…</slot>` (non-void, fallback content) is
+  supported under both lexers — the Hologram path renames slot tags through
+  a reserved placeholder because Hologram's parser treats `<slot>` as void.
 
   Tree shape:
 
@@ -88,7 +94,12 @@ defmodule Noizu.Tessera.Component.Template do
     # not know ({%unless ...}) — reject them by name before handing off.
     case unknown_directive(markup) do
       nil ->
-        hologram_lex_with(mod, markup)
+        if Regex.match?(~r/<\/?tsrslot[\s>\/]/, markup) do
+          {:error,
+           "<tsrslot> is a reserved tessera tag name (the internal slot placeholder) — use <slot>"}
+        else
+          hologram_lex_with(mod, slot_prepass(markup))
+        end
 
       dir ->
         {:error,
@@ -125,13 +136,17 @@ defmodule Noizu.Tessera.Component.Template do
     |> Enum.find_value(fn [_, name] -> if name in @directives, do: nil, else: name end)
   end
 
-  defp holo_token({:start_tag, {tag, attrs}}),
-    do: component_guard(tag, {:start_tag, tag, holo_attrs(attrs)})
+  defp holo_token({:start_tag, {tag, attrs}}) do
+    tag = unmap_slot_tag(tag)
+    component_guard(tag, {:start_tag, tag, holo_attrs(attrs)})
+  end
 
-  defp holo_token({:self_closing_tag, {tag, attrs}}),
-    do: component_guard(tag, {:self_closing_tag, tag, holo_attrs(attrs)})
+  defp holo_token({:self_closing_tag, {tag, attrs}}) do
+    tag = unmap_slot_tag(tag)
+    component_guard(tag, {:self_closing_tag, tag, holo_attrs(attrs)})
+  end
 
-  defp holo_token({:end_tag, tag}), do: {:ok, {:end_tag, tag}}
+  defp holo_token({:end_tag, tag}), do: {:ok, {:end_tag, unmap_slot_tag(tag)}}
   defp holo_token({:text, text}), do: {:ok, {:text, text}}
 
   defp holo_token({:expression, expr}) do
@@ -199,6 +214,9 @@ defmodule Noizu.Tessera.Component.Template do
           mixed -> {:"$event", event, Enum.map_join(mixed, "", &elem(&1, 1))}
         end
 
+      {"?" <> name, parts} ->
+        {:"$bool", name, bool_value(parts)}
+
       {name, [{:text, s}]} ->
         {name, {:static, s}}
 
@@ -210,8 +228,92 @@ defmodule Noizu.Tessera.Component.Template do
     end)
   end
 
+  # Boolean-attribute values normalize to the SAME shapes the minimal lexer
+  # produces: bare presence → {:static, ""}, quoted text → {:static, s},
+  # a single {expr} → {:parts, [{:expr, src}]}.
+  defp bool_value([]), do: {:static, ""}
+  defp bool_value([{:text, s}]), do: {:static, s}
+  defp bool_value([{:expression, expr}]), do: {:parts, [{:expr, strip_braces(expr)}]}
+  defp bool_value(parts) when is_list(parts), do: {:parts, Enum.map(parts, &holo_part/1)}
+
   defp holo_part({:text, s}), do: {:text, s}
   defp holo_part({:expression, s}), do: {:expr, strip_braces(s)}
+
+  # -- slot pre-pass -----------------------------------------------------------
+  #
+  # Hologram's parser treats <slot> as a VOID element (Helpers.void_element?/1
+  # lists "slot" alongside br/img), so `<slot></slot>` and `<slot>fallback</slot>`
+  # arrive as a self-closing tag plus an orphan end tag. HTML's <slot> is NOT
+  # void — fallback content is valid and lit-html renders it. Rename slot tags
+  # to a reserved non-void placeholder before parse_markup and map them back in
+  # holo_token/1 (unmap_slot_tag/1). The minimal lexer has no void list, so it
+  # needs no pre-pass — both lexers emit the same start/end tag tokens.
+  #
+  # The scanner rewrites ONLY the tag-name position right after `<` / `</`;
+  # quoted attribute values and {expr} interpolations pass through byte-for-byte,
+  # so a literal "<slot>" inside a value or expression is never touched.
+
+  @slot_placeholder "tsrslot"
+
+  defp unmap_slot_tag(@slot_placeholder), do: "slot"
+  defp unmap_slot_tag(tag), do: tag
+
+  defp slot_prepass(markup), do: slot_text(markup, "")
+
+  defp slot_text("", acc), do: acc
+
+  defp slot_text("<" <> rest, acc) do
+    {slash, rest1} =
+      case rest do
+        "/" <> r -> {"/", r}
+        _ -> {"", rest}
+      end
+
+    {name, remaining} = take_name(rest1, "")
+    renamed = if name == "slot", do: @slot_placeholder, else: name
+    slot_tag_body(remaining, acc <> "<" <> slash <> renamed)
+  end
+
+  defp slot_text(<<c::utf8, rest::binary>>, acc), do: slot_text(rest, acc <> <<c::utf8>>)
+
+  defp slot_tag_body("", acc), do: acc
+  defp slot_tag_body(">" <> rest, acc), do: slot_text(rest, acc <> ">")
+
+  defp slot_tag_body(<<q::utf8, rest::binary>>, acc) when q in [?", ?'] do
+    {quoted, remaining} = slot_quoted(rest, q, "")
+    slot_tag_body(remaining, acc <> <<q::utf8>> <> quoted <> <<q::utf8>>)
+  end
+
+  defp slot_tag_body("{" <> rest, acc) do
+    {expr, remaining} = slot_braces(rest, 1, "")
+    slot_tag_body(remaining, acc <> "{" <> expr <> "}")
+  end
+
+  defp slot_tag_body(<<c::utf8, rest::binary>>, acc),
+    do: slot_tag_body(rest, acc <> <<c::utf8>>)
+
+  defp slot_quoted("", _q, acc), do: {acc, ""}
+
+  defp slot_quoted("\\" <> <<c::utf8, rest::binary>>, q, acc),
+    do: slot_quoted(rest, q, acc <> "\\" <> <<c::utf8>>)
+
+  defp slot_quoted(<<q::utf8, rest::binary>>, q, acc), do: {acc, rest}
+
+  defp slot_quoted(<<c::utf8, rest::binary>>, q, acc),
+    do: slot_quoted(rest, q, acc <> <<c::utf8>>)
+
+  defp slot_braces("", _depth, acc), do: {acc, ""}
+  defp slot_braces("}" <> rest, 1, acc), do: {acc, rest}
+  defp slot_braces("}" <> rest, depth, acc), do: slot_braces(rest, depth - 1, acc <> "}")
+  defp slot_braces("{" <> rest, depth, acc), do: slot_braces(rest, depth + 1, acc <> "{")
+
+  defp slot_braces(<<q::utf8, rest::binary>>, depth, acc) when q in [?", ?'] do
+    {quoted, remaining} = slot_quoted(rest, q, "")
+    slot_braces(remaining, depth, acc <> <<q::utf8>> <> quoted <> <<q::utf8>>)
+  end
+
+  defp slot_braces(<<c::utf8, rest::binary>>, depth, acc),
+    do: slot_braces(rest, depth, acc <> <<c::utf8>>)
 
   defp strip_braces(expr) do
     expr = String.trim(expr)
@@ -327,25 +429,30 @@ defmodule Noizu.Tessera.Component.Template do
   defp min_tokens("<" <> rest, acc) do
     {name, remaining} = take_name(rest, "")
 
-    if name == "" or String.starts_with?(name, "-") do
+    if name == "" or String.starts_with?(name, "-") or String.starts_with?(name, "?") do
       {:error, "invalid tag start: <#{String.slice(rest, 0, 10)}"}
     else
-      if component_tag?(name) do
+      if name == "tsrslot" do
         {:error,
-         "component tag <#{name}> is outside the tessera element template subset — " <>
-           "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
+         "<tsrslot> is a reserved tessera tag name (the internal slot placeholder) — use <slot>"}
       else
-        case min_attrs(String.trim_leading(remaining), []) do
-          {:ok, attrs, after_tag, self_closing} ->
-            token =
-              if self_closing,
-                do: {:self_closing_tag, name, attrs},
-                else: {:start_tag, name, attrs}
+        if component_tag?(name) do
+          {:error,
+           "component tag <#{name}> is outside the tessera element template subset — " <>
+             "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
+        else
+          case min_attrs(String.trim_leading(remaining), []) do
+            {:ok, attrs, after_tag, self_closing} ->
+              token =
+                if self_closing,
+                  do: {:self_closing_tag, name, attrs},
+                  else: {:start_tag, name, attrs}
 
-            min_tokens(after_tag, [token | acc])
+              min_tokens(after_tag, [token | acc])
 
-          {:error, msg} ->
-            {:error, msg}
+            {:error, msg} ->
+              {:error, msg}
+          end
         end
       end
     end
@@ -382,7 +489,7 @@ defmodule Noizu.Tessera.Component.Template do
   defp split_expr("", _expr, _depth), do: :error
 
   defp take_name(<<c::utf8, rest::binary>>, acc)
-       when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c in [?-, ?_, ?$, ?.],
+       when c in ?a..?z or c in ?A..?Z or c in ?0..?9 or c in [?-, ?_, ?$, ?., ??],
        do: take_name(rest, acc <> <<c::utf8>>)
 
   defp take_name(rest, acc), do: {acc, rest}
@@ -408,8 +515,8 @@ defmodule Noizu.Tessera.Component.Template do
           end
 
         _ ->
-          # bare attribute (e.g. disabled) — boolean by presence
-          min_attrs(rest, [{name, {:static, ""}} | attrs])
+          # bare attribute (e.g. disabled, ?hidden) — boolean by presence
+          min_attrs(rest, [event_attr(name, {:static, ""}) | attrs])
       end
     end
   end
@@ -437,6 +544,7 @@ defmodule Noizu.Tessera.Component.Template do
   # lexers identically.
   defp event_attr("$" <> event, {:parts, [{:expr, src}]}), do: {:"$event", event, src}
   defp event_attr("$" <> event, {:static, s}), do: {:"$event", event, String.trim(s)}
+  defp event_attr("?" <> name, value), do: {:"$bool", name, value}
   defp event_attr(name, value), do: {name, value}
 
   # "text {expr} more" mixed value → parts (expr kept as string for parity
@@ -582,6 +690,29 @@ defmodule Noizu.Tessera.Component.Template do
           description:
             "invalid $#{event} binding `#{binding_src}` — use $#{event}={:action} or " <>
               "$#{event}={:action, key: value}"
+    end
+  end
+
+  # `?attr={expr}` — Lit boolean attribute binding: truthy → attribute present,
+  # falsy → removed. No quotes and no __t wrapper (null must stay falsy).
+  defp attr_js({:"$bool", name, {:parts, [{:expr, e}]}}, ctx) do
+    ast = if is_binary(e), do: to_ast(e, ctx), else: e
+    "?#{name}=${#{Expr.translate(ast, ctx)}}"
+  end
+
+  # Static `?attr` (bare or quoted text) → bare presence attribute.
+  defp attr_js({:"$bool", name, {:static, _s}}, _ctx), do: name
+
+  defp attr_js({:"$bool", name, {:parts, parts}}, ctx) do
+    if Enum.all?(parts, &match?({:text, _}, &1)) do
+      name
+    else
+      raise CompileError,
+        file: ctx.file,
+        line: ctx.line || 0,
+        description:
+          "tessera ?#{name} boolean attribute must bind a single {expr} (or be static) — " <>
+            "mixed text/expression values are outside the lit-html boolean-binding subset"
     end
   end
 
