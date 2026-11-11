@@ -4,7 +4,9 @@
 #   and PRs into epic.**/develop/stage/main. Runs the fast ExUnit subset
 #   (`mix test.fast`, excludes :slow/:nightly), the fast WTR group
 #   (`npm run test:fast`), and the BLOCKING e2e-smoke core claim (Cypress
-#   @fast). Target: a few minutes.
+#   @fast). Target: well under 2 minutes — the two core-claim demos boot in
+#   parallel, deps/_build + node_modules are cached, and the gallery (:5588,
+#   not core claim) is covered by the nightly full suite instead.
 # INTEGRATION lane: push to develop/stage/main (the epic→develop regular
 #   merge). Full ExUnit + full WTR (core host-matrix + persona_kit) + the
 #   blocking e2e-smoke.
@@ -107,6 +109,11 @@ jobs:
         run: npm ci && npm run test:fast
 
   # ------------------------------------------- BLOCKING core claim (both lanes)
+  # Core claim = shadow-DOM event → dispatchAction → Hologram action →
+  # re-render, on the Hologram (:5586) + plain-HTML (:5587) hosts. The gallery
+  # (:5588) is a component vitrine, NOT part of the core claim — its e2e moved
+  # to the nightly full suite (gallery.cy.ts @slow) so the fast gate boots two
+  # demos, in PARALLEL, and reuses one boot for every @fast spec.
   e2e-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -127,70 +134,130 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Boot Hologram demo on :5586
-        working-directory: demo/hologram_app
-        run: |
-          # Gate the WHOLE chain on HOLOGRAM_START: the deps.get path-dep
-          # compile registers Hologram compiler state, and a later `mix holo`
-          # can stall forever on "compiler already running, waiting" if the
-          # earlier compile ran un-gated (observed flaky in a Linux repro).
-          export HOLOGRAM_START=1
-          mix deps.get
-          mix tessera.install
-          nohup mix holo > /tmp/holo.log 2>&1 &
-          for i in $(seq 1 120); do
-            curl -sf -o /dev/null http://localhost:5586/ && exit 0
-            sleep 2
-          done
-          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
+      # Cold-compile shrink: the demo's deps/_build (incl. the :hologram
+      # compiler output) restore incrementally — mix recompiles only what
+      # changed. Keyed on every lockfile in the demo's path-dep closure.
+      - name: Cache Hologram demo deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            demo/hologram_app/deps
+            demo/hologram_app/_build
+          key: mix-demo-${{ runner.os }}-${{ hashFiles('demo/hologram_app/mix.lock', 'mix.lock', 'examples/persona_kit/mix.lock', 'examples/spike_kit/mix.lock', 'examples/holo_kit/mix.lock') }}
+          restore-keys: mix-demo-${{ runner.os }}-
 
       # esbuild resolves bare specifiers ("lit") from each importing file's
       # node_modules chain, and the components live in examples/persona_kit —
       # so that package's own deps must be installed even though the bundle
       # is built from demo/plain_html (fresh CI checkouts lack it; local
       # checkouts usually have it from WTR development, masking the gap).
+      # Prerequisite of BOTH boot chains, so it runs before they fan out.
+      - name: Cache persona_kit node_modules
+        id: pk-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: examples/persona_kit/node_modules
+          key: pk-js-${{ runner.os }}-${{ hashFiles('examples/persona_kit/package-lock.json') }}
+
       - name: Install persona_kit npm deps (lit resolves from importer path)
+        if: steps.pk-npm-cache.outputs.cache-hit != 'true'
         working-directory: examples/persona_kit
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
-      - name: Boot plain-HTML demo on :5587
-        working-directory: demo/plain_html
+      # The plain-HTML build imports persona_kit components, and each imports
+      # its contract.generated.mjs sibling — an Elixir-compiler artifact. The
+      # old SERIAL Hologram boot emitted these as a side effect before the
+      # plain build; with PARALLEL boots that is a race, so compile persona_kit
+      # explicitly BEFORE the fan-out (the demo's own compile re-emits them
+      # idempotently).
+      - name: Cache persona_kit deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            examples/persona_kit/deps
+            examples/persona_kit/_build
+          key: mix-pk-${{ runner.os }}-${{ hashFiles('examples/persona_kit/mix.lock', 'mix.lock') }}
+          restore-keys: mix-pk-${{ runner.os }}-
+
+      - name: Generate persona_kit contract modules (mix compile)
+        working-directory: examples/persona_kit
+        run: mix deps.get && mix compile
+
+      - name: Cache plain-HTML demo node_modules
+        id: plain-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: demo/plain_html/node_modules
+          key: plain-js-${{ runner.os }}-${{ hashFiles('demo/plain_html/package-lock.json') }}
+
+      - name: Cache e2e node_modules + Cypress binary
+        id: e2e-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            demo/e2e/node_modules
+            ~/.cache/Cypress
+          key: e2e-js-${{ runner.os }}-${{ hashFiles('demo/e2e/package-lock.json') }}
+
+      # The two demo boots are independent — run the install→build→boot→
+      # readiness chains CONCURRENTLY (wall = max, not sum). Each chain logs
+      # to its own file; a failed chain tails its log and fails the step.
+      - name: Boot Hologram :5586 + plain-HTML :5587 (parallel)
         run: |
-          npm install
-          npm run build
-          nohup npm run serve > /tmp/plain.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5587/ && exit 0
-            sleep 1
-          done
-          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
+          boot_holo() {
+            cd demo/hologram_app || return 1
+            # Gate the WHOLE chain on HOLOGRAM_START: the deps.get path-dep
+            # compile registers Hologram compiler state, and a later `mix holo`
+            # can stall forever on "compiler already running, waiting" if the
+            # earlier compile ran un-gated (observed flaky in a Linux repro).
+            export HOLOGRAM_START=1
+            mix deps.get || return 1
+            mix tessera.install || return 1
+            # Emit the Tier-2 serving bundles into priv/static/tessera BEFORE
+            # boot — the /holo_runtime glue imports tessera-runtime.esm.js +
+            # counter/editable_list/fancy_list/tidy_list from /tessera/. Without
+            # this the runtime 404s and the core-claim specs fail on the
+            # console-error assertion (the e2e-smoke RED bug).
+            mix tessera.bundles || return 1
+            nohup mix holo > /tmp/holo.log 2>&1 &
+            for i in $(seq 1 120); do
+              curl -sf -o /dev/null http://localhost:5586/ && return 0
+              sleep 2
+            done
+            echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; return 1
+          }
+          boot_plain() {
+            cd demo/plain_html || return 1
+            if [ "${{ steps.plain-npm-cache.outputs.cache-hit }}" != "true" ]; then
+              npm ci --no-audit --no-fund || return 1
+            fi
+            npm run build || return 1
+            nohup npm run serve > /tmp/plain.log 2>&1 &
+            for i in $(seq 1 60); do
+              curl -sf -o /dev/null http://localhost:5587/ && return 0
+              sleep 1
+            done
+            echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; return 1
+          }
+          boot_holo & HOLO_PID=$!
+          boot_plain & PLAIN_PID=$!
+          H=0; P=0
+          wait "$HOLO_PID" || H=$?
+          wait "$PLAIN_PID" || P=$?
+          if [ "$H" -ne 0 ] || [ "$P" -ne 0 ]; then
+            echo "::error::demo boot failed (holo=$H plain=$P)"; exit 1
+          fi
 
-      # The generated package gallery (mix tessera.gen.gallery) — static HTML
-      # + the package's own bundles, driven by custom-elements.json. The
-      # component .mjs import their contract.generated.mjs siblings, so
-      # persona_kit must be compiled first; esbuild resolves the components'
-      # bare imports from persona_kit's node_modules (installed above).
-      - name: Boot component gallery on :5588
-        run: |
-          (cd examples/persona_kit && mix deps.get && mix compile)
-          cd examples/persona_kit/gallery
-          npm ci
-          npm run build
-          nohup npm run serve > /tmp/gallery.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5588/ && exit 0
-            sleep 1
-          done
-          echo "::error::gallery did not come up on :5588"; tail -20 /tmp/gallery.log; exit 1
-
-      # @fast = the Linux-green core-claim legs (plain_html, gallery,
-      # hologram_nav, hologram_main leg (b)). grepFilterSpecs loads only these
-      # specs. This is the hard gate behind the shadow-event core claim —
-      # BLOCKING in both lanes.
+      # @fast = the Linux-green core-claim legs: plain_html, conformance_tier2
+      # (fast lane), hologram_nav, hologram_main_smoke (leg b). grepFilterSpecs
+      # loads only these specs. This is the hard gate behind the shadow-event
+      # core claim — BLOCKING in both lanes. Gallery is @slow (nightly).
       - name: Cypress FAST smoke (blocking core claim, @fast)
         working-directory: demo/e2e
         run: |
-          npm ci
+          if [ "${{ steps.e2e-npm-cache.outputs.cache-hit }}" != "true" ]; then
+            npm ci --no-audit --no-fund
+          fi
           npm run test:fast
 
       - name: Upload cypress screenshots on failure

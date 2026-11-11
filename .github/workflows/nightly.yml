@@ -2,7 +2,9 @@
 #
 # Slow, non-blocking-by-design coverage that must NOT gate per-change work:
 #   - e2e-full: ALL Cypress hosts, including the currently-red-on-Linux
-#     component-own-shadow legs (hologram_main a/c/d, tagged @slow).
+#     component-own-shadow legs (hologram_main a/c/d, tagged @slow), the
+#     component gallery (:5588 — moved out of the fast gate, not core claim)
+#     and the tier-2 static hosts (:5589).
 #     continue-on-error + TODO(tessera-e2e-linux) — docs/notes/e2e-linux-ci.md.
 #   - coverage: full ExUnit with --cover (library + persona_kit).
 # The full ExUnit/WTR suites also run in the INTEGRATION lane (ci.yml) on every
@@ -88,6 +90,9 @@ jobs:
           export HOLOGRAM_START=1
           mix deps.get
           mix tessera.install
+          # Tier-2 serving bundles (the /holo_runtime glue imports them from
+          # /tessera/) — same emit step as the fast lane, before boot.
+          mix tessera.bundles
           nohup mix holo > /tmp/holo.log 2>&1 &
           for i in $(seq 1 120); do
             curl -sf -o /dev/null http://localhost:5586/ && exit 0
@@ -122,6 +127,41 @@ jobs:
             sleep 1
           done
           echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
+
+      # The component gallery (mix tessera.gen.gallery) moved OUT of the fast
+      # gate (not part of the core claim) — its coverage lives here. The
+      # component .mjs import their contract.generated.mjs siblings, so
+      # persona_kit must be compiled first; esbuild resolves the components'
+      # bare imports from persona_kit's node_modules (installed above).
+      - name: Boot component gallery on :5588
+        run: |
+          (cd examples/persona_kit && mix deps.get && mix compile)
+          cd examples/persona_kit/gallery
+          npm ci --no-audit --no-fund
+          npm run build
+          nohup npm run serve > /tmp/gallery.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5588/ && exit 0
+            sleep 1
+          done
+          echo "::error::gallery did not come up on :5588"; tail -20 /tmp/gallery.log; exit 1
+
+      # Tier-2 static hosts (holo_runtime_element.cy.ts, untagged → full suite
+      # only): plain HTML + React on :5589, served from demo/holo_element with
+      # the UMD bundles emitted by `mix tessera.bundles` (one compile emits
+      # esm + umd + standalone) copied into dist/tessera-holo.
+      - name: Boot tier-2 static hosts on :5589
+        run: |
+          mkdir -p demo/holo_element/dist/tessera-holo
+          cp demo/hologram_app/priv/static/tessera/*.js demo/holo_element/dist/tessera-holo/
+          (cd demo/holo_element/react/vendor && npm ci --no-audit --no-fund)
+          cd demo/holo_element
+          nohup node serve.mjs > /tmp/holo-element.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5589/plain/ && exit 0
+            sleep 1
+          done
+          echo "::error::holo_element hosts did not come up on :5589"; tail -20 /tmp/holo-element.log; exit 1
 
       - name: "Cypress FULL suite (all hosts; @slow Linux legs non-blocking)"
         working-directory: demo/e2e
