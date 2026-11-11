@@ -246,7 +246,12 @@ defmodule Noizu.Tessera.Spec do
             "got: #{inspect(v)}"
   end
 
-  @doc "Escapes a string for inclusion inside a JSON double-quoted literal."
+  @doc """
+  Escapes a string for inclusion inside a JSON double-quoted literal. Every
+  control character (< 0x20) is escaped: LF/CR/TAB as the short forms, all
+  others (backspace, form feed, NUL, ESC, ...) as `\\u00XX` — a raw control
+  byte would be a SyntaxError in the generated `.mjs` and break `JSON.parse`.
+  """
   @spec escape_json(String.t()) :: String.t()
   def escape_json(value) do
     value
@@ -255,6 +260,10 @@ defmodule Noizu.Tessera.Spec do
     |> String.replace("\n", "\\n")
     |> String.replace("\r", "\\r")
     |> String.replace("\t", "\\t")
+    |> String.replace(~r/[\x00-\x1f]/, fn <<char>> ->
+      hex = char |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(4, "0")
+      "\\u" <> hex
+    end)
   end
 
   defp json_key(k) when is_binary(k), do: k

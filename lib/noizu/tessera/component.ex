@@ -407,6 +407,34 @@ defmodule Noizu.Tessera.Component do
             "(DOM attribute) and a prop (DOM property) cannot share a name"
     end
 
+    # Each event generates an `on_<event>` binding prop (CONTRACT.md §1). An
+    # author-declared prop — or attr, which becomes a Hologram prop too —
+    # with that same name would silently share the wire slot, so reject the
+    # collision at compile time with the component + name pointed out.
+    author_names = MapSet.union(prop_names, attr_names)
+
+    Enum.each(events, fn event ->
+      binding = Naming.event_binding_prop(event.name)
+
+      if MapSet.member?(author_names, binding) do
+        entry = Enum.find(attrs ++ props, fn e -> e.name == binding end)
+
+        line =
+          case entry do
+            %{line: l} when is_integer(l) and l > 0 -> l
+            _ -> event.line || 0
+          end
+
+        raise CompileError,
+          file: env.file,
+          line: line,
+          description:
+            "tessera component #{inspect(env.module)}: event #{inspect(event.name)} generates " <>
+              "binding prop #{inspect(binding)}, which collides with the author-declared " <>
+              "prop/attr of the same name — rename the prop/attr or the event (CONTRACT.md §1)"
+      end
+    end)
+
     :ok
   end
 

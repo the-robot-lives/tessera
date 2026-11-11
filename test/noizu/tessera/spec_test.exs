@@ -167,6 +167,48 @@ defmodule Noizu.Tessera.SpecTest do
       assert Spec.escape_json("mix\rof\rthem\rall\there") ==
                "mix\\rof\\rthem\\rall\\there"
     end
+
+    test "escapes EVERY control char < 0x20 — short forms for LF/CR/TAB, \\u00XX for the rest (F-14)" do
+      for c <- 0x00..0x1F do
+        expected =
+          case c do
+            0x0A ->
+              "\\n"
+
+            0x0D ->
+              "\\r"
+
+            0x09 ->
+              "\\t"
+
+            _ ->
+              "\\u" <>
+                (c |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(4, "0"))
+          end
+
+        assert Spec.escape_json(<<c>>) == expected,
+               "control char 0x#{String.pad_leading(Integer.to_string(c, 16), 2, "0")} " <>
+                 "escaped wrong: expected #{inspect(expected)}, " <>
+                 "got #{inspect(Spec.escape_json(<<c>>))}"
+      end
+    end
+
+    test "escapes backspace and form feed as \\u0008 / \\u000c (F-14)" do
+      assert Spec.escape_json("a\bb") == "a\\u0008b"
+      assert Spec.escape_json("a\fb") == "a\\u000cb"
+    end
+
+    test "every control char survives a JSON decode round trip (F-14)" do
+      for c <- 0x00..0x1F do
+        input = "x" <> <<c>> <> "y"
+        assert Jason.decode!("\"" <> Spec.escape_json(input) <> "\"") == input
+      end
+    end
+
+    test "control chars mixed with quotes and backslashes stay valid JSON (F-14)" do
+      input = "a\"b\\c\bd\fe\vf\0g"
+      assert Jason.decode!("\"" <> Spec.escape_json(input) <> "\"") == input
+    end
   end
 
   describe "to_manifest_map/1" do
