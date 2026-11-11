@@ -33,7 +33,10 @@ defmodule HologramDemo.MixProject do
       {:persona_kit, path: "../../examples/persona_kit"},
       # SPIKE (spike/elixir-to-lit): the element-DSL package — state/template/
       # action compiled into generated Lit elements (docs/notes/spike-elixir-to-lit.md).
-      {:spike_kit, path: "../../examples/spike_kit"}
+      {:spike_kit, path: "../../examples/spike_kit"},
+      # Tier 2 spike: ordinary Hologram components compiled to standalone
+      # tessera bundles (mix tessera.compile_component).
+      {:holo_kit, path: "../../examples/holo_kit"}
     ]
   end
 end

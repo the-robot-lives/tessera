@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tessera tier 2 — React host</title>
+  <style>
+    body {font-family: system-ui, sans-serif; margin: 2rem; max-width: 60rem;}
+    .panel {border: 1px solid #ccc; border-radius: 8px; padding: 1rem; margin: 1rem 0;}
+    h2 {margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555;}
+    .tsr-list-item {cursor: pointer; padding: 2px 6px; border-radius: 4px;}
+    .tsr-list-item.is-selected {background: #bde3ff;}
+    .tsr-list-item.is-editing {outline: 2px solid #2a7ae2;}
+    .tsr-list-error {color: #c0392b; margin-left: 0.5rem;}
+    button {cursor: pointer;}
+  </style>
+</head>
+<body>
+  <h1 data-cy="react-title">React host (tier 2)</h1>
+  <div id="root"></div>
+
+  <!-- vendor UMD builds, installed locally under react/vendor (gitignored
+       node_modules) — no CDN dependency -->
+  <script src="vendor/node_modules/react/umd/react.production.min.js"></script>
+  <script src="vendor/node_modules/react-dom/umd/react-dom.production.min.js"></script>
+  <script src="../dist/tessera-holo/tessera-runtime.umd.js"></script>
+  <script src="../dist/tessera-holo/counter.umd.js"></script>
+  <script src="../dist/tessera-holo/editable_list.umd.js"></script>
+  <script src="../dist/tessera-holo/fancy_list.umd.js"></script>
+  <script src="../dist/tessera-holo/tidy_list.umd.js"></script>
+  <script>
+    const {useState, useCallback, useEffect, useRef, createElement: h} = React;
+    const T = window.TesseraHoloBundle;
+
+    T.defineElement("tsr-holo-counter", "HoloKit.Components.Counter");
+    T.defineElement("tsr-holo-editable-list", "HoloKit.Components.EditableList");
+    T.defineElement("fancy-list", "ThirdParty.FancyList");
+
+    const planets = [
+      {id: 1, name: "Mercury"},
+      {id: 2, name: "Venus"},
+      {id: 3, name: "Earth"},
+      {id: 4, name: "Mars"},
+    ];
+
+    // React wrapper: ref + setProps keeps the element's props in sync with
+    // React state; the element owns its internal Hologram state.
+    // NOTE React 18 lowercases undashed props and only routes known on*
+    // handlers — so dashed attributes are spelled with dashes and custom
+    // events are wired with addEventListener in an effect.
+    function TesseraList({tag, title, items, onSaved, refCb}) {
+      const ref = useRef(null);
+
+      const setRef = useCallback((node) => {
+        ref.current = node;
+        if (refCb) refCb(node);
+      }, [refCb]);
+
+      useEffect(() => {
+        if (ref.current) ref.current.setProps({title, items});
+      }, [title, items]);
+
+      useEffect(() => {
+        const node = ref.current;
+        if (!node || !onSaved) return;
+
+        const handler = (event) => onSaved(event.detail);
+        node.addEventListener("item-saved", handler);
+
+        return () => node.removeEventListener("item-saved", handler);
+      }, [onSaved]);
+
+      return h(tag, {
+        ref: setRef,
+        "data-cy": `react-${tag}`,
+        "tsr-props": JSON.stringify({items}),
+      });
+    }
+
+    function Counter() {
+      const ref = useRef(null);
+      const [count, setCount] = useState(0);
+      const [delta, setDelta] = useState(0);
+
+      useEffect(() => {
+        const node = ref.current;
+        if (!node) return;
+
+        const handler = (event) => {
+          setCount(event.detail.count);
+          setDelta(event.detail.delta);
+        };
+
+        node.addEventListener("count-changed", handler);
+
+        return () => node.removeEventListener("count-changed", handler);
+      }, []);
+
+      return h("div", {className: "panel", "data-cy": "panel-counter"},
+        h("h2", null, "counter"),
+        h("tsr-holo-counter", {ref, label: "pings", step: "1", "data-cy": "react-counter"}),
+        h("p", null, "count-changed heard: ",
+          h("strong", {"data-cy": "react-count-value"}, String(count)),
+          " (", h("span", {"data-cy": "react-count-delta"}, String(delta)), ")"),
+      );
+    }
+
+    function App() {
+      const [saved, setSaved] = useState("-");
+      const [selected, setSelected] = useState(null);
+      const listRef = useRef(null);
+      const fancyRef = useRef(null);
+
+      // item B from React: intercept the action before the interpreter runs.
+      // This hook REWRITES the params — every select dispatched from React is
+      // forced onto row 1, whatever id React passes (visible interception).
+      const vendorRefCb = useCallback((node) => {
+        listRef.current = node;
+        if (!node) return;
+
+        node.onAction("selectItem", (params, next) => {
+          next({id: 1});
+        });
+      }, []);
+
+      const readState = () => {
+        const snap = listRef.current && listRef.current.state;
+        setSelected(snap ? `${snap.selectedId}/${snap.selected_id}` : "-");
+      };
+
+      return h("main", null,
+        h(Counter),
+
+        h("div", {className: "panel", "data-cy": "panel-vendor"},
+          h("h2", null, "editable list — vendor element via ref/setProps"),
+          h(TesseraList, {
+            tag: "tsr-holo-editable-list",
+            title: "Planets (react)",
+            items: planets,
+            onSaved: (detail) => setSaved(`${detail.name}@${detail.itemId}`),
+            refCb: vendorRefCb,
+          }),
+          h("p", null, "saved: ", h("strong", {"data-cy": "react-saved"}, saved)),
+          h("p", null,
+            h("button", {
+              "data-cy": "react-dispatch",
+              onClick: () => {
+                if (listRef.current) listRef.current.dispatchAction("selectItem", {id: 4});
+                readState();
+              },
+            }, "dispatchAction(selectItem, {id: 4}) — onAction hook rewrites it to id 1"),
+            " ",
+            h("button", {"data-cy": "react-read-state", onClick: readState}, "read el.state"),
+            " selectedId/selected_id: ",
+            h("strong", {"data-cy": "react-state"}, selected === null ? "-" : selected),
+          ),
+        ),
+
+        h("div", {className: "panel", "data-cy": "panel-fancy"},
+          h("h2", null, "fancy list — archive via dispatchAction"),
+          h(TesseraList, {
+            tag: "fancy-list",
+            title: "Fancy planets (react)",
+            items: planets,
+            refCb: (node) => {
+              fancyRef.current = node;
+            },
+          }),
+          h("p", null,
+            h("button", {
+              "data-cy": "react-archive",
+              onClick: () => {
+                if (fancyRef.current) fancyRef.current.dispatchAction("archive", {id: 1});
+              },
+            }, "dispatchAction(archive, {id: 1})"),
+            " (watch the first row gain [archived])",
+          ),
+        ),
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+  </script>
+</body>
+</html>

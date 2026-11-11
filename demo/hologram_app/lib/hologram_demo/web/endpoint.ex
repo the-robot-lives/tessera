@@ -8,11 +8,13 @@ defmodule HologramDemo.Web.Endpoint do
   use Phoenix.Endpoint, otp_app: :hologram_demo
 
   # Serves the Hologram client runtime + page bundles that the :hologram
-  # compiler writes into priv/static/hologram.
+  # compiler writes into priv/static/hologram, and the standalone tessera
+  # bundles written by `mix tessera.compile_component` (Tier 2 spike) into
+  # priv/static/tessera.
   plug Plug.Static,
     at: "/",
     from: :hologram_demo,
-    only: ~w(hologram),
+    only: ~w(hologram tessera),
     gzip: false
 
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
