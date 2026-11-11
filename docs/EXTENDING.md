@@ -2,7 +2,9 @@
 
 Three ways to change what a contract-driven element does, without touching the
 package or regenerating contracts. Read `docs/CONTRACT.md` first — the tag
-naming and `data-tsr-on` grammar are load-bearing here.
+naming and `data-tsr-on` grammar are load-bearing here. The normative
+extension contract (Elixir inheritance + this JS surface) is
+`docs/EXTENSION-CONTRACT.md`.
 
 ## 1. Behaviors (preferred)
 
