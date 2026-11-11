@@ -187,6 +187,60 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
 
+    test "event binding prop colliding with an author prop raises, naming component + name (F-08)" do
+      err =
+        assert_raise CompileError, fn ->
+          compile_source("""
+          prop :on_persona_select, :string
+          event "persona-select"
+          """)
+        end
+
+      assert err.description =~ "binding prop :on_persona_select"
+      assert err.description =~ "collides"
+      # The pointed message must name the component being compiled.
+      assert err.description =~ ~r/Tessera\.Inline\.N\d+/
+    end
+
+    test "binding-prop collision raises regardless of declaration order (F-08)" do
+      assert_raise CompileError, ~r/binding prop :on_persona_select.*collides/s, fn ->
+        compile_source("""
+        event "persona-select"
+        prop :on_persona_select, :string
+        """)
+      end
+    end
+
+    test "binding-prop collision with an author ATTR raises too (attrs become props) (F-08)" do
+      assert_raise CompileError, ~r/binding prop :on_persona_select.*collides/s, fn ->
+        compile_source("""
+        attr :on_persona_select, :string
+        event "persona-select"
+        """)
+      end
+    end
+
+    test "binding-prop collision uses the kebab→snake binding name for multi-word events (F-08)" do
+      assert_raise CompileError, ~r/binding prop :on_persona_picked.*collides/s, fn ->
+        compile_source("""
+        prop :on_persona_picked, :string
+        event "persona-picked"
+        """)
+      end
+    end
+
+    test "near-miss prop names do NOT collide with event binding props (F-08)" do
+      mod =
+        compile_source("""
+        prop :persona_select, :string
+        prop :on_persona_selected, :string
+        event "persona-select"
+        """)
+
+      assert Enum.map(mod.__tessera_spec__().props, & &1.name) ==
+               [:persona_select, :on_persona_selected]
+    end
+
     test "non-round-tripping attr name raises suggesting a rename" do
       assert_raise CompileError, ~r/col_2_width.*Rename it/s, fn ->
         compile_source("attr :col_2_width, :integer")
