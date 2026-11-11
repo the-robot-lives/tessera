@@ -28,9 +28,12 @@ defmodule HologramDemo.MixProject do
       {:bandit, "~> 1.5"},
       {:jason, "~> 1.4"},
       {:hologram, "~> 0.10.1"},
-      # The tessera component package under examples/ — which itself path-deps
-      # on the tessera library two levels up.
-      {:persona_kit, path: "../../examples/persona_kit"}
+      # The tessera component packages under examples/ — which themselves
+      # path-dep on the tessera library two levels up.
+      {:persona_kit, path: "../../examples/persona_kit"},
+      # SPIKE (spike/elixir-to-lit): the element-DSL package — state/template/
+      # action compiled into generated Lit elements (docs/notes/spike-elixir-to-lit.md).
+      {:spike_kit, path: "../../examples/spike_kit"}
     ]
   end
 end

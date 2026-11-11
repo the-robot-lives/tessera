@@ -1,0 +1,12 @@
+# Generated at compile time next to each component .mjs
+*.contract.generated.mjs
+*.element.generated.mjs
+/_build/
+/deps/
+/doc/
+erl_crash.dump
+*.ez
+node_modules/
+/.tmp/
+.DS_Store
+/dist/
