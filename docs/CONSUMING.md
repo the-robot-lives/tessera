@@ -40,6 +40,26 @@ mix tessera.install
 Hosts that manage their own JS packaging can skip the npm leg and add
 `@noizu/tessera-core` from their registry of choice themselves.
 
+### Boot hazard: export `HOLOGRAM_START=1` for the whole boot chain
+
+In a fresh Linux environment the canonical boot chain
+`mix deps.get && mix tessera.install && mix holo` can **hang indefinitely**:
+`mix deps.get` compiles path deps immediately, and if that compile runs
+*without* `HOLOGRAM_START=1`, the later `mix holo` (which sets it) finds the
+Hologram compiler already registered and loops forever on
+`Hologram: compiler already running, waiting...` — hologram 0.10.1 never
+times out. Observed twice in an elixir:1.18-otp-27 container, never on macOS.
+
+Gate the WHOLE chain on the flag, before `mix deps.get`:
+
+```sh
+export HOLOGRAM_START=1
+mix deps.get && mix tessera.install && mix holo
+```
+
+CI's e2e jobs export it for the whole chain as a hardening; the full
+investigation lives in `docs/notes/e2e-linux-ci.md` (§ "Boot-recipe hazard").
+
 ## 3. Declare components
 
 Author components per `docs/AUTHORING.md`. Compile — the contracts,
