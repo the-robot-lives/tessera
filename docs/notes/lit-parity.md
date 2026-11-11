@@ -2,6 +2,8 @@
 
 > Generated: 2026-11-11 | Session: `8cab005e-11cf-42b8-8a29-9aff00f6bec0`
 >
+> Correction (2026-11-11): matrix corrected against spike code (spike/elixir-to-lit @ 103c776) — Tier 1 column audited row-by-row against the compiled output; Tier 2 cells purged of stale Lit-wrapper framing; see §3 for the tier comparison.
+>
 > Compares the full Lit 3 feature surface against tessera's three implementation tiers:
 > - **Phase 1 (tessera today)**: Hand-written Lit elements beneath an Elixir contract layer.
 > - **Tier 1 (spike/elixir-to-lit)**: Compile an Elixir subset directly to Lit element output.
@@ -359,46 +361,46 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 1 | LitElement | `extends LitElement` | 🔌 Hand-written Lit elements beneath Elixir layer | ✅ expected: compiled output IS LitElement | 🟡 expected: Hologram component hosted inside custom element; LitElement is the wrapper shell | Tier 2: wrapper is a thin LitElement delegating to Hologram |
-| 2 | ReactiveElement | `extends ReactiveElement` | 🔌 Inherited via LitElement | 🔌 Inherited via LitElement | 🔌 Inherited via wrapper LitElement | Tier 1/2 both have this from Lit underneath |
+| 1 | LitElement | `extends LitElement` | 🔌 Hand-written Lit elements beneath Elixir layer | ✅ expected: compiled output IS LitElement | ❌ | Tier 2: wrapper is a thin LitElement delegating to Hologram · Tier 2: no LitElement — wrapper is a plain TesseraHoloElement extends HTMLElement + open shadow root + Hologram interpreter/snabbdom inside |
+| 2 | ReactiveElement | `extends ReactiveElement` | 🔌 Inherited via LitElement | 🔌 Inherited via LitElement | ❌ | Tier 1/2 both have this from Lit underneath · Tier 1: inherited from the compiled LitElement · Tier 2: no ReactiveElement — plain HTMLElement wrapper |
 | 3 | @customElement | `@customElement('tag')` | 🔌 Hand-written on wrapper class | ✅ expected: generated from Elixir module name | ✅ expected: wrapper registers the element tag | |
 | 4 | connectedCallback | super.connectedCallback() | 🔌 Via Lit element lifecycle | 🔌 Via compiled LitElement | 🟡 expected: Hologram init hooks map to this | |
 | 5 | disconnectedCallback | super.disconnectedCallback() | 🔌 Via Lit element lifecycle | 🔌 Via compiled LitElement | 🟡 expected: Hologram teardown maps to this | |
-| 6 | shouldUpdate | shouldUpdate(cp): boolean | 🔌 Can be overridden in hand-written elements | 🟡 expected: compilable from Elixir guard/condition | ❌ | no render-gate hook — wrapper always re-renders |
-| 7 | willUpdate | willUpdate(cp) | 🔌 Via Lit element lifecycle | ✅ expected: maps to Elixir lifecycle callback | ❌ | no per-render hooks |
+| 6 | shouldUpdate | shouldUpdate(cp): boolean | 🔌 Can be overridden in hand-written elements | ❌ | ❌ | no render-gate hook — wrapper always re-renders · Tier 1: no guard DSL — actions always assign state and re-render (lit_codegen.ex:37-39); subclass-only |
+| 7 | willUpdate | willUpdate(cp) | 🔌 Via Lit element lifecycle | ❌ | ❌ | no per-render hooks · Tier 1: no lifecycle DSL — only attr/prop/event/slot/cy/state/template/action (component.ex:107-131) |
 | 8 | update | update(cp) | 🔌 Via Lit element lifecycle | 🔌 Via compiled LitElement | ❌ | Rarely overridden directly — no update-phase hook, interpreter owns rendering |
 | 9 | render | render(): TemplateResult | 🔌 Hand-written in Lit element | ✅ confirmed: `~TSR"""..."""` template DSL compiles to lit-html `render()` | 🟡 expected: Hologram's own rendering, not Lit's | Spike: dual-lexer parses `{expr}`, `{%if}/{%for}`, `$event`; generates `html``` in render() |
-| 10 | firstUpdated | firstUpdated(cp) | 🔌 Can be overridden in hand-written elements | ✅ expected: maps to Elixir mount/init callback | ❌ | subclass connectedCallback is the closest seam |
-| 11 | updated | updated(cp) | 🔌 Via Lit element lifecycle | ✅ expected: maps to Elixir update callback | ❌ | no post-render hook |
+| 10 | firstUpdated | firstUpdated(cp) | 🔌 Can be overridden in hand-written elements | 🔌 via behaviors.add | ❌ | subclass connectedCallback is the closest seam · Tier 1: behaviors.add runs at connect (element.mjs:204-220); a behavior can await updateComplete; nothing generated maps to it |
+| 11 | updated | updated(cp) | 🔌 Via Lit element lifecycle | ❌ | ❌ | no post-render hook · Tier 1: no per-render hook exists; behaviors run only connect/disconnect (element.mjs:204-235) |
 | 12 | updateComplete | await this.updateComplete | 🔌 Via Lit element | 🔌 Via compiled LitElement | 🟡 expected: Hologram has its own update tracking | |
-| 13 | getUpdateComplete | async getUpdateComplete() | 🔌 Can be overridden | 🟡 expected | ❌ | no update promise; dispatchAction/setProps sync |
+| 13 | getUpdateComplete | async getUpdateComplete() | 🔌 Can be overridden | ❌ | ❌ | no update promise; dispatchAction/setProps sync · Tier 1: not modeled; subclass-only |
 | 14 | requestUpdate | this.requestUpdate() | 🔌 Via Lit element | ✅ expected: triggered by Elixir state changes | 🟡 expected: Hologram triggers re-render, wrapper propagates | |
-| 15 | scheduleUpdate | async scheduleUpdate() | 🔌 Via Lit element | ❓ | ❌ | Advanced scheduler customization — no scheduler hook, interpreter owns update timing |
-| 16 | performUpdate | (internal) | 🔌 Lit internal | 🔌 Lit internal | 🔌 Lit internal | |
-| 17 | addInitializer | addInitializer(fn) | 🔌 Via Lit element | ❓ | 🔌 | subclass + documented hooks (transformProps/onActionError) replaces it |
+| 15 | scheduleUpdate | async scheduleUpdate() | 🔌 Via Lit element | ❌ | ❌ | Advanced scheduler customization — no scheduler hook, interpreter owns update timing · Tier 1: fixed codegen surface (lit_codegen.ex:36-100) |
+| 16 | performUpdate | (internal) | 🔌 Lit internal | 🔌 Lit internal | ❌ | no Lit update machinery in Tier 2 — interpreter owns update execution |
+| 17 | addInitializer | addInitializer(fn) | 🔌 Via Lit element | ❌ | 🔌 | subclass + documented hooks (transformProps/onActionError) replaces it · Tier 1: no initializer concept in DSL |
 | 18 | hasUpdated | this.hasUpdated | 🔌 Via Lit element | 🔌 Via compiled LitElement | ❌ | no hasUpdated flag — interpreter owns render state |
-| 19 | isConnected | this.isConnected | 🔌 Via Lit element | 🔌 Via compiled LitElement | 🔌 Via wrapper LitElement | |
+| 19 | isConnected | this.isConnected | 🔌 Via Lit element | 🔌 Via compiled LitElement | ✅ native: Element.isConnected on the plain HTMLElement wrapper | |
 
 ### 2.2 Reactive Properties
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
 | 20 | @property | @property(opts) | 🟡 Elixir `tsr_prop` maps to @property via bridge | ✅ expected: compiled from Elixir attr declaration | 🔌 wrapper exposes @property that delegates to Hologram state | Tessera today: attrs defined in Elixir contract, bridge generates Lit @property |
-| 21 | @property({type}) | type: String/Number/Boolean/Object/Array | 🟡 Elixir types map to Lit types in bridge | ✅ expected: Elixir type → Lit converter | 🔌 wrapper property types map to Hologram types | |
-| 22 | @property({attribute}) | attribute: 'my-prop' or false | 🟡 Contract specifies attribute name | ✅ expected | 🔌 wrapper property → Hologram attr | |
-| 23 | @property({reflect}) | reflect: true | ❌ Not in Phase 1 contract docs | ✅ expected | ❌ | attrs flow one-way IN only |
-| 24 | @property({converter}) | converter: {fromAttribute, toAttribute} | ❌ | ✅ expected: custom Elixir converter fn | 🔌 | manifest-typed casting (integer/float/boolean/atom/string) + tsr-props JSON; no per-prop custom converter |
-| 25 | @property({hasChanged}) | hasChanged: (n,o) => bool | ❌ | ✅ expected | ❌ | setProps always re-renders |
-| 26 | @property({noAccessor}) | noAccessor: true | ❌ | ❓ | ❌ | Niche option — plain property semantics, no accessor customization |
-| 27 | @property({useDefault}) | useDefault: true | ❌ | ❓ | ❌ | Lit 3.3+ feature — no attribute-removal default reset |
+| 21 | @property({type}) | type: String/Number/Boolean/Object/Array | 🟡 Elixir types map to Lit types in bridge | 🔌 partial | 🔌 wrapper property types map to Hologram types | Tier 1: integer/float/string/boolean map to converters; everything else degrades to Object, no Array (lit_codegen.ex:187-191) |
+| 22 | @property({attribute}) | attribute: 'my-prop' or false | 🟡 Contract specifies attribute name | ❌ | 🔌 wrapper property → Hologram attr | Tier 1: only {type} emitted (lit_codegen.ex:166-173); no rename/disable |
+| 23 | @property({reflect}) | reflect: true | ❌ Not in Phase 1 contract docs | ❌ | ❌ | attrs flow one-way IN only · Tier 1: no reflect emitted anywhere |
+| 24 | @property({converter}) | converter: {fromAttribute, toAttribute} | ❌ | ❌ | 🔌 | manifest-typed casting (integer/float/boolean/atom/string) + tsr-props JSON; no per-prop custom converter · Tier 1: coercion fixed in TesseraElement (element.mjs:57-73); custom converter fns impossible in subset |
+| 25 | @property({hasChanged}) | hasChanged: (n,o) => bool | ❌ | ❌ | ❌ | setProps always re-renders · Tier 1: not emitted |
+| 26 | @property({noAccessor}) | noAccessor: true | ❌ | ❌ | ❌ | Niche option — plain property semantics, no accessor customization · Tier 1: properties_object emits {type} only (lit_codegen.ex:166-173) |
+| 27 | @property({useDefault}) | useDefault: true | ❌ | ❌ | ❌ | Lit 3.3+ feature — no attribute-removal default reset · Tier 1: constructor defaults exist (lit_codegen.ex:193-214) but no attribute-removal reset semantics |
 | 28 | @state | @state() private _x | 🟡 Elixir internal state mapped via bridge | ✅ confirmed: `state(:count, :integer, default: 0)` generates Lit reactive properties | 🔌 wrapper @state maps to Hologram internal state | Spike: state DSL compiles to `static properties` entries; state keys stay snake_case on the element |
 | 29 | static properties | static properties = {...} | ❌ (uses decorators) | ✅ confirmed: generated element uses static properties field | ✅ | Spike golden fixture confirms static properties output · Tier 2: Elixir `__props__/0` is the compile-time contract driving attribute casting |
-| 30 | Attribute-to-property conversion | automatic per type | 🟡 Bridge handles attr→prop sync | ✅ expected: Lit handles this natively | 🔌 Lit handles under the wrapper | |
-| 31 | Property-to-attribute reflection | @property({reflect: true}) | ❌ | ✅ expected | ❌ | attrs flow one-way IN only (same as #23) |
+| 30 | Attribute-to-property conversion | automatic per type | 🟡 Bridge handles attr→prop sync | ✅ expected: Lit handles this natively | 🔌 wrapper-level | Tier 2: tsr-props attr casting at wrapper level; no Lit conversion |
+| 31 | Property-to-attribute reflection | @property({reflect: true}) | ❌ | ❌ | ❌ | attrs flow one-way IN only (same as #23) · Tier 1: no reflect (same as #23) |
 | 32 | Attribute name mapping | camelCase → lowercase | 🟡 Contract specifies attr name mapping | ✅ expected | 🔌 wrapper handles attr name mapping | |
 | 33 | Boolean attribute semantics | present=true, absent=false | 🟡 Bridge respects Boolean type | ✅ expected | 🔌 wrapper Boolean properties | |
-| 34 | changedProperties map | willUpdate(cp) | 🔌 Available via Lit element | ✅ expected | ❌ | no changed-properties map — no per-render hooks |
-| 35 | Custom getter/setter | @property() set/get | ❌ | 🟡 expected: Elixir accessor fns | 🔌 | setProps + state getter + transformProps |
+| 34 | changedProperties map | willUpdate(cp) | 🔌 Available via Lit element | ❌ | ❌ | no changed-properties map — no per-render hooks · Tier 1: no willUpdate/updated override generated to receive cp |
+| 35 | Custom getter/setter | @property() set/get | ❌ | ❌ | 🔌 | setProps + state getter + transformProps · Tier 1: no accessor DSL; properties are plain Lit reactive props |
 | 36 | elementProperties metadata | MyElement.elementProperties | 🔌 Available via Lit element | 🔌 Available via compiled LitElement | 🔌 Available via wrapper | |
 | 37 | Mutation detection | this.items = [...items, new] | ❌ (JS concern) | ✅ expected: Elixir immutable data pattern | 🔌 | tsr-props attr re-derive fires re-render; JS mutation not tracked |
 
@@ -408,48 +410,48 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
 | 38 | html tag | html`` | 🔌 Hand-written Lit templates | ✅ expected: compiled from Elixir template DSL | 🔌 Wrapper's render delegates to Hologram; Hologram uses its own template system | Tier 2: Hologram provides its own template language, not Lit's html`` |
 | 39 | svg tag | svg`` | 🔌 Hand-written in Lit | 🟡 expected: Elixir SVG template compiles to svg`` | 🔌 via Hologram's rendering | |
-| 40 | mathml tag | mathml`` | ❌ | ❓ | 🔌 | Lit 3.2+, niche — unknown tags pass through renderer; mathml untested specifically |
+| 40 | mathml tag | mathml`` | ❌ | ❌ | 🔌 | Lit 3.2+, niche — unknown tags pass through renderer; mathml untested specifically · Tier 1: html`` only |
 | 41 | Child expression | ${expr} | 🔌 Hand-written | ✅ expected | 🔌 via Hologram | |
 | 42 | Attribute expression | attr=${val} | 🔌 Hand-written | ✅ expected | 🔌 via Hologram | |
-| 43 | Boolean attribute expression | ?attr=${val} | 🔌 Hand-written | ✅ expected | 🔌 | renderer-owned, untested |
+| 43 | Boolean attribute expression | ?attr=${val} | 🔌 Hand-written | ❌ | 🔌 | renderer-owned, untested · Tier 1: `?` not in attr-name charset (template.ex:367-369) → compile error |
 | 44 | Property expression | .prop=${val} | 🔌 Hand-written | ✅ expected | 🔌 wrapper uses .prop for Hologram state | |
-| 45 | Event listener expression | @event=${handler} | 🔌 Hand-written | ✅ expected | 🟡 wrapper listens to Lit events, forwards to Hologram | |
-| 46 | Element expression | ${directive()} | 🔌 Hand-written | ❓ | ❌ | no directive-part position in Hologram templates |
-| 47 | nothing sentinel | import {nothing} | 🔌 Hand-written | ✅ expected | ✅ | nil renders nothing |
-| 48 | noChange sentinel | import {noChange} | ❌ | ❓ | ❌ | Directive-internal use — no Hologram equivalent |
+| 45 | Event listener expression | @event=${handler} | 🔌 Hand-written | ✅ expected | 🟡 wrapper listens to DOM events, forwards to Hologram | |
+| 46 | Element expression | ${directive()} | 🔌 Hand-written | ❌ | ❌ | no directive-part position in Hologram templates · Tier 1: attr emission handles static/parts/$event only (template.ex:554-580); no directive pipeline |
+| 47 | nothing sentinel | import {nothing} | 🔌 Hand-written | 🔌 approximated | ✅ | nil renders nothing · Tier 1: __t nil→undefined ≈ nothing (golden fixture:9); the nothing sentinel is never imported/emitted |
+| 48 | noChange sentinel | import {noChange} | ❌ | ❌ | ❌ | Directive-internal use — no Hologram equivalent · Tier 1: if/else emits plain html`` (template.ex:535-543) |
 | 49 | Conditional rendering | ternary / when() | 🔌 Hand-written | ✅ confirmed: `{%if}/{%else}/{/if}` in template DSL compiles to ternary in generated JS | 🔌 via Hologram's own conditionals | Spike: if/else in ~TSR templates |
-| 50 | List rendering | Array.map / map() | 🔌 Hand-written | ✅ confirmed: `{%for x <- coll}` in template DSL compiles to `map()` directive | 🔌 via Hologram | Spike: for-loop compiles to lit map() |
-| 51 | Static expressions (literal) | literal`` / unsafeStatic() | ❌ | ❓ | ❌ | Niche: dynamic tag names — not supported in Hologram templates |
-| 52 | Static expressions (unsafeStatic) | unsafeStatic(str) | ❌ | ❓ | ❌ | dynamic tag names not supported in Hologram templates |
+| 50 | List rendering | Array.map / map() | 🔌 Hand-written | ✅ confirmed: `{%for x <- coll}` in template DSL compiles to `map()` directive | 🔌 via Hologram | Spike: `{%for}` compiles to Array.prototype.map (template.ex:546-552) — not the lit map() directive |
+| 51 | Static expressions (literal) | literal`` / unsafeStatic() | ❌ | ❌ | ❌ | Niche: dynamic tag names — not supported in Hologram templates · Tier 1: tag names always static |
+| 52 | Static expressions (unsafeStatic) | unsafeStatic(str) | ❌ | ❌ | ❌ | dynamic tag names not supported in Hologram templates · Tier 1: not modeled |
 | 53 | Nested templates | ${html`...`} | 🔌 Hand-written | ✅ expected | 🔌 via Hologram | |
-| 54 | Template functions | const fn = (...) => html`...` | ❌ | ✅ expected: Elixir function components | 🔌 via Hologram | |
-| 55 | Template result caching | automatic | 🔌 Lit handles this | 🔌 Lit handles this | 🔌 Lit handles this under wrapper | |
+| 54 | Template functions | const fn = (...) => html`...` | ❌ | ❌ | 🔌 via Hologram | Tier 1: fn allowed only as Enum.map/filter callback (expr.ex:80-92); no function components |
+| 55 | Template result caching | automatic | 🔌 Lit handles this | ✅ confirmed | ❌ | Tier 1: static html`` literals (golden fixture:57); lit-native template caching · no lit-html in Tier 2 — Hologram/snabbdom reconciliation owns caching |
 
 ### 2.4 Built-in Directives
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 56 | classMap | classMap({...}) | 🔌 Hand-written | ✅ expected: Elixir class list compiles to classMap() | 🔌 wrapper can use classMap | |
-| 57 | styleMap | styleMap({...}) | 🔌 Hand-written | ✅ expected | 🔌 wrapper can use styleMap | |
-| 58 | when | when(cond, T, F) | 🔌 Hand-written | ✅ expected: compiles from Elixir if | 🔌 wrapper can use when | |
-| 59 | choose | choose(val, cases, default) | 🔌 Hand-written | 🟡 expected: Elixir cond/case → choose() | 🔌 wrapper can use choose | |
-| 60 | map | map(iter, fn) | 🔌 Hand-written | ✅ expected: Elixir for → map() | 🔌 wrapper can use map | |
-| 61 | join | join(items, sep) | ❌ | ✅ expected | 🔌 | Enum.join at expression level, subject to runtime stdlib coverage |
-| 62 | range | range(end) / range(s, e, step) | ❌ | ✅ expected | 🔌 | Enum.map/enumerables |
-| 63 | repeat | repeat(items, key, fn) | 🔌 Hand-written | ✅ expected: Elixir keyed for → repeat() | 🔌 wrapper can use repeat | |
-| 64 | cache | cache(template) | ❌ | ✅ expected | ❌ | whole-template re-render; interpreter owns reconciliation, no DOM cache |
-| 65 | guard | guard(deps, fn) | ❌ | ✅ expected | ❌ | no memo gate — interpreter re-renders |
-| 66 | live | live(value) | ❌ | ✅ expected | ❌ | no live-DOM comparison — vdom owns values |
-| 67 | keyed | keyed(key, template) | ❌ | ✅ expected | ❌ | Hologram vdom owns reconciliation |
-| 68 | ifDefined | ifDefined(val) | 🔌 Hand-written | ✅ expected | 🔌 wrapper can use ifDefined | |
+| 56 | classMap | classMap({...}) | 🔌 Hand-written | ❌ | 🔌 wrapper can use classMap | Tier 1: no directive emission; class is a string attr interpolation (template.ex:570-580) |
+| 57 | styleMap | styleMap({...}) | 🔌 Hand-written | ❌ | 🔌 wrapper can use styleMap | Tier 1: no directive emission; style is a string attr interpolation (template.ex:570-580) |
+| 58 | when | when(cond, T, F) | 🔌 Hand-written | 🔌 ternary | 🔌 wrapper can use when | Tier 1: ternary if/else (template.ex:535-543); when() not emitted |
+| 59 | choose | choose(val, cases, default) | 🔌 Hand-written | ❌ | 🔌 wrapper can use choose | Tier 1: cond/case rejected by subset (expr.ex:26-36); only if/else ternaries |
+| 60 | map | map(iter, fn) | 🔌 Hand-written | 🔌 Array.map | 🔌 wrapper can use map | Tier 1: Array.prototype.map (template.ex:551), not the lit map() directive |
+| 61 | join | join(items, sep) | ❌ | 🔌 string join | 🔌 | Enum.join at expression level, subject to runtime stdlib coverage · Tier 1: Enum.join → Array.join string (expr.ex:80-92); not the join directive |
+| 62 | range | range(end) / range(s, e, step) | ❌ | ❌ | 🔌 | Enum.map/enumerables · Tier 1: not in any expression allowlist |
+| 63 | repeat | repeat(items, key, fn) | 🔌 Hand-written | ❌ | 🔌 wrapper can use repeat | Tier 1: Array.map only, no keys (template.ex:551) |
+| 64 | cache | cache(template) | ❌ | ❌ | ❌ | whole-template re-render; interpreter owns reconciliation, no DOM cache · Tier 1: not modeled |
+| 65 | guard | guard(deps, fn) | ❌ | ❌ | ❌ | no memo gate — interpreter re-renders · Tier 1: not modeled |
+| 66 | live | live(value) | ❌ | ❌ | ❌ | no live-DOM comparison — vdom owns values · Tier 1: not modeled |
+| 67 | keyed | keyed(key, template) | ❌ | ❌ | ❌ | Hologram vdom owns reconciliation · Tier 1: not modeled |
+| 68 | ifDefined | ifDefined(val) | 🔌 Hand-written | 🔌 approximated | 🔌 wrapper can use ifDefined | Tier 1: __t nil→undefined removes the attribute (golden fixture:9); the directive itself is not emitted |
 | 69 | ref / createRef | ref(this.ref) / createRef() | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | ref requires imperative DOM; generated DSL doesn't emit it, but `behaviors.add` on connect provides full element access · Tier 2: open shadow root → el.shadowRoot.querySelector from host |
-| 70 | until | until(promise, placeholder) | 🔌 Hand-written | 🟡 expected: async values | 🔌 wrapper can use until | |
-| 71 | asyncAppend | asyncAppend(asyncIter, fn) | ❌ | ❓ | ❌ | no async iterables in templates |
-| 72 | asyncReplace | asyncReplace(asyncIter) | ❌ | ❓ | ❌ | no async iterables in templates |
-| 73 | templateContent | templateContent(tpl) | ❌ | ❓ | ❌ | no `<template>` content cloning in renderer |
-| 74 | unsafeHTML | unsafeHTML(str) | 🔌 Hand-written | ✅ expected: raw HTML escape hatch | 🔌 wrapper can use unsafeHTML | |
-| 75 | unsafeSVG | unsafeSVG(str) | ❌ | ✅ expected | ❌ | no raw-SVG string injection |
-| 76 | unsafeMathML | (pattern) | ❌ | ❓ | ❌ | no MathML string injection |
+| 70 | until | until(promise, placeholder) | 🔌 Hand-written | ❌ | 🔌 wrapper can use until | Tier 1: subset is synchronous |
+| 71 | asyncAppend | asyncAppend(asyncIter, fn) | ❌ | ❌ | ❌ | no async iterables in templates · Tier 1: no async in subset (expr.ex:26-36) |
+| 72 | asyncReplace | asyncReplace(asyncIter) | ❌ | ❌ | ❌ | no async iterables in templates · Tier 1: no async in subset |
+| 73 | templateContent | templateContent(tpl) | ❌ | ❌ | ❌ | no `<template>` content cloning in renderer · Tier 1: no directive pipeline |
+| 74 | unsafeHTML | unsafeHTML(str) | 🔌 Hand-written | ❌ | 🔌 wrapper can use unsafeHTML | Tier 1: template text is escaped (template.ex:675-680); no unsafeHTML |
+| 75 | unsafeSVG | unsafeSVG(str) | ❌ | ❌ | ❌ | no raw-SVG string injection · Tier 1: not modeled |
+| 76 | unsafeMathML | (pattern) | ❌ | ❌ | ❌ | no MathML string injection · Tier 1: not modeled |
 | 77 | Custom directives | class extends Directive | ❌ | 🔌 via behaviors.add escape hatch | ❌ | Custom directives need imperative DOM; reachable through the behaviors.add hatch · Tier 2: template-level ❌ — host-side onAction chain is the hatch |
 | 78 | Async directives | class extends AsyncDirective | ❌ | 🔌 via behaviors.add escape hatch | ❌ | Async directives need lifecycle integration; reachable through behaviors.add · Tier 2: same hatch as #77 (host-side onAction chain) |
 
@@ -457,32 +459,32 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 79 | css tag | static styles = css`` | 🔌 Hand-written | ✅ expected: Elixir CSS block compiles to css`` | 🔌 Wrapper has static styles; Hologram styles are separate | Tier 2: Hologram's CSS lives in Hologram's own system |
-| 80 | Static styles (Constructable Stylesheets) | static styles | 🔌 Hand-written Lit styles | 🔌 Compiled output uses static styles | 🟡 Wrapper uses static styles; Hologram content styled separately | |
-| 81 | Style array composition | [a, b, css``] | 🔌 Hand-written | ✅ expected | 🔌 Wrapper composes styles | |
-| 82 | Style inheritance | [...Parent.styles] | 🔌 Hand-written | ✅ expected | 🔌 Wrapper inherits | |
-| 83 | :host selector | :host { ... } | 🔌 Hand-written | ✅ expected | 🔌 Wrapper uses :host | |
-| 84 | :host([attr]) | :host([active]) | 🔌 Hand-written | ✅ expected | 🔌 Wrapper uses :host([attr]) | |
-| 85 | :host(.class) | :host(.primary) | 🔌 Hand-written | ✅ expected | 🔌 Wrapper uses :host(.class) | |
-| 86 | :host-context(.theme) | :host-context(.dark) | ❌ | ✅ expected | 🔌 | host styles any part (open root); no scoped sheet shipped |
-| 87 | ::slotted() | ::slotted(p) { ... } | 🔌 Hand-written | ✅ expected | 🔌 Wrapper uses ::slotted | |
+| 79 | css tag | static styles = css`` | 🔌 Hand-written | 🔌 fixed boilerplate | 🔌 Wrapper has static styles; Hologram styles are separate | Tier 2: Hologram's CSS lives in Hologram's own system · Tier 1: css`` is emitted but content is fixed :host boilerplate (lit_codegen.ex:50-55); no Elixir CSS DSL exists |
+| 80 | Static styles (Constructable Stylesheets) | static styles | 🔌 Hand-written Lit styles | ✅ confirmed: output uses static styles | 🟡 Wrapper uses static styles; Hologram content styled separately | Tier 1: output does use static styles (golden fixture:18-23) — prior 🔌 was an underclaim |
+| 81 | Style array composition | [a, b, css``] | 🔌 Hand-written | ❌ | 🔌 Wrapper composes styles | Tier 1: single fixed css``; no composition |
+| 82 | Style inheritance | [...Parent.styles] | 🔌 Hand-written | ❌ | 🔌 Wrapper inherits | Tier 1: not modeled |
+| 83 | :host selector | :host { ... } | 🔌 Hand-written | 🔌 boilerplate only | 🔌 Wrapper uses :host | Tier 1: :host present in the fixed boilerplate only (golden fixture:19-22); author cannot add rules |
+| 84 | :host([attr]) | :host([active]) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses :host([attr]) | Tier 1: boilerplate has plain :host only |
+| 85 | :host(.class) | :host(.primary) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses :host(.class) | Tier 1: not modeled |
+| 86 | :host-context(.theme) | :host-context(.dark) | ❌ | ❌ | 🔌 | host styles any part (open root); no scoped sheet shipped · Tier 1: not modeled |
+| 87 | ::slotted() | ::slotted(p) { ... } | 🔌 Hand-written | ❌ | 🔌 Wrapper uses ::slotted | Tier 1: not modeled |
 | 88 | :defined | my-el:defined | 🔌 Native browser CSS | 🔌 Native | 🔌 Native | |
-| 89 | ::part() (exportparts) | ::part(button) | ❌ | ❓ | 🔌 | moot — open root, everything styleable |
-| 90 | CSS custom properties | var(--name, fallback) | 🔌 Hand-written | ✅ expected: Elixir design tokens → CSS custom properties | 🔌 Wrapper uses CSS custom properties | |
-| 91 | CSS custom property naming | --comp-name-prop | 🟡 Manual convention | ✅ expected | 🟡 Manual convention | |
-| 92 | Shared style modules | export const styles = css`` | 🔌 Hand-written | ✅ expected: Elixir shared CSS modules | 🔌 Wrapper imports shared styles | |
-| 93 | unsafeCSS | unsafeCSS(str) | ❌ | ✅ expected | ❌ | no dynamic CSS string injection |
-| 94 | shadowRootOptions | static shadowRootOptions | 🔌 Hand-written | ✅ expected: configured in component definition | 🔌 Wrapper sets shadowRootOptions | |
-| 95 | delegatesFocus | delegatesFocus: true | 🔌 Hand-written | ✅ expected | 🔌 Wrapper sets delegatesFocus | |
-| 96 | createRenderRoot (light DOM) | createRenderRoot() { return this; } | ❌ | ✅ expected | 🔌 | open shadow today; light-DOM root is a small wrapper change, not implemented |
-| 97 | Design system token pattern | Two-level tokens | 🟡 Manual in CSS | ✅ expected: Elixir token declarations | 🟡 Manual | |
-| 98 | Theme switching | CSS custom property overrides | 🔌 Hand-written | ✅ expected | 🔌 Wrapper | |
+| 89 | ::part() (exportparts) | ::part(button) | ❌ | ❌ | 🔌 | moot — open root, everything styleable · Tier 1: fixed styles; no exportparts |
+| 90 | CSS custom properties | var(--name, fallback) | 🔌 Hand-written | ❌ | 🔌 Wrapper uses CSS custom properties | Tier 1: boilerplate uses no var(); no author CSS |
+| 91 | CSS custom property naming | --comp-name-prop | 🟡 Manual convention | ❌ | 🟡 Manual convention | Tier 1: nothing generated |
+| 92 | Shared style modules | export const styles = css`` | 🔌 Hand-written | ❌ | 🔌 Wrapper imports shared styles | Tier 1: not modeled |
+| 93 | unsafeCSS | unsafeCSS(str) | ❌ | ❌ | ❌ | no dynamic CSS string injection · Tier 1: not modeled |
+| 94 | shadowRootOptions | static shadowRootOptions | 🔌 Hand-written | ❌ | 🔌 Wrapper sets shadowRootOptions | Tier 1: not emitted |
+| 95 | delegatesFocus | delegatesFocus: true | 🔌 Hand-written | ❌ | 🔌 Wrapper sets delegatesFocus | Tier 1: not emitted |
+| 96 | createRenderRoot (light DOM) | createRenderRoot() { return this; } | ❌ | ❌ | 🔌 | open shadow today; light-DOM root is a small wrapper change, not implemented · Tier 1: not modeled |
+| 97 | Design system token pattern | Two-level tokens | 🟡 Manual in CSS | ❌ | 🟡 Manual | Tier 1: no token DSL |
+| 98 | Theme switching | CSS custom property overrides | 🔌 Hand-written | ❌ | 🔌 Wrapper | Tier 1: boilerplate references no custom properties |
 
 ### 2.6 Shadow DOM
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 99 | Default slot | `<slot></slot>` | 🟡 Elixir `slot` declaration → Lit `<slot>` | ✅ expected: compiled from slot declaration | 🟡 Wrapper `<slot>`; Hologram renders its own content inside | |
+| 99 | Default slot | `<slot></slot>` | 🟡 Elixir `slot` declaration → Lit `<slot>` | ✅ confirmed: literal `<slot>` markup passthrough | 🟡 Wrapper `<slot>`; Hologram renders its own content inside | Tier 1: the slot declaration validates only (component.ex:360-363), never consumed by codegen; slots work via markup passthrough (template.ex:522-530) |
 | 100 | Named slots | `<slot name="header">` | 🟡 Elixir named slot → named `<slot>` | ✅ expected | 🟡 Wrapper named slots | |
 | 101 | Slot fallback content | `<slot>default</slot>` | 🔌 Hand-written | ✅ expected | 🔌 Wrapper | |
 | 102 | @query | @query('#id') el | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | Imperative DOM reference; reachable through behaviors.add · Tier 2: no decorator, shadowRoot.querySelector works |
@@ -493,9 +495,9 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | 107 | slotchange event | @slotchange=${fn} | 🔌 Hand-written | ✅ expected | ❌ | same — slot wiring not implemented in spike |
 | 108 | assignedElements() | slot.assignedElements() | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | ❌ | Imperative DOM access; reachable through behaviors.add · Tier 2: same — slot wiring not implemented (see #105) |
 | 109 | assignedNodes() | slot.assignedNodes() | ❌ | 🔌 via behaviors.add escape hatch | ❌ | slot wiring not implemented in spike |
-| 110 | renderRoot | this.renderRoot | 🔌 Lit internal | 🔌 Lit internal | 🔌 Lit internal | |
+| 110 | renderRoot | this.renderRoot | 🔌 Lit internal | 🔌 Lit internal | ❌ | no renderRoot in Tier 2 — interpreter renders into the open shadow root directly |
 | 111 | Open shadow root | mode: 'open' (default) | 🔌 Default | 🔌 Default | 🔌 Default | |
-| 112 | Closed shadow root | mode: 'closed' | ❌ | ✅ expected: configurable | 🔌 | closed root trivially configurable; open by default |
+| 112 | Closed shadow root | mode: 'closed' | ❌ | ❌ | 🔌 | closed root trivially configurable; open by default · Tier 1: no shadowRootOptions emission |
 
 ### 2.7 Events
 
@@ -505,15 +507,15 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | 114 | CustomEvent dispatch | dispatchEvent(new CustomEvent(...)) | 🔌 Hand-written in Lit | ✅ confirmed: `emit/2` in action DSL generates composed CustomEvent dispatch | 🟡 Hologram emits, wrapper dispatches CustomEvent | Spike: `emit("event-name", %{key: val})` compiled to CustomEvent with composed+bubbles; camelCase detail keys at emit boundary |
 | 115 | bubbles option | {bubbles: true} | 🔌 Hand-written | ✅ expected | 🔌 Wrapper sets event options | |
 | 116 | composed option | {composed: true} | 🔌 Hand-written | ✅ expected | 🔌 Wrapper sets event options | |
-| 117 | cancelable option | {cancelable: true} | ❌ | ✅ expected | 🔌 | emits bubbles+composed; cancelable flag not set |
-| 118 | @eventOptions | @eventOptions({passive: true}) | ❌ | ✅ expected: declarative in component | ❌ | no template-level listener options — host addEventListener opts apply |
-| 119 | handleEvent object | {handleEvent: fn, once: true} | ❌ | ❓ | 🔌 | host-side addEventListener accepts any listener form; template on-spec is function-only |
-| 120 | Remove listener with nothing | @click=${active ? fn : nothing} | 🔌 Hand-written | ✅ expected: conditional handler → nothing | 🔌 | host-side removeEventListener works |
-| 121 | Typed CustomEvents | class MyEvent extends Event | ❌ | 🟡 expected: Elixir struct → typed CustomEvent | ❌ | no shipped types |
+| 117 | cancelable option | {cancelable: true} | ❌ | ❌ | 🔌 | emits bubbles+composed; cancelable flag not set · Tier 1: emit hardcodes bubbles/composed only (events.mjs:19-21) |
+| 118 | @eventOptions | @eventOptions({passive: true}) | ❌ | ❌ | ❌ | no template-level listener options — host addEventListener opts apply · Tier 1: not modeled |
+| 119 | handleEvent object | {handleEvent: fn, once: true} | ❌ | ❌ | 🔌 | host-side addEventListener accepts any listener form; template on-spec is function-only · Tier 1: $event binds declared action atoms only (template.ex:585-621) |
+| 120 | Remove listener with nothing | @click=${active ? fn : nothing} | 🔌 Hand-written | ❌ | 🔌 | host-side removeEventListener works · Tier 1: binding must be a declared action atom; no conditional form |
+| 121 | Typed CustomEvents | class MyEvent extends Event | ❌ | ❌ | ❌ | no shipped types · Tier 1: plain CustomEvent only (events.mjs:19-21); structs rejected in subset |
 | 122 | composedPath() | event.composedPath() | 🔌 Hand-written | 🔌 Native | 🔌 Native | |
-| 123 | Bidirectional event pattern | event.detail.response | ❌ | ❓ | ✅ | onAction intercept + emit + setProps is the contract shape (e2e pending) |
-| 124 | Dispatch after render | await updateComplete; dispatch | 🔌 Hand-written | ✅ expected | 🔌 | action→render sequencing owned by interpreter; host awaits dispatchAction return |
-| 125 | External listeners | window.addEventListener | 🔌 Hand-written | 🟡 expected: Elixir lifecycle hook | ✅ | composed bubbling CustomEvents — core design (e2e pending) |
+| 123 | Bidirectional event pattern | event.detail.response | ❌ | ❌ | ✅ | onAction intercept + emit + setProps is the contract shape (e2e pending) · Tier 1: emit detail is one-way |
+| 124 | Dispatch after render | await updateComplete; dispatch | 🔌 Hand-written | ❌ | 🔌 | action→render sequencing owned by interpreter; host awaits dispatchAction return · Tier 1: emit runs synchronously inside the action; no updateComplete-then-dispatch modeling |
+| 125 | External listeners | window.addEventListener | 🔌 Hand-written | 🔌 via behaviors.add | ✅ | composed bubbling CustomEvents — core design (e2e pending) · Tier 1: behaviors.add + disconnect cleanup (element.mjs:204-235) |
 
 ### 2.8 Reactive Controllers
 
@@ -523,8 +525,8 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | 127 | addController | this.addController(ctrl) | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | ❌ | no registry (subclass keeps own array) |
 | 128 | hostConnected | hostConnected() | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | behaviors.add fn runs on connectedCallback · Tier 2: subclass connectedCallback |
 | 129 | hostDisconnected | hostDisconnected() | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | behaviors.add cleanup fn runs on disconnectedCallback · Tier 2: subclass disconnectedCallback |
-| 130 | hostUpdate | hostUpdate() | ❌ | 🔌 via behaviors.add escape hatch | ❌ | no render lifecycle |
-| 131 | hostUpdated | hostUpdated() | ❌ | 🔌 via behaviors.add escape hatch | ❌ | no render lifecycle |
+| 130 | hostUpdate | hostUpdate() | ❌ | ❌ | ❌ | no render lifecycle · Tier 1: behaviors have no update-time hook |
+| 131 | hostUpdated | hostUpdated() | ❌ | ❌ | ❌ | no render lifecycle · Tier 1: behaviors have no update-time hook |
 | 132 | Controller requesting update | this.host.requestUpdate() | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | behaviors.add receives the element; can call requestUpdate() · Tier 2: call setProps |
 | 133 | Multiple controllers | multiple controller instances | 🔌 Hand-written | 🔌 via behaviors.add escape hatch | 🔌 | behaviors registry supports multiple per-tag · Tier 2: multiple hooks compose at subclass level |
 | 134 | Composing controllers | controller owns other controllers | ❌ | 🔌 via behaviors.add escape hatch | ❌ | no controller host — subclass composition only |
@@ -534,7 +536,7 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 136 | Nested components | `<child-el>` in template | 🟡 Elixir component composition → Lit nesting | ✅ expected: Elixir component tree → nested Lit elements | 🟡 Hologram components nested inside wrapper | |
+| 136 | Nested components | `<child-el>` in template | 🟡 Elixir component composition → Lit nesting | 🔌 static markup | 🟡 Hologram components nested inside wrapper | Tier 1: component tags (uppercase-first) rejected (template.ex:325-328); lowercase custom-element tags pass as static markup — no compile-time component tree |
 | 137 | Properties down | .prop=${val} | 🟡 Bridge passes Elixir attrs as Lit properties | ✅ expected | 🔌 Wrapper passes props to child wrappers | |
 | 138 | Events up | @event=${handler} | 🟡 Bridge forwards Lit events to Elixir handlers | ✅ expected | 🟡 Hologram events bubble through wrapper | |
 | 139 | Mixin pattern | const M = (super) => class extends super | ❌ | 🔌 via subclassing TesseraElement | 🔌 | Generated element is a LitElement subclass; consumer can apply mixins through TesseraElement mixin or plain JS subclassing · Tier 2: wrapper is a plain class — JS mixins apply; new tag via defineElement |
@@ -547,18 +549,18 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 144 | formAssociated | static formAssociated = true | ❌ | ✅ expected: declared in component | ❌ | formAssociated not set |
+| 144 | formAssociated | static formAssociated = true | ❌ | ❌ | ❌ | formAssociated not set · Tier 1: no emission, no DSL option |
 | 145 | ElementInternals | this.attachInternals() | ❌ | 🔌 via behaviors.add escape hatch | 🔌 | Imperative API; reachable through behaviors.add on connect · Tier 2: subclass can attachInternals (standard HTMLElement) |
 | 146 | setValidity | internals.setValidity(...) | ❌ | 🔌 via behaviors.add escape hatch | ❌ | not wired — subclass seam only (see #145) |
 | 147 | setFormValue | internals.setFormValue(val) | ❌ | 🔌 via behaviors.add escape hatch | ❌ | not wired — subclass seam only (see #145) |
-| 148 | formResetCallback | formResetCallback() | ❌ | 🔌 via behaviors.add escape hatch | ❌ | no form lifecycle callbacks implemented |
-| 149 | formDisabledCallback | formDisabledCallback(bool) | ❌ | 🔌 via behaviors.add escape hatch | ❌ | no form lifecycle callbacks implemented |
+| 148 | formResetCallback | formResetCallback() | ❌ | ❌ | ❌ | no form lifecycle callbacks implemented · Tier 1: class method — behaviors cannot hook it |
+| 149 | formDisabledCallback | formDisabledCallback(bool) | ❌ | ❌ | ❌ | no form lifecycle callbacks implemented · Tier 1: class method — behaviors cannot hook it |
 
 ### 2.11 Accessibility
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 150 | delegatesFocus | shadowRootOptions.delegatesFocus | 🔌 Hand-written | ✅ expected | 🔌 Wrapper | |
+| 150 | delegatesFocus | shadowRootOptions.delegatesFocus | 🔌 Hand-written | ❌ | 🔌 Wrapper | Tier 1: not emitted |
 | 151 | ARIA attribute reflection | aria-label, role, etc. | 🔌 Hand-written in template | ✅ expected: Elixir aria attributes → template attrs | 🔌 Hologram renders ARIA attrs | |
 | 152 | aria property reflection | (browser native) | 🔌 Native | 🔌 Native | 🔌 Native | |
 | 153 | eslint-plugin-lit-a11y | NPM dev dependency | 🔌 Available in tooling | 🔌 Available in tooling | 🔌 Available in tooling | |
@@ -567,35 +569,35 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 154 | @lit-labs/ssr | import {render} from '@lit-labs/ssr' | ❌ | ✅ expected: compiled Lit elements are SSR-able | ❌ | no Lit — Hologram server-renders its own HTML; @lit-labs/ssr does not apply |
+| 154 | @lit-labs/ssr | import {render} from '@lit-labs/ssr' | ❌ | 🔌 plausible, unproven | ❌ | no Lit — Hologram server-renders its own HTML; @lit-labs/ssr does not apply · Tier 1: architecturally plausible (decorator-free LitElement output, DOM-free import, SSR-safe defineOnce) but zero SSR proof in spike |
 | 155 | Declarative Shadow DOM | `<template shadowrootmode>` | 🔌 Lit SSR generates this | 🔌 Lit SSR generates for Tier 1 output | 🔌 | feasible in principle (server-rendered template HTML + template shadowroot; snabbdom toVNode patch-in) — NOT implemented in spike; highest-risk row |
-| 156 | SSR lifecycle subset | only constructor/willUpdate/render | 🔌 Lit handles | 🔌 Lit handles for compiled output | ❌ | no hydrate; client mounts from scratch |
-| 157 | @lit-labs/ssr-client hydration | import hydrate-support | ❌ | ✅ expected: hydrate on client | ❌ | no hydration attach — client mounts from scratch |
-| 158 | hydrate() function | hydrate(template, container) | ❌ | ✅ expected | ❌ | no hydrate() equivalent |
-| 159 | Streaming SSR | RenderResultReadable | ❌ | ✅ expected | 🔌 | server can stream HTML; elements upgrade on connect |
-| 160 | collectResult / collectResultSync | collectResult(result) | ❌ | ✅ expected | ❌ | no Lit render-result collection — server streams plain HTML |
-| 161 | isServer detection | import {isServer} from 'lit' | ❌ | ✅ expected | ✅ | Hologram has native server/client split (same component runs both sides) |
-| 162 | VM module isolation | ModuleLoader | ❌ | ✅ expected | ❌ | server side is Elixir, not Node VM modules |
-| 163 | defer-hydration attribute | (Lit labs pattern) | ❌ | ✅ expected | ❌ | mounts on connect, no deferral |
-| 164 | Framework integrations (SSR) | Astro, Eleventy, Next.js | ❌ | ✅ expected: Tier 1 Lit output works with standard integrations | ❓ | framework SSR integrations not exercised in the Tier 2 spike |
+| 156 | SSR lifecycle subset | only constructor/willUpdate/render | 🔌 Lit handles | 🔌 unproven | ❌ | no hydrate; client mounts from scratch · Tier 1: unproven in spike |
+| 157 | @lit-labs/ssr-client hydration | import hydrate-support | ❌ | 🔌 unproven | ❌ | no hydration attach — client mounts from scratch · Tier 1: unproven in spike |
+| 158 | hydrate() function | hydrate(template, container) | ❌ | 🔌 unproven | ❌ | no hydrate() equivalent · Tier 1: unproven in spike |
+| 159 | Streaming SSR | RenderResultReadable | ❌ | 🔌 unproven | 🔌 | server can stream HTML; elements upgrade on connect · Tier 1: unproven in spike |
+| 160 | collectResult / collectResultSync | collectResult(result) | ❌ | 🔌 unproven | ❌ | no Lit render-result collection — server streams plain HTML · Tier 1: unproven in spike |
+| 161 | isServer detection | import {isServer} from 'lit' | ❌ | 🔌 unproven | ✅ | Hologram has native server/client split (same component runs both sides) · Tier 1: unproven in spike |
+| 162 | VM module isolation | ModuleLoader | ❌ | 🔌 unproven | ❌ | server side is Elixir, not Node VM modules · Tier 1: unproven in spike |
+| 163 | defer-hydration attribute | (Lit labs pattern) | ❌ | 🔌 unproven | ❌ | mounts on connect, no deferral · Tier 1: unproven in spike |
+| 164 | Framework integrations (SSR) | Astro, Eleventy, Next.js | ❌ | 🔌 unproven | ❓ | framework SSR integrations not exercised in the Tier 2 spike · Tier 1: unproven in spike |
 | 165 | template-shadowroot polyfill | @webcomponents/template-shadowroot | ❌ | 🔌 Polyfill available | ❌ | not shipped in the spike |
 
 ### 2.13 Labs / Ecosystem Packages
 
 | # | Feature | Package | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 166 | Context protocol | @lit/context | ❌ | ✅ expected: Elixir context → @lit/context | ❌ | no Lit context; bus seam (setBus/BusClient) is the cross-boundary channel |
-| 167 | createContext | createContext<T>(key) | ❌ | ✅ expected | ❌ | no Lit context — bus seam is the cross-boundary channel |
-| 168 | @provide decorator | @provide({context}) | ❌ | ✅ expected | ❌ | no Lit context — bus seam is the cross-boundary channel |
-| 169 | @consume decorator | @consume({context, subscribe}) | ❌ | ✅ expected | ❌ | no Lit context — bus seam is the cross-boundary channel |
+| 166 | Context protocol | @lit/context | ❌ | ❌ | ❌ | no Lit context; bus seam (setBus/BusClient) is the cross-boundary channel · Tier 1: no provide/consume DSL |
+| 167 | createContext | createContext<T>(key) | ❌ | ❌ | ❌ | no Lit context — bus seam is the cross-boundary channel · Tier 1: not modeled |
+| 168 | @provide decorator | @provide({context}) | ❌ | ❌ | ❌ | no Lit context — bus seam is the cross-boundary channel · Tier 1: not modeled |
+| 169 | @consume decorator | @consume({context, subscribe}) | ❌ | ❌ | ❌ | no Lit context — bus seam is the cross-boundary channel · Tier 1: not modeled |
 | 170 | ContextProvider controller | new ContextProvider(...) | ❌ | ❌ expected: controller API | ❌ | no Lit context — bus seam (setBus/BusClient) is the cross-boundary channel |
 | 171 | ContextConsumer controller | new ContextConsumer(...) | ❌ | ❌ expected | ❌ | no Lit context — bus seam (setBus/BusClient) is the cross-boundary channel |
-| 172 | ContextRoot | new ContextRoot() | ❌ | ❓ | ❌ | no Lit context — bus seam is the cross-boundary channel |
+| 172 | ContextRoot | new ContextRoot() | ❌ | ❌ | ❌ | no Lit context — bus seam is the cross-boundary channel · Tier 1: not modeled |
 | 173 | Task | @lit/task | ❌ | 🟡 expected: Elixir async → Task | 🔌 | host-level async + setParams/onAction replicates the pattern |
 | 174 | Task class | new Task(host, opts) | ❌ | 🔌 via behaviors.add escape hatch | ❌ | Task is controller-based; reachable through behaviors.add · Tier 2: needs Lit controller host |
-| 175 | Auto-run vs manual | autoRun option | ❌ | ❓ | ❌ | no Task to configure |
-| 176 | Task abort signal | {signal} | ❌ | ❓ | ❌ | no Task abort support |
-| 177 | Task chaining | output → args | ❌ | ❓ | ❌ | no Task chaining |
+| 175 | Auto-run vs manual | autoRun option | ❌ | ❌ | ❌ | no Task to configure · Tier 1: JS-side only |
+| 176 | Task abort signal | {signal} | ❌ | ❌ | ❌ | no Task abort support · Tier 1: JS-side only |
+| 177 | Task chaining | output → args | ❌ | ❌ | ❌ | no Task chaining · Tier 1: JS-side only |
 | 178 | Signals | @lit-labs/signals | ❌ | ❌ expected: incompatible with compiled output | 🔌 | Tier 1: Signals are a state management alternative; Tier 1 uses Lit's built-in reactivity. · Tier 2: host may run @lit/signals outside; compute → setProps |
 | 179 | signal() | signal(val) / get/set | ❌ | ❌ | ❌ | no template integration |
 | 180 | computed() | computed(() => expr) | ❌ | ❌ | ❌ | no template integration |
@@ -603,27 +605,27 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | 182 | watch() directive | watch(signal) | ❌ | ❌ | ❌ | no template integration |
 | 183 | Signals html tag | html from @lit-labs/signals | ❌ | ❌ | ❌ | no template integration |
 | 184 | signal-utils | SignalArray, @signal | ❌ | ❌ | ❌ | no signal ecosystem |
-| 185 | React wrapper | @lit/react createComponent | 🔌 Available for hand-written elements | ✅ expected: auto-generate createComponent | 🔌 Wrapper can be wrapped for React | |
+| 185 | React wrapper | @lit/react createComponent | 🔌 Available for hand-written elements | 🔌 manual | 🔌 Wrapper can be wrapped for React | Tier 1: react.html drives plain custom elements via React 18; no createComponent generation |
 | 186 | useController() hook | @lit/react/use-controller.js | ❌ | ❌ | ❌ | needs Lit controller host |
-| 187 | Localization | @lit/localize | ❌ | ✅ expected: Elixir gettext → @lit/localize | ❌ | no Lit template layer to localize |
+| 187 | Localization | @lit/localize | ❌ | ❌ | ❌ | no Lit template layer to localize · Tier 1: no gettext/i18n DSL |
 | 188 | Virtualizer | @lit-labs/virtualizer | ❌ | 🔌 Usable with compiled Lit elements | 🔌 | wrap element with any host-side virtualizer; template-level ❌ |
 | 189 | Motion | @lit-labs/motion | ❌ | 🔌 Usable with compiled Lit elements | ❌ | directive-based — no template directives |
 | 190 | Router | @lit-labs/router | ❌ | 🔌 Usable with compiled Lit elements | ❌ | Hologram routes pages, not elements |
 | 191 | Observers | @lit-labs/observers | ❌ | 🔌 Usable with compiled Lit elements (controller-based, so limited) | ❌ | controller-based — no controller host |
-| 192 | Scoped registry mixin | @lit-labs/scoped-registry-mixin | ❌ | ✅ expected | 🔌 | tag→module map is per-runtime-instance; customElements global registry caveat |
-| 193 | Wrapper generators | @lit-labs/gen-wrapper-* | ❌ | ✅ expected: generate from CEM | 🔌 Generate from wrapper CEM | |
-| 194 | Custom Elements Manifest | @custom-elements-manifest/analyzer | 🔌 Analyze hand-written elements | ✅ expected: auto-generate CEM from Elixir definitions | 🔌 Analyze wrapper classes | |
+| 192 | Scoped registry mixin | @lit-labs/scoped-registry-mixin | ❌ | 🔌 subclassing | 🔌 | tag→module map is per-runtime-instance; customElements global registry caveat · Tier 1: usable via subclassing only, not generated |
+| 193 | Wrapper generators | @lit-labs/gen-wrapper-* | ❌ | ❌ | 🔌 Generate from wrapper CEM | Tier 1: not implemented |
+| 194 | Custom Elements Manifest | @custom-elements-manifest/analyzer | 🔌 Analyze hand-written elements | ❌ | 🔌 Analyze wrapper classes | Tier 1: contract.generated.mjs is a wire contract, not a CEM; nothing generated |
 
 ### 2.14 Tooling and DX
 
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
-| 195 | Experimental decorators | @property() + tsconfig | 🔌 Hand-written | 🔌 Compiled output uses standard Lit decorators | 🔌 Wrapper uses decorators | |
-| 196 | Standard TC39 decorators | @property() accessor | ❌ | 🟡 expected: output can use either decorator mode | 🔌 Wrapper can use either | |
-| 197 | No-decorator API | static properties | ❌ | 🟡 expected: output can use static properties | 🔌 Wrapper can use static properties | |
-| 198 | TypeScript types | Type declarations | 🔌 Lit types | ✅ expected: generate .d.ts from Elixir typespecs | 🔌 Lit types + wrapper types | |
-| 199 | HTMLElementTagNameMap | declare global { ... } | 🔌 Hand-written | ✅ expected: auto-generated | 🔌 Wrapper auto-generates | |
-| 200 | Dev-mode warnings | Automatic in dev build | 🔌 Lit dev build | 🔌 Lit dev build for compiled output | 🔌 Lit dev build for wrapper | |
+| 195 | Experimental decorators | @property() + tsconfig | 🔌 Hand-written | ❌ decorator-free output | 🔌 Wrapper uses decorators | Tier 1: output is decorator-free static properties (golden fixture:11-16) — prior cell description contradicted the fixture |
+| 196 | Standard TC39 decorators | @property() accessor | ❌ | ❌ | 🔌 Wrapper can use either | Tier 1: static properties only; 'either decorator mode' is false |
+| 197 | No-decorator API | static properties | ❌ | ✅ confirmed: output IS static properties | 🔌 Wrapper can use static properties | Tier 1: golden fixture:12-16 — prior 🟡 was an underclaim |
+| 198 | TypeScript types | Type declarations | 🔌 Lit types | ❌ | 🔌 plain-JS wrapper | Tier 1: only .mjs emitted; no .d.ts · Tier 2: plain-JS wrapper — no Lit/TS types shipped |
+| 199 | HTMLElementTagNameMap | declare global { ... } | 🔌 Hand-written | ❌ | 🔌 Wrapper auto-generates | Tier 1: not generated |
+| 200 | Dev-mode warnings | Automatic in dev build | 🔌 Lit dev build | 🔌 Lit dev build for compiled output | 🔌 plain-HTMLElement wrapper | Tier 2: plain-HTMLElement wrapper — no Lit dev build |
 | 201 | Warning suppression | LitElement.disableWarning(...) | ❌ | 🔌 Available | 🔌 Available | |
 | 202 | lit-analyzer / lit-plugin | VS Code extension | 🔌 Works with .js output | 🔌 Works with compiled .js output | 🔌 Works with wrapper .js | |
 | 203 | eslint-plugin-lit | ESLint plugin | 🔌 In JS toolchain | 🔌 In JS toolchain | 🔌 In JS toolchain | |
@@ -635,7 +637,7 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | # | Feature | Lit API | tessera today (Phase 1) | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) | Notes |
 |---|---------|---------|------------------------|----------------------|--------------------------|-------|
 | 206 | ESM only | "type": "module" | 🔌 Standard | 🔌 Compiled output is ESM | 🔌 Wrapper is ESM | |
-| 207 | Do not bundle rule | peerDependencies on lit | 🔌 Manual | ✅ expected: auto-config peer deps | 🔌 Wrapper respects this | |
+| 207 | Do not bundle rule | peerDependencies on lit | 🔌 Manual | 🔌 runtime variant only | 🔌 Wrapper respects this | Tier 1: default ESM/UMD variants inline lit (spike doc §5); only the runtime variant externalizes lit via import map |
 | 208 | CDN usage | import from CDN URL | 🔌 Available | 🔌 Compiled output works from CDN | 🔌 Wrapper works from CDN | |
 | 209 | Dedup and multiple Lit versions | npm dedupe | 🔌 Consumer concern | 🔌 Consumer concern | 🔌 Consumer concern | |
 | 210 | customElements.define collision | Try/catch or scoped registry | 🔌 Manual | ✅ expected: auto-scoping | 🔌 Wrapper auto-registers | |
@@ -664,78 +666,56 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 ---
 
-## 3. Gap Summary
+## 3. Side-by-Side Comparison
 
-### 3.1 P0 Features Missing Per Tier
+Both tier columns of §2 are now fully investigated against their spikes: Tier 1 against the completed compiler spike (`spike/elixir-to-lit` @ `103c776`), Tier 2 against the in-progress runtime spike (`spike/hologram-runtime-element`, +2517 LOC WIP @ `9db5bb6`, verdicts merged in 6f79246). Every cell carries a verdict with evidence in Notes — except the single open row **#164** (Tier 2 framework SSR integrations, §2.12), kept ❓ with its reason.
 
-#### Tier 1 (Elixir-to-Lit) — P0 coverage summary:
+Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/🟡/🔌/❌/❓`. Under the Tier 1 audit's folded convention (🟡 + 🔌 reported together), Tier 1 is **39 ✅ / 95 🔌 / 93 ❌** — identical to the audit's published P-counts.
 
-Tier 1 generates fully functional Lit elements with zero hand-written JS. All P0 template/directive/property features are confirmed (spike notes, components built and tested). Imperative DOM features (ref, @query, controllers, ElementInternals, mixins) are reachable through two escape hatches:
+### 3.1 Headline counts (per Lit priority)
 
-1. **`behaviors.add(tag, fn)`** — runs on `connectedCallback` with full element access, returns cleanup on disconnect. Covers: ref, @query, @queryAll, @queryAssignedElements/Nodes, ElementInternals, ReactiveController patterns, custom/async directives.
-2. **Subclassing** — the generated element is a `TesseraElement(LitElement, contract)` subclass; consumer JS can apply mixins or add controllers through standard Lit class extension.
+| Priority | Phase 1 today | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) |
+|---|---|---|---|
+| P0 (80) | 0/13/62/5/0 | **32**/0/29/**19**/0 | 4/14/47/15/0 |
+| P1 (83) | 0/3/40/**40**/0 | 7/2/31/**43**/0 | 5/2/43/33/0 |
+| P2 (64) | 0/0/17/47/0 | 0/0/33/31/0 | 1/0/27/35/1 |
+| **Total (227)** | 0/16/119/**92**/0 | **39**/2/93/**93**/0 | 10/16/117/**83**/1 |
 
-**Tier 1 P0 gap: 0 features strictly missing.** All are reachable — some through the DSL, some through the JS escape hatches. The DSL subset intentionally keeps the generated surface lean; anything outside it uses `behaviors.add`.
+**Corrected gap framing (supersedes the old "Tier 1 P0 gap: 0" claim).** The audit removes the earlier claim that no P0 feature is strictly missing. Tier 1 has **19 unsupported P0 features**, and the reason is structural: `behaviors.add` runs only at connect/disconnect — it has **no update-time seam** — so it cannot cover `willUpdate`, `updated`, `changedProperties`, `classMap`, `styleMap`, or author CSS (there is no Elixir CSS DSL; codegen emits a fixed `:host` boilerplate). The escape hatches (`behaviors.add` + subclassing) remain real for imperative DOM and controller-shaped features at element granularity, but they do not reach the update phase or per-binding template positions.
 
-#### Tier 2 (Hologram Runtime Element) — ❓ on P0 features:
+**Corrected Tier 2 status (supersedes the old "spike not started / zero commits" claim).** Tier 2 is no longer a paper architecture: `spike/hologram-runtime-element` carries a working wrapper — a plain `TesseraHoloElement extends HTMLElement` with an open shadow root and the Hologram interpreter/snabbdom inside, **no LitElement anywhere** — and its §2 verdicts are spike-confirmed. Where Tier 2 wins it wins on runtime reality: server round-trips, actions, live state, and a native `isServer` split (#161).
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| render (Lit's html``) (#9) | 🟡 expected | Hologram uses its own template system, not Lit's html`` |
-| shadow DOM queries (#102-106) | ❓ | Unknown if Hologram bridge provides equivalent |
-| SSR/Declarative Shadow DOM (#154-157) | ❓ | Hologram server-renders HTML and runs compiled-to-JS in the browser; the open questions are whether Hologram's server renderer can emit a component inside Declarative Shadow DOM, and how client-side hydration would attach the Hologram runtime to the element afterwards. Pending the Tier 2 spike.
-| @lit/context (#166-169) | ❓ | Unknown if Hologram can participate in Context protocol |
-| Testing (#217-221) | ❓ | Hologram tests need Hologram infrastructure, not @open-wc/testing |
+### 3.2 Where each tier wins (§2 section by section)
 
-**Tier 2 P0 gap: dominated by ❓.** The Tier 2 spike (`spike/hologram-runtime-element`) has not been started — the branch exists but carries zero unique commits and no notes file. No features are confirmed or ruled out. The architectural questions are: whether Hologram's server renderer can emit inside Declarative Shadow DOM; how hydration would attach the Hologram runtime to a server-rendered element; and whether the Lit wrapper can adequately proxy Hologram's own template system for Lit-native directives and style encapsulation.
+- **2.1 Component model.** Tier 1's compiled output literally `extends TesseraElement(LitElement, contract)` with `defineOnce`-guarded auto-registration — the Lit class surface (render, requestUpdate, updateComplete) is real Lit, inherited wholesale. What the DSL does not expose is the update lifecycle as an authoring surface: shouldUpdate/willUpdate/updated/getUpdateComplete are ❌ (no guard or lifecycle hooks), and firstUpdated is a connect-time approximation via behaviors.add. Tier 2 has no LitElement at all, so Lit's class lifecycle is absent by construction; what it owns is Hologram's init/teardown mapping onto connected/disconnected callbacks.
+- **2.2 Reactive properties.** Both cover the P0 core (attr declarations, `@state`, static properties, attr→prop conversion, boolean semantics, immutable-update detection). Tier 1's generated `static properties = {key: {type}}` is decorator-free and contract-driven but option-poor: no attribute/reflect/converter/hasChanged options, four converter types with an Object fallback. Tier 2 does manifest-typed casting plus tsr-props JSON but also has no reflection — attrs flow one-way in. Phase 1's hand-written bridge is the only place property options remain reachable.
+- **2.3 Templates.** Tier 1 compiles a fixed-grammar DSL to real lit-html: child/attr parts, `$event`→`@event`, `{%if}` ternaries, `{%for}`→`Array.prototype.map`, nested templates, lit-native caching. Tier 2's renderer is Hologram's own (no lit-html), but its conditionals and lists are native to that system. Tier 1 rejects boolean `?attr` syntax and component tags at compile time; Tier 2 has no lit-html parts at all.
+- **2.4 Directives.** The starkest Tier 1 gap: **no directive pipeline in codegen**. classMap/styleMap/repeat/cache/guard/live/keyed/unsafeHTML/unsafeSVG are ❌; when/map/join/ifDefined are ternary or Array-method lookalikes, not the directives; custom/async directives survive only as behaviors.add element-granularity approximations. Tier 2's wrapper could use directives in its own markup, but none apply to Hologram-rendered content.
+- **2.5 Styles.** Tier 1 emits a fixed `:host` boilerplate `css`` block: `static styles` is genuinely ✅ (the audit corrected the earlier underclaim), but everything above it — composition, inheritance, `:host` variants, `::slotted`, custom properties, tokens, themes, shadowRootOptions — is unmodeled because there is no Elixir CSS DSL. Alongside directives, this is Tier 1's biggest corrected gap. Tier 2 keeps a wrapper static styles with Hologram content styled in its own system.
+- **2.6 Shadow DOM.** Slots work in both via markup passthrough (Tier 1's `slot` declaration validates but is never consumed by codegen); the @query family is behaviors.add-reachable in Tier 1 and shadowRoot-queryable in Tier 2's open root. Slot wiring (assignedElements/Nodes, slotchange into the component) is unimplemented in the Tier 2 spike; closed shadow roots are unavailable in Tier 1 (no shadowRootOptions emission).
+- **2.7 Events.** Tier 1's `emit/2` is a real composed+bubbles CustomEvent with camelCase detail keys — the P0 event path is solid — but fixed-shape: no cancelable, no listener options, no conditional binding, no dispatch-after-render, one-way detail. Tier 2 wins the richer patterns: composed bubbling by design, and the onAction-intercept request/response shape (#123) is one of its ✅s (e2e pending).
+- **2.8 Reactive controllers.** Neither tier has the controller host API. Tier 1's behaviors.add matches hostConnected/hostDisconnected and multi-behavior composition, but hostUpdate/hostUpdated are ❌ — behaviors have no update-time hook. Tier 2 offers subclass connected/disconnected hooks with the same update-phase hole.
+- **2.9 Composition.** Tier 1 compiles single components, not trees: component tags are rejected at compile time and lowercase tags pass as static markup, so nested composition is 🔌 static-markup only; props-down/events-up and slots still work. Tier 2 nests Hologram components inside the wrapper naturally. Mixins for both mean plain JS subclassing.
+- **2.10 Forms.** formAssociated and the form lifecycle callbacks are ❌ in Tier 1 (class methods behaviors cannot hook; no DSL option) and ❌/subclass-seam-only in Tier 2.
+- **2.11 Accessibility.** Both pass ARIA attributes through templates; delegatesFocus is unmodeled in Tier 1 (not emitted — a corrected cell) and wrapper-set in Tier 2.
+- **2.12 SSR.** Tier 2 owns the section's ✅: a native server/client split (`isServer`, #161) with real server round-trips — no Lit SSR machinery needed. Tier 1's SSR story is uniformly 🔌-unproven: architecturally plausible (decorator-free output, DOM-free import, SSR-safe `defineOnce`) but the spike contains zero SSR proof. Declarative Shadow DOM is unimplemented in both.
+- **2.13 Labs / ecosystem.** Tier 1's compiled elements sit under ecosystem tooling that operates on rendered elements (virtualizer, CDN consumption), but everything requiring author-side Lit APIs — context protocol, localize, CEM, wrapper generators, .d.ts — is ❌; React integration is manual custom-element usage, not `createComponent` generation. Tier 2's cross-boundary channel is the bus seam (setBus/BusClient) instead of @lit/context; its React/CEM stories are wrapper-level.
+- **2.14 Tooling and DX.** The audit flipped the old story: Tier 1 output is decorator-free static properties — the no-decorator API is ✅ (underclaim corrected) while the experimental/TC39 decorator rows are ❌ (the old "output uses standard Lit decorators" contradicted the fixture). No .d.ts or HTMLElementTagNameMap is generated; lint/analyze/dev-warnings ride the emitted Lit class. Tier 2 keeps plain-HTMLElement tooling parity.
+- **2.15 Packaging.** Tier 1 is the distribution story: proven ESM/UMD/runtime-variant bundles, `defineOnce` collision-safe registration, explicit `.mjs` imports, top-level self-registration, class export — with one corrected caveat: default variants inline lit, so the do-not-bundle rule holds only via the import-mapped runtime variant. Tier 2 ships plain ESM/UMD wrapper bundles.
+- **2.16 Testing.** Tier 1 is tested the Lit way: a 10/10 Web Test Runner suite ran over generated elements with @open-wc/testing (arguably ✅ per the audit). Tier 2 inverts it: real-browser Cypress e2e over hosts is ✅-shaped while the @open-wc fixture/updateComplete harness is ❌ (sync returns). Both are genuinely browser-tested; the harnesses differ.
 
-### 3.2 Fundamentally Hard Features
+**Extension contract (both tiers feed it).** The stable consumer surface is EXTENSION-CONTRACT.md v0.1 (commit ed15a5a, user-confirmed). Because there is no `super` in Hologram IR, overridden actions get an injected `base_action/3` dispatcher plus `defoverridable`; same-tag extension layers via `use Base, tag: :inherit, priority: n` behind the X-19 base-suite gate; extension registrations are static MFA lists (no runtime bloat); same-version coexistence is safe, and a version mismatch resolves last-writer-wins. Cite the contract for semantics — this section does not restate them.
 
-#### For Tier 1 (Elixir-to-Lit):
+### 3.3 Parity roadmap
 
-All P0 features are reachable — either through the compiled DSL or through the two JS escape hatches (`behaviors.add` for imperative DOM and `TesseraElement` subclassing for mixins/controllers). The DSL subset is deliberately lean and will remain so. Features outside the subset are not "missing" — they are intentionally deferred to the JS escape hatch:
+Per the approved parity plan (2026-11-11):
 
-1. **Imperative DOM (ref, @query, ElementInternals)** — not compilable from the Elixir expression subset; use `behaviors.add` on connect.
-2. **ReactiveController API** — not expressible in the action DSL; use `behaviors.add` or subclass the generated element with a controller.
-3. **Mixins** — JS class factory pattern; use `TesseraElement` subclassing in hand-written JS.
-4. **Custom directives / async directives** — imperative Directive API; use `behaviors.add`.
+1. **Tier 1 leads the implementation lane** — it is the only tier with a completed, byte-proven compiler spike and real packaging. Land its P0 first; the 19-feature P0 ❌ band above is the honest worklist, split into "unreachable without an update-time seam" (lifecycle/hooks) and "unreachable without a directive/CSS pipeline" (styles).
+2. **The extension contract is the deliverable** — both tiers compile into it; consumers target it, not tier internals.
+3. **Accept the 43 universal gaps** — the audit's P1 ❌ band (directives, styles DSL, lifecycle hooks, i18n/CEM/.d.ts generation) is accepted as out of scope for the DSL, covered by escape hatches where possible and documented as unsupported elsewhere.
+4. **Tier 2 continues as the WIP stateful-component lane** (+2517 LOC @ 9db5bb6) behind the same contract; its remaining ❓/#164-class questions (framework SSR integrations, Declarative Shadow DOM) ride the Phase 2 host-swap work.
 
-#### For Tier 2 (Hologram Runtime Element):
-
-1. **SSR** — Hologram server-renders HTML and runs its compiled-to-JS runtime in the browser. The open questions for Tier 2 are whether Hologram's server renderer can emit a component inside a Declarative Shadow DOM `<template shadowrootmode>` wrapper, and how client-side hydration would attach the Hologram runtime to the pre-rendered element. Pending the Tier 2 spike.
-
-2. **Per-instance styles (styleMap, classMap)** — Hologram manages its own rendering inside the wrapper. Dynamic styles computed in Hologram need to be communicated through the bridge to the Lit wrapper's styleMap/classMap — adds latency and complexity.
-
-3. **Lit's html`` template system** — Tier 2 uses Hologram's own template rendering. The Lit wrapper's `render()` is a thin delegate. This means Lit directives (when, choose, map, repeat, etc.) are NOT available inside Hologram-rendered content — Hologram must provide its own equivalents.
-
-4. **updateComplete / reactive update cycle** — Lit's update batching is at the wrapper level. Hologram's update cycle is independent. Synchronizing the two (so `await this.updateComplete` works as expected) requires bridge work.
-
-5. **Testing** — Lit component tests use `@open-wc/testing` with `fixture()`, `el.updateComplete`, and shadow DOM queries. Tier 2 components are Hologram inside a Lit wrapper; testing the Hologram content requires Hologram's own test infrastructure, not Lit's.
-
-### 3.3 Suggested Parity Roadmap
-
-**Phase 1 — Complete the Phase 1 bridge (now):**
-- Port the remaining P0 features from hand-written Lit into the Elixir contract layer (reflect, converter, hasChanged, event options)
-- Document which features are "🔌 via JS escape hatch" and commit to keeping the hatch open
-
-**Phase 2 — Land the Tier 1 spike (confirmed GO):**
-- The spike (`spike/elixir-to-lit`) has proven: full LitElement codegen from Elixir state/template/action DSL; 0 hand-written JS; ESM/UMD/shared-runtime packaging; Hologram/plain-HTML/React host proofs
-- PR sequence: (1) element DSL core (Expr/Template/LitCodegen), (2) packaging under `mix tessera.build`, (3) demo + e2e, (4) docs update to CONTRACT.md + EXTENDING.md
-- Document `behaviors.add` as the official escape hatch for imperative DOM, controllers, and custom directives
-- Add the `state`-keys-snake_case convention to CONTRACT.md
-
-**Phase 3 — Tier 2 spike:**
-- Spike the Hologram-runtime-in-a-custom-element approach
-- Investigate Declarative Shadow DOM emission from Hologram's server renderer
-- Define how the Lit wrapper proxies Hologram template events and state changes
-- Determine whether Hologram can hydrate into a server-rendered Declarative Shadow DOM element
-
-**Phase 4 — Gap acceptance:**
-- Explicitly document which Lit features each tier will NOT support
-- For each gap, provide the recommended alternative or escape hatch
-- Publish the conformance suite
-
----
+**Decision framing.** Choose **Tier 1** when the goal is Lit-grade interop and distribution — npm/UMD/import-map consumption, ecosystem tooling over rendered elements, zero-JS authorship from Elixir. Choose **Tier 2** when the goal is stateful Hologram-native components — server round-trips, actions, live state, native server/client split. Neither approximates the other's core: Tier 1 cannot model the Hologram runtime; Tier 2 cannot model Lit's update lifecycle, directives, or styles DSL. Both feed the same extension contract.
 
 ## 4. How to Measure Parity
 
@@ -803,4 +783,4 @@ Tests use `@open-wc/testing` for Lit-native components. Tier 2 (Hologram) compon
 
 ---
 
-*End of parity matrix. 227 features inventoried across 16 areas. Matrix covers Phase 1 (tessera today), Tier 1 (spike/elixir-to-lit), and Tier 2 (spike/hologram-runtime-element). Cells marked ❓ are pending spike note availability.*
+*End of parity matrix. 227 features inventoried across 16 areas. Matrix covers Phase 1 (tessera today), Tier 1 (spike/elixir-to-lit @ 103c776), and Tier 2 (spike/hologram-runtime-element @ 9db5bb6). Single remaining ❓: #164 (Tier 2 framework SSR integrations — not exercised in the spike).*
