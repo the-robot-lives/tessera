@@ -46,6 +46,11 @@ defmodule Noizu.Tessera.Component.Expr do
             vars: MapSet.new(),
             callback?: false,
             camel_map_keys?: false,
+            # Derivation subset (§5.3): `derived?` admits the base_action/3
+            # down-call and `state = …` rebinding inside derived action bodies;
+            # `inherited_actions` are the names a down-call may target.
+            derived?: false,
+            inherited_actions: MapSet.new(),
             module: nil,
             file: nil,
             line: nil
@@ -395,6 +400,59 @@ defmodule Noizu.Tessera.Component.Expr do
 
   defp translate_expr({:++, meta, _}, ctx) do
     error!(ctx, meta, "list concatenation ++ is outside the tessera element subset")
+  end
+
+  # base_action/3 — the derivation down-call (§5.3). In a derived action body,
+  # `base_action(:name, state, params)` lowers to a real ES `super` call on the
+  # inherited action method: `super.__action_<name>(params, ev)`. The `state`
+  # argument is dropped (the JS base method reads `this` via __tesseraState);
+  # `ev` is the generated method's event binding. Valid only in a derived body
+  # and only against an INHERITED action — there is nothing below a new action.
+  defp translate_expr({:base_action, meta, [name, _state, params]}, ctx) when is_atom(name) do
+    unless ctx.derived? do
+      error!(
+        ctx,
+        meta,
+        "base_action/3 is only available in a derived action body (`use Base, tag: …`) — " <>
+          "a fresh component has no base to dispatch to (EXTENSION-CONTRACT.md §5.3)"
+      )
+    end
+
+    unless MapSet.member?(ctx.inherited_actions, name) do
+      error!(
+        ctx,
+        meta,
+        "base_action(#{inspect(name)}, …) — #{inspect(name)} is not an inherited action; " <>
+          "the down-call must target an action the base declares"
+      )
+    end
+
+    "super.__action_#{name}(#{translate_expr(params, ctx)}, ev)"
+  end
+
+  defp translate_expr({:base_action, meta, _args}, ctx) do
+    error!(
+      ctx,
+      meta,
+      "base_action/3 takes a literal action name, state and params — " <>
+        "`base_action(:name, state, params)`"
+    )
+  end
+
+  # `state = …` rebinding inside a derived action body: threads the next-state
+  # object returned by a down-call (or any expression) back into `state`. The
+  # generated derived method declares `let state`, so the assignment is legal.
+  defp translate_expr({:=, meta, [{:state, _, var_ctx}, rhs]}, ctx) when is_atom(var_ctx) do
+    unless ctx.derived? do
+      error!(
+        ctx,
+        meta,
+        "`state = …` rebinding is only available in a derived action body " <>
+          "(EXTENSION-CONTRACT.md §5.3)"
+      )
+    end
+
+    "(state = #{translate_expr(rhs, ctx)})"
   end
 
   # emit/2 — routed through @noizu/tessera-core emit (CONTRACT.md §4)

@@ -233,16 +233,16 @@ defmodule Noizu.Tessera.Hologram.Adapter do
       end
 
       @doc """
-      Default tessera init body — a no-op returning the component. Override
-      these (not `init/2` / `init/3`) to seed state, so element registration
-      keeps running. A user-defined `init` written BEFORE the generated one
-      would shadow it and kill registration — always override
-      `__tessera_init__/2` (client) and/or `__tessera_init__/3` (server)
-      instead.
+      Default tessera init body. Override these (not `init/2` / `init/3`) to
+      seed state, so element registration keeps running. A user-defined `init`
+      written BEFORE the generated one would shadow it and kill registration —
+      always override `__tessera_init__/2` (client) and/or `__tessera_init__/3`
+      (server) instead. An author override is preserved (the default is only
+      generated when the module has not defined the hook). For a derived
+      component the default dispatches down-chain through `base_init/2,3` so an
+      unoverridden hook still runs the base's init (EXTENSION-CONTRACT.md §5.3).
       """
-      def __tessera_init__(_props, component), do: component
-
-      def __tessera_init__(_props, component, _server), do: component
+      unquote(init_defaults_ast(spec))
 
       defoverridable init: 2, init: 3, __tessera_init__: 2, __tessera_init__: 3
 
@@ -264,6 +264,34 @@ defmodule Noizu.Tessera.Hologram.Adapter do
       end
 
       unquote_splicing(bridge_helper_asts(spec))
+    end
+  end
+
+  # Generated `__tessera_init__` defaults, emitted only when the author has not
+  # defined the hook (so a body-written override survives). A derived component
+  # dispatches down-chain via the injected `base_init/2,3`; a fresh component
+  # returns the component untouched.
+  defp init_defaults_ast(%Spec{derived_from: nil}) do
+    quote do
+      unless Module.defines?(__MODULE__, {:__tessera_init__, 2}, :def) do
+        def __tessera_init__(_props, component), do: component
+      end
+
+      unless Module.defines?(__MODULE__, {:__tessera_init__, 3}, :def) do
+        def __tessera_init__(_props, component, _server), do: component
+      end
+    end
+  end
+
+  defp init_defaults_ast(%Spec{}) do
+    quote do
+      unless Module.defines?(__MODULE__, {:__tessera_init__, 2}, :def) do
+        def __tessera_init__(props, component), do: base_init(props, component)
+      end
+
+      unless Module.defines?(__MODULE__, {:__tessera_init__, 3}, :def) do
+        def __tessera_init__(props, component, server), do: base_init(props, component, server)
+      end
     end
   end
 

@@ -222,16 +222,20 @@ The emitted Lit code uses **real ES `super`**: the compiler lowers the
 redeclaration into an override whose down-call is a genuine JS `super` call —
 the mechanism the JS side has and Hologram's IR does not. The Elixir source
 is identical across tiers, so an extender never tiers their overrides.
-[PENDING TIER-1: exact lowering; the spike's `action/2` DSL has no override
-path yet.]
+(Implemented, brief 2c: `base_action(:name, state, params)` in a derived
+action body lowers to `super.__action_<name>(params, ev)` — the `state` arg is
+dropped, JS reads `this`; the derived method declares `let state` so the
+`state = base_action(…)` rebinding threads the next state. The derived class
+extends the base class re-mixed with the merged contract; non-overridden
+members ride the ES class chain.)
 
 **Init hooks** target `__tessera_init__/2` / `__tessera_init__/3` — never
 the generated `init` pair (`docs/AUTHORING.md`). The `use Vendor.Element`
 macro generates their dispatchers too; the derived body SHOULD dispatch down
 to the inherited hook through the injected dispatcher (same pattern as
-`base_action/3`; exact init dispatcher names/arities —
-[PENDING TIER-1, T1-2]), and MUST when base actions read state the hook
-seeds.
+`base_action/3`; the init dispatcher names are **`base_init/2` and
+`base_init/3`** — T1-2 resolved, brief 2c), and MUST when base actions read
+state the hook seeds.
 
 **The `internal:` annotation is advisory (D2).** An action MAY declare
 `internal: true`:
