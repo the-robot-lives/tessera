@@ -11,8 +11,10 @@
 //   * @slow — exhaustive matrices / redundant coverage (nightly only)
 //
 // HONESTY: the counter fixture (C/T/E core), the state probe fixture
-// (extension-contract state/action family, brief 3d), and the lifecycle probe
-// fixture (tsr-holo-lifecycle — brief 3c: LC-01…04 + C-13/C-14) are wired on
+// (extension-contract state/action family, brief 3d), the lifecycle probe
+// fixture (tsr-holo-lifecycle — brief 3c: LC-01…04 + C-13/C-14), the slot
+// probe (tsr-holo-slot-probe — brief 3e: SD-01…SD-04) and the forms probe
+// (tsr-holo-form-probe — brief 3e: FM-01…FM-03) are wired on
 // Tier 2 (SUPPORTED below). Implemented cases whose Tier-2 fixture is not yet
 // wired are adapter-pending; registry-pending cases (unimplemented features)
 // are pending. Neither is ever green. The remaining cases land with the feature
@@ -29,10 +31,19 @@ import {visitTier2Host, mount, cleanup} from "../support/tessera/conformance";
 // (C-01/T-01/E) + the state/action family on the probe (X-03, X-05…X-11,
 // X-20 — brief 3d; §9 runtime equivalence vs Tier 1) + the lifecycle family
 // on the recording probe (LC-01…LC-04, C-13/C-14 — brief 3c: willUpdate /
-// firstUpdated / updated / changed snapshots / updateComplete fence).
+// firstUpdated / updated / changed snapshots / updateComplete fence) + the
+// slot family on the SlotProbe fixture (SD-01…SD-04 — brief 3e: the shim's
+// data-tsr-slot → real <slot> vnode rewrite + the slotchange action binding)
+// + the forms family on the FormProbe fixture (FM-01…FM-03 — brief 3e:
+// manifest-declared formAssociated, ElementInternals attached by the gated
+// constructor, setFormValue / formResetCallback / formDisabledCallback driven
+// through the glue recording subclass). Cases outside this set remain
+// adapter-pending on Tier 2 — never green.
 const SUPPORTED = new Set<string>([
   "C-01", "C-13", "C-14", "T-01", "E-01", "E-02", "E-03",
   "LC-01", "LC-02", "LC-03", "LC-04",
+  "SD-01", "SD-02", "SD-03", "SD-04",
+  "FM-01", "FM-02", "FM-03",
   "X-03", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10", "X-11", "X-20",
 ]);
 

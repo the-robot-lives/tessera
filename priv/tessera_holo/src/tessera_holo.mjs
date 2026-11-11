@@ -488,6 +488,10 @@ function renderInstance(instance) {
     // matching the hostDiv selector so patch updates it in place.
     const vnode = Array.isArray(content) ? h("div", {}, content) : content;
 
+    // brief 3e: marker elements -> real <slot> vnodes BEFORE the patch
+    // (rewriteSlotVnodes — see the section note below the function).
+    rewriteSlotVnodes(vnode, instance);
+
     if (!instance.patch) {
       instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
       instance.vnode = instance.patch(toVNode(instance.hostDiv), vnode);
@@ -559,6 +563,99 @@ function renderInstance(instance) {
     // threw, so a failed render can never hang an awaiting test.
     instance.rendering = false;
     flushRenderWaiters(instance, committed);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// brief 3e — Tier-2 slot wiring (lit-parity §2.6 rows #105/#107/#108/#109)
+// ---------------------------------------------------------------------------
+//
+// Hologram consumes <slot> markup at BOTH ends and NEVER renders a DOM slot:
+// its parser treats `slot` as a void element (deps/hologram
+// lib/hologram/template/helpers.ex — slot/window/document), the Elixir
+// renderer replaces a slot node with the slots passed INTO the component
+// (lib/hologram/template/renderer.ex render_dom/{:element,"slot",…}) and the
+// client port does the same (assets/js/renderer.mjs #renderElement →
+// #renderSlotElement). Consumer-authored templates therefore cannot route
+// light-DOM children through `<slot>` markup on Tier 2 — the one capability
+// the shadow-root model genuinely lacks is plain markup pass-through, and the
+// shim supplies it. The wiring mechanism is an explicit marker element:
+//
+//   <span data-tsr-slot></span>                  -> <slot></slot>
+//   <span data-tsr-slot="header"></span>         -> <slot name="header"></slot>
+//   <span data-tsr-slot="fb">fallback…</span>    -> <slot name="fb">fallback…</slot>
+//
+// The marker is an ordinary element, so the parser keeps its children — slot
+// FALLBACK content is expressible, the one thing real <slot> markup cannot do
+// on this runtime (void parse would orphan it). Any tag works; use one that
+// renders nothing of its own semantics.
+//
+// The rewrite happens at the VNODE level before each patch, not as post-patch
+// DOM surgery: every render keeps the `slot` selector, so snabbdom diffs
+// slot-vs-slot, the element is never recreated, and light-DOM assignment is
+// STABLE across renders — slotchange fires only on genuine assigned-node
+// changes (#107). The #107 BINDING CANNOT be Hologram's `$slotchange={…}`:
+// its client event registry (assets/js/hologram.mjs #getEventImplementation)
+// is a hardcoded whitelist and an unlisted type makes handleUiEvent throw on
+// `undefined.isEventIgnored` — deps are read-only here, so the shim routes
+// slotchange itself: `data-tsr-slot-change="action_name"` on the marker
+// attaches a native slotchange listener via a snabbdom create hook (create
+// fires exactly once — the element is never recreated, so listeners never
+// pile up) and dispatches the named action through the SAME §6.3 pipeline as
+// dispatchAction (hooks, state-change, updateComplete fence included).
+// assignedElements()/assignedNodes() (#108/#109) are plain platform APIs on
+// the resulting slot — `el.shadowRoot.querySelector("slot")
+//   .assignedElements({flatten: true})` — documented + pinned by the SD
+// conformance family (test/conformance/cases/sd_slot.mjs).
+function rewriteSlotVnodes(node, instance) {
+  // Text leaves arrive as raw strings (renderer.mjs case "text") and null
+  // nodes as Type.nil() — only object vnodes with a selector can carry data.
+  if (Array.isArray(node)) {
+    for (const child of node) rewriteSlotVnodes(child, instance);
+
+    return;
+  }
+
+  if (!node || typeof node !== "object") return;
+
+  const data = node.data;
+
+  if (
+    data &&
+    typeof node.sel === "string" &&
+    data.attrs &&
+    Object.prototype.hasOwnProperty.call(data.attrs, "data-tsr-slot")
+  ) {
+    const name = data.attrs["data-tsr-slot"];
+
+    node.sel = "slot";
+
+    if (typeof name === "string" && name !== "") data.attrs.name = name;
+    delete data.attrs["data-tsr-slot"];
+
+    const changeAction = data.attrs["data-tsr-slot-change"];
+
+    if (typeof changeAction === "string" && changeAction !== "") {
+      const action = changeAction;
+      const prevHook = data.hook;
+
+      data.hook = {
+        ...prevHook,
+        create: (emptyVnode, slotVnode) => {
+          if (prevHook && prevHook.create) prevHook.create(emptyVnode, slotVnode);
+
+          slotVnode.elm.addEventListener("slotchange", () => {
+            dispatchComponentAction(instance, action, {});
+          });
+        },
+      };
+    }
+
+    delete data.attrs["data-tsr-slot-change"];
+  }
+
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) rewriteSlotVnodes(child, instance);
   }
 }
 

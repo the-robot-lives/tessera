@@ -28,7 +28,7 @@ defmodule HologramDemo.MixProject do
   defp aliases do
     [
       "tessera.bundles":
-        "tessera.compile_component HoloKit.Components.EditableList HoloKit.Components.Counter HoloKit.Components.StateProbe HoloKit.Components.PipelineProbe ThirdParty.FancyList ThirdParty.TidyList --out priv/static/tessera"
+        "tessera.compile_component HoloKit.Components.EditableList HoloKit.Components.Counter HoloKit.Components.StateProbe HoloKit.Components.PipelineProbe HoloKit.Components.SlotProbe HoloKit.Components.FormProbe ThirdParty.FancyList ThirdParty.TidyList --out priv/static/tessera"
     ]
   end
 

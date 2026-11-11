@@ -750,8 +750,17 @@ When the manifest declares `formAssociated: true`, the element MUST
 participate in forms through `ElementInternals` (`attachInternals`,
 `setFormValue`, `setValidity`, `formDisabledCallback`, `formResetCallback`).
 Extenders may rely on form participation only when declared, and MUST NOT
-attach internals to an element that did not. [PENDING TIER-1] and
-[PENDING TIER-2 SPIKE] for implementations.
+attach internals to an element that did not. **Tier 2 is wired (brief 3e):**
+`defineElement` sets `static formAssociated = true` when the component manifest
+declares it (interim fixture hook `__tsr_form_associated__`; brief 3f replaces
+it with spec-driven `form_associated`), the base constructor attaches
+`ElementInternals` ONLY when `new.target.formAssociated === true` (exposed as
+`el.internals`; undeclared elements get `null` — never attached),
+`formResetCallback`/`formDisabledCallback` are no-op subclass-overridable seams
+on the element, and `setFormValue`/`setValidity` are driven through the
+internals from the mount subclass (the documented push-per-render pattern).
+Pinned by FM-01…FM-03 on the Tier-2 Cypress harness. `[PENDING TIER-1]` for
+the Tier-1 implementation.
 
 ### 6.8 Explicitly NOT part of the contract
 

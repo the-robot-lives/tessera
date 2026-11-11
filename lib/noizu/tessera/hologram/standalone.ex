@@ -716,6 +716,24 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     else
       base
     end
+    |> maybe_form_associated(component)
+  end
+
+  # brief 3e §6.7 — form participation opt-in: a fixture MAY declare
+  # `__tsr_form_associated__/0` returning `true`; the compiled manifest then
+  # carries `"formAssociated" => true` and the runtime emits
+  # `static formAssociated = true` + attaches ElementInternals (priv/
+  # tessera_holo/src/element.mjs, defineElement). Absent/false ⇒ the key
+  # stays out and the wrapper NEVER attaches internals (§6.7 MUST NOT).
+  # Brief 3f replaces this fixture-level hook with the spec-driven
+  # `form_associated` from `__tessera_spec__`, same key on the wire.
+  defp maybe_form_associated(base, component) do
+    if function_exported?(component, :__tsr_form_associated__, 0) and
+         component.__tsr_form_associated__() == true do
+      Map.put(base, "formAssociated", true)
+    else
+      base
+    end
   end
 
   defp element_name_for(component) do

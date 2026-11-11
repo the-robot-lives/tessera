@@ -40,6 +40,8 @@ export function loadHoloRuntime() {
     await import(BASE + "counter.esm.js");
     await import(BASE + "state_probe.esm.js");
     await import(BASE + "pipeline_probe.esm.js");
+    await import(BASE + "slot_probe.esm.js");
+    await import(BASE + "form_probe.esm.js");
     await import(BASE + "editable_list.esm.js");
     await import(BASE + "fancy_list.esm.js");
     await import(BASE + "tidy_list.esm.js");
@@ -86,6 +88,48 @@ export function loadHoloRuntime() {
       }
     }
     rt.defineElement("tsr-holo-lifecycle", "HoloKit.Components.Counter", LifecycleProbeElement);
+    // Tier-2 slot fixture (brief 3e; SD-01…SD-04 mount `tsr-holo-slot-probe`).
+    // The template uses the shim's data-tsr-slot markers (Hologram consumes
+    // real <slot> markup — see HoloKit.Components.SlotProbe @moduledoc).
+    rt.defineElement("tsr-holo-slot-probe", "HoloKit.Components.SlotProbe");
+    // Tier-2 forms fixture (brief 3e; FM-01…FM-03 mount `tsr-holo-form-probe`).
+    // The module declares __tsr_form_associated__ ⇒ the manifest carries
+    // formAssociated ⇒ defineElement sets static formAssociated and the
+    // constructor attaches ElementInternals (§6.7). This subclass is the
+    // DOCUMENTED seam pattern the FM cases exercise: every render pushes
+    // state.value through internals.setFormValue (#147), formResetCallback
+    // (#148) dispatches the component's reset_value (which re-renders and
+    // re-pushes), formDisabledCallback (#149) records the transition — all
+    // signals land in el.tesseraFormSignals. ES6-safe like the lifecycle
+    // subclass above (no class fields, no ??=).
+    class FormProbeElement extends rt.TesseraHoloElement {
+      pushFormValue() {
+        if (this.internals) {
+          const v = this.state.value;
+          this.internals.setFormValue(v == null ? "" : String(v));
+        }
+      }
+      firstUpdated(changed) {
+        super.firstUpdated(changed);
+        this.pushFormValue();
+      }
+      updated(changed) {
+        super.updated(changed);
+        this.pushFormValue();
+      }
+      formResetCallback() {
+        if (!this.tesseraFormSignals) this.tesseraFormSignals = [];
+        this.tesseraFormSignals.push("reset");
+        super.formResetCallback();
+        this.dispatchAction("reset_value");
+      }
+      formDisabledCallback(disabled) {
+        if (!this.tesseraFormSignals) this.tesseraFormSignals = [];
+        this.tesseraFormSignals.push(disabled ? "disabled" : "enabled");
+        super.formDisabledCallback(disabled);
+      }
+    }
+    rt.defineElement("tsr-holo-form-probe", "HoloKit.Components.FormProbe", FormProbeElement);
     // takeover first: markup elements upgrade against the layered module
     rt.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
     // the untouched vendor element stays mountable under an explicit alias

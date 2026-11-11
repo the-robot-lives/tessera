@@ -44,6 +44,15 @@ const FIXTURES: Record<string, string> = {
   state: "tsr-holo-state-probe",
   pipeline: "tsr-holo-pipeline-probe",
   lifecycle: "tsr-holo-lifecycle",
+  // brief 3e: "slots" is the SlotProbe fixture — the template's data-tsr-slot
+  // markers become real <slot> elements via the shim's vnode rewrite
+  // (priv/tessera_holo/src/tessera_holo.mjs, rewriteSlotVnodes); the SD case
+  // selectors ([data-cy=conf-slots-*] slot) hit them. "form" is the
+  // FormProbe fixture — manifest-declared formAssociated ⇒ ElementInternals,
+  // driven through the glue recording subclass (setFormValue on render,
+  // reset_value on formResetCallback, signals in el.tesseraFormSignals).
+  slots: "tsr-holo-slot-probe",
+  form: "tsr-holo-form-probe",
 };
 
 let ctx: {win: Window} | null = null;
