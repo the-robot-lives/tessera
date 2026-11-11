@@ -275,6 +275,64 @@ defmodule Noizu.Tessera.ComponentTest do
     end
   end
 
+  describe "css/part DSL" do
+    test "css and part declarations land in the spec and the manifest" do
+      mod =
+        compile_source("""
+        css "--inline-accent", default: "#ffffff"
+        part "select-button"
+        """)
+
+      spec = mod.__tessera_spec__()
+      assert [%{name: "--inline-accent", default: "#ffffff"}] = spec.css_properties
+      assert [%{name: "select-button"}] = spec.parts
+
+      manifest = mod.__tessera_manifest__()
+      assert manifest["cssProperties"] == [%{"name" => "--inline-accent", "default" => "#ffffff"}]
+      assert manifest["parts"] == ["select-button"]
+    end
+
+    test "css/part are CEM metadata — they do not ride the wire contract" do
+      mod =
+        compile_source("""
+        css "--inline-accent", default: "#ffffff"
+        part "select-button"
+        """)
+
+      contract = Noizu.Tessera.Codegen.contract_module(mod.__tessera_spec__())
+      refute contract =~ "inline-accent"
+      refute contract =~ "select-button"
+    end
+
+    test "invalid css name raises" do
+      assert_raise CompileError, ~r/tessera css property/, fn ->
+        compile_source("css \"accent\"")
+      end
+    end
+
+    test "non-string css default raises" do
+      assert_raise CompileError, ~r/default must be a string/, fn ->
+        compile_source("css \"--inline-gap\", default: 4")
+      end
+    end
+
+    test "invalid part name raises" do
+      assert_raise CompileError, ~r/tessera part name/, fn ->
+        compile_source("part \"Select\"")
+      end
+    end
+
+    test "duplicate css / part declarations raise" do
+      assert_raise CompileError, ~r/duplicate tessera css/, fn ->
+        compile_source("css \"--inline-a\"\ncss \"--inline-a\"")
+      end
+
+      assert_raise CompileError, ~r/duplicate tessera part/, fn ->
+        compile_source("part \"go\"\npart \"go\"")
+      end
+    end
+  end
+
   describe "package macro" do
     test "exposes components/0 and manifest/0" do
       assert Tessera.TestFixtures.Package.components() == [Tessera.TestFixtures.PersonaCard]
@@ -282,6 +340,24 @@ defmodule Noizu.Tessera.ComponentTest do
       [entry] = Tessera.TestFixtures.Package.manifest()
       assert entry["tag"] == "persona-card"
       assert entry["module"] == "Tessera.TestFixtures.PersonaCard"
+    end
+
+    test "exposes the __tessera_package__/0 marker and cem/0 (gallery by default)" do
+      assert Tessera.TestFixtures.Package.__tessera_package__() == %{
+               components: [Tessera.TestFixtures.PersonaCard]
+             }
+
+      cem = Tessera.TestFixtures.Package.cem()
+      assert cem["schemaVersion"] == "1.0.0"
+      assert [module] = cem["modules"]
+      assert [decl] = module["declarations"]
+      assert decl["tagName"] == "persona-card"
+
+      assert decl["cssProperties"] == [
+               %{"name" => "--persona-card-accent", "default" => "#6366f1"}
+             ]
+
+      assert decl["cssParts"] == [%{"name" => "select-button"}]
     end
 
     test "rejects non-tessera modules that are already compiled" do

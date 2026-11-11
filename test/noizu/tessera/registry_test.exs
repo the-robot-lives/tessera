@@ -24,6 +24,33 @@ defmodule Noizu.Tessera.RegistryTest do
     refute Registry.load(Tessera.Definitely.Not.There)
   end
 
+  test "package_modules finds compiled packages, not plain components" do
+    packages = Registry.package_modules(:noizu_tessera)
+    assert Tessera.TestFixtures.Package in packages
+    refute Tessera.TestFixtures.PersonaCard in packages
+  end
+
+  test "all_package_modules aggregates across apps, sorted" do
+    packages = Registry.all_package_modules()
+    assert Tessera.TestFixtures.Package in packages
+    assert packages == Enum.sort(packages)
+  end
+
+  test "resolve_package/1 resolves by name and rejects non-packages" do
+    assert {:ok, Tessera.TestFixtures.Package} =
+             Registry.resolve_package("Tessera.TestFixtures.Package")
+
+    assert {:error, message} = Registry.resolve_package("String")
+    assert message =~ "not a loaded tessera package"
+
+    assert {:error, message} = Registry.resolve_package("Tessera.Definitely.Not.There")
+    assert message =~ "not a loaded tessera package"
+  end
+
+  test "resolve_package(nil) finds the current project's single package" do
+    assert {:ok, Tessera.TestFixtures.Package} = Registry.resolve_package(nil)
+  end
+
   test "app_js_package returns nil for apps without a tessera JS runtime" do
     # hologram is a real dep of this project but ships no priv/js/package.json
     assert Registry.app_js_package(:hologram) == nil

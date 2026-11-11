@@ -15,6 +15,11 @@ defmodule Noizu.Tessera.Spec do
       props:   %{name: :tag_list, type: :list, json: true, default: [], line: 4}
       events:  %{name: "persona-select", detail: %{persona_id: :string}, line: 5}
       slots:   %{name: "default", line: 6}
+      css:     %{name: "--persona-card-accent", default: "#6366f1", line: 7}
+      parts:   %{name: "select-button", line: 8}
+
+  `css`/`part` entries are documentation metadata for the Custom Elements
+  Manifest (and the gallery) — they do not ride the wire contract.
   """
 
   alias Noizu.Tessera.Naming
@@ -28,7 +33,9 @@ defmodule Noizu.Tessera.Spec do
             attrs: [],
             props: [],
             events: [],
-            slots: []
+            slots: [],
+            css_properties: [],
+            parts: []
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -54,6 +61,14 @@ defmodule Noizu.Tessera.Spec do
 
   @type slot_entry :: %{required(:name) => String.t(), optional(:line) => non_neg_integer()}
 
+  @type css_entry :: %{
+          required(:name) => String.t(),
+          optional(:default) => String.t() | nil,
+          optional(:line) => non_neg_integer()
+        }
+
+  @type part_entry :: %{required(:name) => String.t(), optional(:line) => non_neg_integer()}
+
   @type t :: %__MODULE__{
           version: pos_integer(),
           tag: Naming.kebab() | nil,
@@ -64,7 +79,9 @@ defmodule Noizu.Tessera.Spec do
           attrs: [attr_entry()],
           props: [prop_entry()],
           events: [event_entry()],
-          slots: [slot_entry()]
+          slots: [slot_entry()],
+          css_properties: [css_entry()],
+          parts: [part_entry()]
         }
 
   @doc """
@@ -135,6 +152,48 @@ defmodule Noizu.Tessera.Spec do
         description:
           "tessera slot name #{inspect(name)} must be a lowercase string " <>
             "([a-z][a-z0-9_-]*), e.g. \"header\" or \"default\""
+    end
+
+    :ok
+  end
+
+  def validate!(:part, name, _opts, file, line) do
+    unless is_binary(name) and Regex.match?(~r/^[a-z][a-z0-9_-]*$/, name) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera part name #{inspect(name)} must be a lowercase string " <>
+            "([a-z][a-z0-9_-]*), e.g. \"select-button\" — it is exposed as ::part(name)"
+    end
+
+    :ok
+  end
+
+  def validate!(:css, name, opts, file, line) do
+    unless is_binary(name) and Regex.match?(~r/^--[a-z][a-z0-9-]*$/, name) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera css property #{inspect(name)} must be a lowercase CSS custom " <>
+            "property name (--[a-z][a-z0-9-]*), e.g. \"--persona-card-accent\""
+    end
+
+    case opts[:default] do
+      nil ->
+        :ok
+
+      default when is_binary(default) ->
+        :ok
+
+      other ->
+        raise CompileError,
+          file: file,
+          line: line,
+          description:
+            "tessera css property #{inspect(name)} default must be a string " <>
+              "(a CSS value), got: #{inspect(other)}"
     end
 
     :ok
@@ -306,7 +365,12 @@ defmodule Noizu.Tessera.Spec do
               |> Map.new(fn {k, t} -> {Naming.snake_to_camel(k), Atom.to_string(t)} end)
           }
         end),
-      "slots" => Enum.map(spec.slots, & &1.name)
+      "slots" => Enum.map(spec.slots, & &1.name),
+      "cssProperties" =>
+        Enum.map(spec.css_properties, fn c ->
+          %{"name" => c.name, "default" => c[:default]}
+        end),
+      "parts" => Enum.map(spec.parts, & &1.name)
     }
   end
 end

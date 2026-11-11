@@ -28,6 +28,8 @@ defmodule Noizu.Tessera.Component do
       prop :filters, :map, json: true
       event "persona-select", detail: %{persona_id: :string, click_count: :integer}
       slot "header"
+      css "--persona-card-accent", default: "#6366f1"
+      part "select-button"
       cy "persona-card-root"
 
   Naming rules (CONTRACT.md §1): attr/prop/detail names are snake_case atoms;
@@ -80,6 +82,8 @@ defmodule Noizu.Tessera.Component do
       Module.register_attribute(__MODULE__, :tessera_events, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_slots, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_props, accumulate: true)
+      Module.register_attribute(__MODULE__, :tessera_css_properties, accumulate: true)
+      Module.register_attribute(__MODULE__, :tessera_parts, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_cy, accumulate: true)
 
       # Hologram component plumbing (hologram mode only): `use Hologram.JS`
@@ -96,11 +100,23 @@ defmodule Noizu.Tessera.Component do
   end
 
   defp import_list(false),
-    do: [attr: 2, attr: 3, prop: 2, prop: 3, event: 1, event: 2, slot: 1, cy: 1]
+    do: [
+      attr: 2,
+      attr: 3,
+      prop: 2,
+      prop: 3,
+      event: 1,
+      event: 2,
+      slot: 1,
+      css: 1,
+      css: 2,
+      part: 1,
+      cy: 1
+    ]
 
   defp import_list(true),
     # prop/2-3 come from Hologram.Component's import when Hologram is loaded.
-    do: [attr: 2, attr: 3, event: 1, event: 2, slot: 1, cy: 1]
+    do: [attr: 2, attr: 3, event: 1, event: 2, slot: 1, css: 1, css: 2, part: 1, cy: 1]
 
   defp hologram_asts(false, _mjs_path), do: []
 
@@ -142,6 +158,18 @@ defmodule Noizu.Tessera.Component do
   @spec slot(Macro.t()) :: Macro.t()
   defmacro slot(name) do
     record_ast(:slot, name, nil, [], __CALLER__)
+  end
+
+  @doc false
+  @spec css(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro css(name, opts \\ []) do
+    record_ast(:css, name, nil, opts, __CALLER__)
+  end
+
+  @doc false
+  @spec part(Macro.t()) :: Macro.t()
+  defmacro part(name) do
+    record_ast(:part, name, nil, [], __CALLER__)
   end
 
   @doc false
@@ -245,6 +273,25 @@ defmodule Noizu.Tessera.Component do
     :ok
   end
 
+  def record(consumer, :css, name, _type, opts, line, file, _hologram?) do
+    opts = eval_opts!(opts, :css, name, file, line)
+    Spec.validate!(:css, name, opts, file, line)
+
+    Module.put_attribute(
+      consumer,
+      :tessera_css_properties,
+      {line, %{name: name, default: opts[:default], line: line}}
+    )
+
+    :ok
+  end
+
+  def record(consumer, :part, name, _type, _opts, line, file, _hologram?) do
+    Spec.validate!(:part, name, %{}, file, line)
+    Module.put_attribute(consumer, :tessera_parts, {line, %{name: to_string(name), line: line}})
+    :ok
+  end
+
   def record(consumer, :cy, hook, _type, _opts, line, file, _hologram?) do
     unless is_binary(hook) do
       raise CompileError,
@@ -273,9 +320,14 @@ defmodule Noizu.Tessera.Component do
     props = prop_entries(env)
     events = event_entries(env)
     slots = slot_entries(env)
+
+    css_properties =
+      accumulated(env.module, :tessera_css_properties) |> Enum.map(fn {_l, e} -> e end)
+
+    parts = accumulated(env.module, :tessera_parts) |> Enum.map(fn {_l, e} -> e end)
     cys = accumulated(env.module, :tessera_cy)
 
-    validate_all!(attrs, props, events, slots, cys, env)
+    validate_all!(attrs, props, events, slots, css_properties, parts, cys, env)
 
     spec = %Spec{
       version: @contract_version,
@@ -287,7 +339,9 @@ defmodule Noizu.Tessera.Component do
       attrs: attrs,
       props: props,
       events: events,
-      slots: slots
+      slots: slots,
+      css_properties: css_properties,
+      parts: parts
     }
 
     body =
@@ -367,7 +421,7 @@ defmodule Noizu.Tessera.Component do
 
   # -- validation ------------------------------------------------------------
 
-  defp validate_all!(attrs, props, events, slots, cys, env) do
+  defp validate_all!(attrs, props, events, slots, css_properties, parts, cys, env) do
     # Full contract re-validation over the final entries. The DSL macros
     # validate at record time, but in Hologram mode `prop` lines go through
     # Hologram's own macro and only land here.
@@ -379,10 +433,20 @@ defmodule Noizu.Tessera.Component do
       Spec.validate!(:prop, entry.name, %{type: entry.type}, env.file, entry.line || 0)
     end)
 
+    Enum.each(css_properties, fn entry ->
+      Spec.validate!(:css, entry.name, [default: entry[:default]], env.file, entry.line || 0)
+    end)
+
+    Enum.each(parts, fn entry ->
+      Spec.validate!(:part, entry.name, %{}, env.file, entry.line || 0)
+    end)
+
     assert_no_duplicates!(:attr, attrs, env)
     assert_no_duplicates!(:prop, props, env)
     assert_no_duplicates!(:event, events, env)
     assert_no_duplicates!(:slot, slots, env)
+    assert_no_duplicates!(:css, css_properties, env)
+    assert_no_duplicates!(:part, parts, env)
 
     if length(cys) > 1 do
       raise CompileError,

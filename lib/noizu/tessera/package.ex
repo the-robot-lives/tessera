@@ -6,7 +6,16 @@ defmodule Noizu.Tessera.Package do
 
     * `components/0` — the component module list, verbatim;
     * `manifest/0` — every component's `__tessera_manifest__/0` entry, in
-      list order.
+      list order;
+    * `cem/0` — the package's Custom Elements Manifest
+      (`Noizu.Tessera.Codegen.cem/1` over the components' specs);
+    * `__tessera_package__/0` — discovery marker used by the mix tasks.
+
+  Gallery support is included by default: every package exposes `cem/0`,
+  and `mix tessera.gen.gallery` scaffolds the built-in interactive gallery
+  (live demos + typed attr/prop editors + slot editing + event log) from it
+  — no opt-in flag. `mix tessera.cem` writes the package's
+  `custom-elements.json` standalone.
 
   `mix tessera.manifest` aggregates across all loaded apps that use this
   macro, and `mix tessera.install` adds `file:` npm entries for component
@@ -54,12 +63,25 @@ defmodule Noizu.Tessera.Package do
       @spec components() :: [module()]
       def components, do: unquote(components)
 
+      @doc false
+      @spec __tessera_package__() :: %{components: [module()]}
+      def __tessera_package__, do: %{components: unquote(components)}
+
       @doc "The aggregated manifest entries of this package's components."
       @spec manifest() :: [map()]
       def manifest do
         Enum.map(components(), fn mod ->
           mod.__tessera_manifest__()
         end)
+      end
+
+      @doc """
+      The package's Custom Elements Manifest (schemaVersion "1.0.0") — the
+      same shape `mix tessera.cem` writes and the built-in gallery reads.
+      """
+      @spec cem() :: map()
+      def cem do
+        Noizu.Tessera.Codegen.cem(Enum.map(components(), & &1.__tessera_spec__()))
       end
     end
   end

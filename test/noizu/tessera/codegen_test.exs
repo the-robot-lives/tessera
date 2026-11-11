@@ -78,6 +78,48 @@ defmodule Noizu.Tessera.CodegenTest do
       assert cem["schemaVersion"] == "1.0.0"
       assert [%{"kind" => "javascript-module", "path" => "bare_thing.ex"}] = cem["modules"]
     end
+
+    test "members carry camelCase names, json flags and JSON-literal defaults" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      members = Map.new(decl["members"], &{&1["name"], &1})
+
+      assert members["tagList"]["default"] == "[]"
+      assert members["tagList"]["json"] == true
+      assert members["filters"]["default"] == "{}"
+      assert members["maxCount"]["default"] == "10"
+      refute Map.has_key?(members["maxCount"], "json")
+    end
+
+    test "css properties and parts come from the spec DSL declarations" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+
+      assert decl["cssProperties"] == [
+               %{"name" => "--persona-card-accent", "default" => "#6366f1"}
+             ]
+
+      assert decl["cssParts"] == [%{"name" => "select-button"}]
+    end
+
+    test "events carry a camelCase detail schema; empty specs emit empty css lists" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      select = Enum.find(decl["events"], &(&1["name"] == "persona-select"))
+
+      assert select["type"] == %{"text" => "CustomEvent"}
+
+      assert select["detail"] == %{
+               "personaId" => %{"text" => "string"},
+               "clickCount" => %{"text" => "integer"}
+             }
+
+      bare = Codegen.cem([%Spec{tag: "bare-thing"}])
+      [bare_decl] = hd(bare["modules"])["declarations"]
+      assert bare_decl["cssProperties"] == []
+      assert bare_decl["cssParts"] == []
+      assert bare_decl["slots"] == [%{"name" => "default"}]
+    end
   end
 
   describe "write_contract_module/2" do
