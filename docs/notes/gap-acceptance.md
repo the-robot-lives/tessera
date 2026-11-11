@@ -1,16 +1,17 @@
 # Gap-Acceptance Ballot — Lit features tessera consciously does NOT implement
 
-**Status: DRAFT — finalize after the in-flight briefs land (2e takeover-chain, 2f Tier-1 forms, 3f Tier-2 canonical macro; 4c SSR spike gated by U8).**
-Recomputed against `docs/notes/lit-parity.md` §2 at `develop` `1d0501b` (post-1b/1c/1d/2a/2b/2c/2d/3c/3d/3e + D-GAL flips). This doc is the durable record for **U7 (user ballot)**; nothing here is final until the ballot is recorded (session ledger + `applied:` here).
+**Status: FINAL-FOR-BALLOT (2026-11-12)** — 2e/2f/4c are resolved (§4 provenance + §5 final dispositions); **brief 3f is a FOLLOW-UP to the Tier-1 parity declaration** and its rows stay marked PENDING 3F below. Recomputed against `docs/notes/lit-parity.md` §2 at `develop` `477d157` (post-2f; Tier-1 parity declared 2026-11-12). This doc is the durable record for **U7 (user ballot)**; nothing here is final until the ballot is recorded (session ledger + `applied:` here). **Owner per-category sign-off: OPEN** (§6).
 
-## 0. How the set was recomputed (the "43" is the audit's figure — the live count is 41)
+## 0. How the set was recomputed (final 2026-11-12 — the audit's figure was "43"; the draft counted 41; the live set is 40)
 
-The audit band was ≈43 universal ❌ rows (❌ in **both** Tier 1 and Tier 2). Since then:
+The audit band was ≈43 universal ❌ rows (❌ in **both** Tier 1 and Tier 2). Recount history:
 
 - **#23 / #31 reflect** and **#6 shouldUpdate** were listed in the audit's accepted band but are now **CLOSED in Tier 1 by brief 1c** (`reflect: true`, `should_update` DSL — C-02/C-09/C-15 WTR). Tier 2 remains ❌ (one-sided, not ballot material).
 - Rows closed in ≥1 tier by landed briefs are no longer universal — see §4 (provenance table).
+- **Why 40, not the draft's 41: #178 Signals is one-sided at the final recount** (Tier 1 ❌ / Tier 2 🔌 — the Tier-2 cell's host-side escape, "host may run @lit/signals outside; compute → setProps", was already in the matrix when the draft counted 41). It moves OUT of the ballot set into §3's one-sided band; its design-choice rationale stays recorded in §2 for provenance.
+- **Forms (#144–#149) and the SSR family (#154–#165) are resolved out of pending**, not balloted: forms landed on both tiers (2f/3e — §4), SSR carries the 4c GO-conditional dispositions (§5).
 
-**Actual post-flip ballot set: 41 universal ❌ rows**, classified: **34 ACCEPTED-WITH-HATCH · 7 ACCEPTED-DESIGN-CHOICE · 0 CLOSED within the ballot set** (closures are listed in §4 for provenance). **6 forms rows + 12 SSR rows sit in §5 as PENDING-FINAL** — do not ballot them yet.
+**FINAL ballot set (2026-11-12, scripted recount of live §2 @ `477d157`): 40 universal ❌ rows — 34 ACCEPTED-WITH-HATCH · 6 ACCEPTED-DESIGN-CHOICE · 0 CLOSED within the ballot set** (closures are listed in §4 for provenance).
 
 ## 1. ACCEPTED-WITH-HATCH (34 rows)
 
@@ -53,13 +54,13 @@ Not implemented in the DSL; reachable through a sanctioned seam. Hatches: **`beh
 | 186 | `useController()` (React) | Needs both a React host and a Lit controller host | Wrap elements as plain custom elements (react.html pattern, #185) |
 | 187 | Localization @lit/localize | No Lit template layer to localize at runtime | Elixir-side i18n at author time (module attributes / app gettext before template emission) |
 
-## 2. ACCEPTED-DESIGN-CHOICE (7 rows in the ballot set + 2 outside it)
+## 2. ACCEPTED-DESIGN-CHOICE (6 rows in the ballot set + 2 outside it; #178 moved out one-sided — see §0)
 
 Not gaps — deliberate architecture. Ballot here = confirm the choice stands.
 
 | # | Feature | Class rationale | Alternative (the chosen mechanism) |
 |---|---------|-----------------|------------------------------------|
-| 178 | Signals @lit-labs/signals | **Built-in reactivity chosen**: Tier 1 compiles to Lit's reactive-properties core; Signals is an alternative state model, not an additive feature | `state`/attr props + 1c lifecycle; Tier 2: Hologram state → `setProps` |
+| 178 | Signals @lit-labs/signals | **Built-in reactivity chosen**: Tier 1 compiles to Lit's reactive-properties core; Signals is an alternative state model, not an additive feature. *(Not in the final ballot set — one-sided at the 2026-11-12 recount: Tier 2 🔌 host-side escape. Kept here for provenance.)* | `state`/attr props + 1c lifecycle; Tier 2: Hologram state → `setProps` |
 | 179 | `signal()` | Same family — no template integration by design | Reactive props (T1) / tsr-state + `tsr-state-change` (§6.2) |
 | 180 | `computed()` | Derived values are Elixir functions in render, not reactive graph nodes | Pure function calls in templates / assigns |
 | 181 | SignalWatcher mixin | Incompatible with the compiled class by design; mixin slot is taken by TesseraElement | Subclass hooks (§6.6) |
@@ -87,16 +88,20 @@ Rows ❌ in exactly one tier are excluded from the ballot; each is already answe
 | #194 CEM | **D-GAL** (Phase-1 column) | `Codegen.cem/1`, `mix tessera.cem` / `mix tessera.gen.gallery` |
 | #1/#2/#21/#29/#37/#49/#50/#53/#55/#197 P0 core | pre-existing spike goldens | matrix §2 |
 
-## 5. PENDING-FINAL — do NOT ballot these until the briefs land
+## 5. RESOLVED pending rows — final dispositions (2026-11-12)
 
-| Rows | Waiting on | Current state |
+The rows §0 held out of the ballot are resolved as follows; none is balloted.
+
+| Rows | Held on | Final disposition |
 |---|---|---|
-| **#144 Tier-2 declaration path** | **brief 3f (in flight)** | 3e ships the manifest/fixture hook `__tsr_form_associated__`; 3f moves it to the spec DSL (`form_associated`) — row already ✅, mechanism finalization only. |
-| **#154–#163, #165 SSR family** (+ #164 ❓) | **brief 4c (GATED by U8, not started)** | Tier 1 uniformly 🔌-unproven; Tier 2 ❌ except #161 isServer ✅. Per brief 4c: **prove → flip + add conformance cases; unproven in time-box → accept as documented gap (then move into §1/§2 of this doc)**. Never a release blocker. |
-| Tag-takeover / canonical-macro surfaces (#139/#140 mixins, contract X-19/X-21/X-16) | **2e + 3f (in flight)** | Not matrix ❌ rows (🔌 subclassing today) — listed so the ballot doesn't over-claim extension parity before those land. |
+| **Forms #144–#149 (both tiers)** | ~~2f~~ — **LANDED** | Tier 2 green since 3e; Tier 1 landed with **2f**: `form_associated` spec DSL (additive-derived inheritance) → put-if-declared manifest/CEM key → `static formAssociated = true` in all three emission templates; constructor-gated `ElementInternals` exposed as `el.internals` (§6.7 negative pinned); FM-01…FM-03 + X-12 run as SHARED bodies, green on both harnesses (WTR + Cypress). Both tiers ✅ — see §4. |
+| **#154–#163, #165 SSR family** (+ #164 ❓) | ~~4c~~ — **RESOLVED: GO-conditional** | Spike 4c verdict: **proven in a spike; production work owed — NOT "done"** (`docs/notes/ssr-dsd-spike.md`). Tier 2: #155/#156/#157/#158/#160 are **⚠ spike-proven, unshipped** (server `render_dom` DSD emission + browser attach + hydrate-by-adoption proven end-to-end in a real browser; the §4 delta list — `mountComponent` host adoption, snabbdom vnode-sel normalization, init/3 author-contract enforcement, SSR conformance cases — is the owed production work). #154/#162 confirmed **N/A by construction** on Tier 2 (`render_dom` IS the native equivalent of `@lit-labs/ssr`/`collectResult`); #163/#165 **accepted-with-reason** (defer-hydration trivially addable beside the shim delta; template-shadowroot polyfill wraps the same host-adoption mount). #159 streaming + #164 framework integrations stay open, explicitly non-blocking (#164 keeps the matrix's only ❓). Tier 1 SSR remains 🔌-unproven across the family — out of 4c's scope, no Tier-1 SSR claim is made. |
+| **#144 Tier-2 declaration path; tag-takeover / canonical-macro surfaces (#139/#140 mixins, X-16/X-19/X-21 on Tier 2)** | **3f — PENDING 3F (FOLLOW-UP)** | 2e landed the Tier-1 half (takeover chains + `extendElement`; X-19/X-21 green on the WTR suite). **Brief 3f (in flight) is a FOLLOW-UP to the Tier-1 parity declaration** and owns the Tier-2 leg: the `form_associated` spec declaration replacing 3e's `__tsr_form_associated__` fixture hook, Tier-2 reuse of the canonical `use Vendor.Element` macro, X-16/X-19 exercised on Tier 2, the cross-runtime CompileError decision — plus the X-16 shared registry case (wired in the same `x_extension.mjs`). Where 3e/2e already carry a row it is ✅; what's pending is the mechanism/Tier-2 leg, not the capability. |
 
 ## 6. Ballot procedure (U7)
 
 1. Finalize after 2f/3f land and 4c resolves (or is declined): recompute §0, move forms/SSR rows out of §5 into their final class, re-flip matrix §3 counts **then** (matrix is not touched by this draft — per brief 4a the §3 recount lands with finalization).
 2. User confirms per category (not per row): §1 hatch-sufficient · §2 design choices stand · §3 exclusion rule holds · §5 dispositions.
 3. Record answers in the session ledger and mirror them here under each section (`**A:**` lines appended, never rewritten).
+
+**Finalization status (2026-11-12):** step 1 is DONE — §0 recomputed at `477d157` (**40 rows**), forms/SSR dispositions recorded (§5), and the matrix §3 recount landed with the Tier-1 parity declaration (`lit-parity.md` §3.1). Step 2 is **OPEN — owner per-category sign-off owed**: §1 hatch-sufficient · §2 design choices stand (6 ballot rows) · §3 exclusion rule holds · §5 dispositions. Nothing here is final until the ballot is recorded (session ledger + `**A:**`/`applied:` lines).

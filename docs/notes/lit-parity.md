@@ -9,6 +9,19 @@
 > - **Tier 1 (spike/elixir-to-lit)**: Compile an Elixir subset directly to Lit element output.
 > - **Tier 2 (spike/hologram-runtime-element)**: Host a Hologram component inside a custom element wrapper.
 
+> **TIER-1 PARITY DECLARED — 2026-11-12** (owner decision; `develop` @ `477d157`, brief 2f merged).
+>
+> **What "Tier-1 parity reached" means here:**
+> - **P0 author-facing gaps are closed or accepted.** Of the 80 P0 rows, Tier 1 is 51 ✅ / 23 🔌 (sanctioned escape hatch) / 6 ❌ — and every one of those 6 is consciously accepted in `docs/notes/gap-acceptance.md`: context protocol #166–#169 (bus-seam hatch, §1 there), decorator-free output #195 and no `.d.ts` generation #198 (documented non-goals of the compiler).
+> - **The extension contract is green on Tier 1, stated precisely:** X-01…X-21 are pinned on the Tier-1 WTR conformance suite except **X-02 and X-13** (registry-pending — the case bodies are unwritten; the underlying surfaces are landed; bodies are queued to land AFTER brief 3f, in the same shared `x_extension.mjs`, to avoid conflicts) and **X-16** (proven on Tier 1 by brief 2c's `examples/spike_kit` WTR suite; its shared-registry case rides brief 3f, which is wiring the X-family on Tier 2 in that same file now). X-12/X-17/X-19/X-21 landed with briefs 2d/2e/2f.
+> - **The conformance suite is the gate.** Re-run at declaration time on `477d157`: Tier-1 WTR conformance FULL lane **53 passed / 0 failed / 28 skipped** (exit 0); fast lane **163 passed / 0 failed / 13 skipped** (exit 0). Tier 2's last landed counts (CHANGELOG, brief 3e): `conformance_tier2.cy.ts` 27 passing / 0 failing / 53 pending of 80.
+> - **The remaining gaps are accepted** in `docs/notes/gap-acceptance.md`: **40 universal ❌ rows — 34 accepted-with-hatch · 6 accepted-design-choice** (recount 2026-11-12: #178 Signals is one-sided, Tier 2 🔌; the per-category owner ballot, §6 there, is OPEN).
+>
+> **What this declaration does NOT claim (still owed):**
+> - **Tier 2 parity** — brief **3f** (in flight) remains a FOLLOW-UP: Tier-2 reuse of the canonical `use Vendor.Element` macro, X-16/X-19 exercised on Tier 2, the cross-runtime CompileError decision. Nothing here declares Tier 2 done.
+> - **SSR production** — spike 4c's verdict is **GO-conditional**: DSD emission + hydration are *proven in a spike*; the production deltas (`docs/notes/ssr-dsd-spike.md` §4) are owed, unshipped.
+> - **Two open owner questions** — two-layer rename chaining (§5.6) and whether a pinned derived `extension_api` stores the requirement string vs the resolved version.
+
 ---
 
 ## 1. Lit 3 Feature Inventory
@@ -352,6 +365,7 @@ Legend:
 - 🔌 = via JS escape hatch (hand-written Lit underneath)
 - ❌ = not supported
 - ❓ = open — reason required in Notes (never bare)
+- ⚠ = spike-proven (brief 4c), production unshipped — counted separately, never as ✅
 
 **Tier 2 architecture (spike-confirmed):** the Tier 2 wrapper is a plain `TesseraHoloElement extends HTMLElement` + open shadow root + Hologram interpreter/snabbdom inside — **no LitElement anywhere**. Lit lifecycle/decorator rows are judged as "is the capability reachable from the wrapper/host".
 
@@ -670,16 +684,18 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 
 Both tier columns of §2 are now fully investigated against their spikes: Tier 1 against the completed compiler spike (`spike/elixir-to-lit` @ `103c776`), Tier 2 against the in-progress runtime spike (`spike/hologram-runtime-element`, +2517 LOC WIP @ `9db5bb6`, verdicts merged in 6f79246). Every cell carries a verdict with evidence in Notes — except the single open row **#164** (Tier 2 framework SSR integrations, §2.12), kept ❓ with its reason.
 
-Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/🟡/🔌/❌/❓`. Under the Tier 1 audit's folded convention (🟡 + 🔌 reported together), Tier 1 is **64 ✅ / 90 🔌 / 73 ❌** (2026-11-11 high-value-directives recount; the property-options + lifecycle recount published 60 ✅ / 92 🔌 / 75 ❌, the styles-DSL recount 50 ✅ / 94 🔌 / 83 ❌, the original audit 39 ✅ / 95 🔌 / 93 ❌).
+Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/🟡/🔌/❌/❓` (⚠ spike-proven rows counted separately, never folded into ✅). Under the Tier 1 audit's folded convention (🟡 + 🔌 reported together), Tier 1 is **70 ✅ / 87 🔌 / 70 ❌** (2026-11-12 declaration recount @ `477d157`, scripted cell-by-cell over the live §2; the 2026-11-11 high-value-directives recount published 64 ✅ / 90 🔌 / 73 ❌, the property-options + lifecycle recount 60 ✅ / 92 🔌 / 75 ❌, the styles-DSL recount 50 ✅ / 94 🔌 / 83 ❌, the original audit 39 ✅ / 95 🔌 / 93 ❌).
 
 ### 3.1 Headline counts (per Lit priority)
 
 | Priority | Phase 1 today | Tier 1 (Elixir-to-Lit) | Tier 2 (Hologram runtime) |
 |---|---|---|---|
-| P0 (80) | 0/13/62/5/0 | **49**/0/25/**6**/0 | 4/14/47/15/0 |
-| P1 (83) | 0/3/40/**40**/0 | 15/2/29/**37**/0 | 5/2/43/33/0 |
-| P2 (64) | 0/0/17/47/0 | 0/1/33/30/0 | 1/0/27/35/1 |
-| **Total (227)** | 0/16/119/**92**/0 | **64**/3/87/**73**/0 | 10/16/117/**83**/1 |
+| P0 (80) | 0/13/62/5/0 | **51**/0/23/**6**/0 | 14/10/46/10/0 |
+| P1 (83) | 1/3/39/**40**/0 | 15/2/30/**36**/0 | 10/3/41/26/0 · +3 ⚠ |
+| P2 (64) | 0/0/17/47/0 | 4/1/31/28/0 | 6/0/27/28/1 · +2 ⚠ |
+| **Total (227)** | 1/16/118/**92**/0 | **70**/3/84/**70**/0 | 30/13/114/**64**/1 · +5 ⚠ |
+
+**2026-11-12 recount (Tier-1 parity declaration).** Scripted recount of every §2 cell at `477d157` (post-2f); supersedes the 2026-11-11 published counts. Delta vs those counts: Tier 1 ✅ 64→**70** (the 2f forms flips #144–#149 dominate; the remainder is §2 cell drift the per-delta notes below never rolled into the table), 🔌 87→84, ❌ 73→70; P0 ❌ stays **6** (#166–#169 context protocol, #195 decorators, #198 .d.ts — all accepted, see gap-acceptance.md). Tier 2 ✅ 10→**30** reflects the 3c/3d/3e flips (lifecycle/state-action/slots/forms) the old table predated; Tier 2 also now carries **5 ⚠** spike-proven SSR rows (4c) counted OUTSIDE ✅ by the recount convention. Phase 1 gains its first ✅ (#194 CEM, D-GAL).
 
 **2026-11-11 delta (high-value directives, `feature/directives` → `epic.tier1-parity`).** Tier 1 flips 4 P0 cells: #56/#57 ❌→✅ (classMap/styleMap) and #47/#68 🔌→✅ (nothing/ifDefined). Evidence: `class_map/1`, `style_map/1`, `if_defined/1` and bare `nothing` lower to the Lit directives in child + attribute position (unquoted, no `__t`); `lit_codegen` emits `import {…, nothing}` and the `lit/directives/{class-map,style-map,if-defined}.js` imports only when used (word-boundary scan of the render body); non-map directive args rejected by name; dual-lexer parity pinned. ExUnit 346 (fast) + core/conformance WTR 105 fast (D-01/D-02/D-06/T-06 green on the compiled `tsr-conf-directives` fixture) + full conformance 36. Also fixed en route: `properties_object/1` emitted `{ , }` (a SyntaxError) for a template-only component with zero attrs/props/state — now `{}`; the `tsr-conf-slots` fixture dropped its dummy-attr workaround and is template-only (regression-pinned). Goldens unchanged (regen reviewed). **Owed follow-up:** the shared-runtime variant must serve `lit/directives/*.js` (explicit re-exports in `tessera-runtime.mjs` + `build-bundles.mjs` external widen + `demo/plain_html` import map) — deferred to the acceptance lane (file ownership); the inlined variant is proven here.
 
@@ -716,12 +732,14 @@ Counting convention: raw ✅/🟡/🔌/❌/❓ counts per tier, shown as `✅/�
 
 ### 3.3 Parity roadmap
 
-Per the approved parity plan (2026-11-11):
+**Tier-1 parity declared 2026-11-12** (see the declaration at the top of this file). Per the approved parity plan (2026-11-11), updated at declaration:
 
-1. **Tier 1 leads the implementation lane** — it is the only tier with a completed, byte-proven compiler spike and real packaging. Land its P0 first; the 6-feature P0 ❌ band above is the honest worklist (was 19 before the 2026-11-11 styles DSL, 13 before property options + lifecycle, 8 before the high-value directives), now concentrated in the remaining directives (repeat/cache/guard/live/keyed) plus controller update hooks — the lifecycle half landed in 1c and the four high-value directives (classMap/styleMap/nothing/ifDefined) in 1d.
-2. **The extension contract is the deliverable** — both tiers compile into it; consumers target it, not tier internals.
-3. **Accept the 40 universal gaps** — the audit's P1 ❌ band (directives, lifecycle hooks, i18n/CEM/.d.ts generation; the styles-DSL rows landed 2026-11-11) is accepted as out of scope for the DSL, covered by escape hatches where possible and documented as unsupported elsewhere.
-4. **Tier 2 continues as the WIP stateful-component lane** (+2517 LOC @ 9db5bb6) behind the same contract; its remaining ❓/#164-class questions (framework SSR integrations) ride the Phase 2 host-swap work — Declarative Shadow DOM itself was spike-proven GO in 4c (`docs/notes/ssr-dsd-spike.md`; production deltas pending, none shipped).
+1. **Tier 1 leads the implementation lane — DONE.** The only tier with a completed, byte-proven compiler spike and real packaging; its P0 is closed: the ❌ band shrank 19 → 13 → 8 → **6 accepted rows** (#166–#169 context protocol via the bus-seam hatch, #195 decorator-free-by-design, #198 no-.d.ts) across the styles DSL (1b), property options + lifecycle (1c), and the high-value directives (1d) briefs. The remaining directive band (repeat/cache/guard/live/keyed/unsafeHTML/unsafeSVG) and controller update hooks are accepted, not owed.
+2. **The extension contract is the deliverable — Tier 1 complete, Tier 2 mid-flight.** Both tiers compile into it; consumers target it, not tier internals. Tier 1: 2a–2f landed (state/action pipeline, extension_api + CEM, canonical derivation macro, regions/rename/type-guard, takeover chain + `extendElement`, behaviors pin + forms); X-01…X-21 pinned except X-02/X-13 (registry-pending bodies, queued after 3f) and X-16 (Tier-1-proven via spike_kit; shared case rides 3f). Tier 2: 3c/3d/3e landed (lifecycle, state/action, slots/forms).
+3. **The universal gaps are accepted — final set 40.** Recounted 2026-11-12 (`gap-acceptance.md` §0): **34 accepted-with-hatch · 6 accepted-design-choice**; #178 (Signals) is one-sided (Tier 1 ❌ / Tier 2 🔌) and sits outside the ballot; forms (#144–#149) and the SSR family are resolved with dispositions there, not balloted. The per-category owner ballot (§6 there) is **OPEN**.
+4. **Tier 2 continues as the WIP stateful-component lane** behind the same contract. What remains is **brief 3f as the FOLLOW-UP to this milestone** (in flight, worktree `tier2-macro`): Tier-2 reuse of the canonical `use Vendor.Element` macro, X-16/X-19 exercised on Tier 2, the cross-runtime CompileError decision, plus the `form_associated` spec declaration path on Tier 2. SSR is **spike-proven, production-owed** (4c GO-conditional; deltas in `docs/notes/ssr-dsd-spike.md` §4) and was never a Tier-1 gate; #164-class framework-integration questions ride the Phase-2 host-swap work.
+
+**What's next (post-declaration, in order):** ① brief **3f** — Tier-2 canonical-macro reuse + X-16/X-19 on Tier 2 + cross-runtime CompileError + the X-16 shared registry case; ② SSR production work — host adoption + vnode-sel normalization + init/3 author-contract enforcement + SSR conformance cases (4c §4 list); ③ X-02/X-13 conformance case bodies (after 3f, same file); ④ owner gap-acceptance ballot + the two open owner questions (§5.6 two-layer rename chaining; pinned `extension_api` requirement-string vs resolved version); ⑤ **hex publish** (`noizu_tessera` 0.1.0 is publish-ready, deferred until after parity — now unblocked by this declaration).
 
 **Decision framing.** Choose **Tier 1** when the goal is Lit-grade interop and distribution — npm/UMD/import-map consumption, ecosystem tooling over rendered elements, zero-JS authorship from Elixir. Choose **Tier 2** when the goal is stateful Hologram-native components — server round-trips, actions, live state, native server/client split. Neither approximates the other's core: Tier 1 cannot model the Hologram runtime; Tier 2 cannot model Lit's update lifecycle, directives, or styles DSL. Both feed the same extension contract.
 
