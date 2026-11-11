@@ -3,6 +3,7 @@
     {
       "declarations": [
         {
+          "actions": [],
           "attributes": [
             {
               "name": "display-name",

@@ -365,7 +365,9 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
     test "extends the base class re-mixed with the merged contract; imports the base" do
       js = LitCodegen.element_module(derived_spec())
 
-      assert js =~ "class DerivedWidget extends TesseraElement(WidgetBase, contract)"
+      # the §6 extension descriptor carries the MERGED state + actions (brief 2a)
+      assert js =~
+               ~s|class DerivedWidget extends TesseraElement(WidgetBase, contract, {state: ["count","extra"], actions: ["increment","bump"], internalActions: []})|
       assert js =~ ~S|import { WidgetBase } from "./widget-base.element.generated.mjs"|
       assert js =~ ~S|import contract from "./derived_widget.contract.generated.mjs"|
       # base artifacts are referenced, never re-emitted
@@ -408,8 +410,25 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
 
     test "a fresh (non-derived) spec still lowers through the fresh path" do
       js = LitCodegen.element_module(spec())
-      assert js =~ "class SpikeWidget extends TesseraElement(LitElement, contract)"
+      assert js =~
+               ~s|class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: []})|
       assert js =~ "const baseStyles = css`"
+      # template-bound invocations ride the public action pipeline (§6.4)
+      assert js =~ "return this.__tesseraDispatch(name, params, ev);"
+    end
+
+    test "the extension descriptor carries internal: annotations verbatim (brief 2a)" do
+      # The compiled conformance fixture declares seed_cache as internal:true.
+      js =
+        Tessera.TestFixtures.Conformance.Pipeline.__tessera_spec__()
+        |> LitCodegen.element_module()
+
+      assert js =~
+               ~s|extends TesseraElement(LitElement, contract, {state: ["count","selected_id","meta"], actions: ["bump","select_item","seed_cache"], internalActions: ["seed_cache"]})|
+
+      # the legacy direct-handler RunAction body is GONE — everything routes
+      # through __tesseraDispatch (interceptors see template-bound invocations)
+      refute js =~ "handler.call(this, params, ev)"
     end
   end
 end

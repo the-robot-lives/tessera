@@ -79,6 +79,28 @@ defmodule Noizu.Tessera.CodegenTest do
       assert [%{"kind" => "javascript-module", "path" => "bare_thing.ex"}] = cem["modules"]
     end
 
+    test "action docs list declared names in order; internal flag only on annotated ones (§5.3)" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        actions: [
+          %{name: :bump, js: "x", line: 1},
+          %{name: :seed_cache, js: "x", line: 2, internal: true},
+          %{name: :from_base, js: "x", line: 3, inherited: true}
+        ]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      # declaration order preserved; internal: true rides as ADVISORY docs only
+      # (D2: never access control); inherited flag is not documented
+      assert declaration["actions"] == [
+               %{"name" => "bump"},
+               %{"name" => "seed_cache", "internal" => true},
+               %{"name" => "from_base"}
+             ]
+    end
+
     test "styles DSL: every tag-scoped var() read is declared with its fallback, sorted (EXTENSION-CONTRACT §7)" do
       spec = %Spec{
         tag: "bare-thing",

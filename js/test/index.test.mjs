@@ -16,9 +16,20 @@ describe("@noizu/tessera-core index", () => {
       "BusClient",
       "noneTransport",
       "envelope",
+      // brief 2a — action pipeline + state snapshot surface
+      "snakeCaseKey",
+      "camelCaseKey",
+      "makeSnapshot",
+      "normalizeActionName",
+      "normalizeParams",
+      "runPipeline",
     ]) {
       expect(core[name], `export "${name}"`).to.exist;
     }
+    // pipeline.mjs must stay Lit/DOM-free (docs/notes/test-tiering.md): a
+    // pipeline run against plain fakes works outside any element.
+    expect(core.runPipeline({ interceptors: [], invoke: () => "v", params: {} }))
+      .to.deep.equal({ status: "applied", value: "v" });
     expect(core.noneTransport.name).to.equal("none");
     expect(core.envelope({ kind: "k", payload: {} }).v).to.equal(1);
   });

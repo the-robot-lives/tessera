@@ -72,7 +72,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     }
     `;
 
-    class #{class} extends TesseraElement(LitElement, contract) {
+    class #{class} extends TesseraElement(LitElement, contract, #{extension_descriptor(spec)}) {
       static properties = #{properties_object(spec)};
 
       static styles = #{styles_array(spec, shared)};
@@ -98,14 +98,14 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         for (const k of Object.keys(next)) this[k] = next[k];
       }
 
+      // Template-bound invocations (the lowered `$click`/`$event` bindings)
+      // route through the SAME action pipeline as the public dispatchAction
+      // (EXTENSION-CONTRACT.md §6.4): interceptable by onAction interceptors,
+      // vetoable, async-chained, and a committed transition fires
+      // tsr-state-change. Errors are captured into the DispatchResult (the
+      // internal invocation "catches" — the returned Promise never rejects).
       __tesseraRunAction(name, params = {}, ev = null) {
-        const handler = this[`__action_${name}`];
-        if (typeof handler !== "function") {
-          console.warn(`[tessera] <#{tag}> has no action "${name}"`);
-          return;
-        }
-        const next = handler.call(this, params, ev);
-        if (next != null && typeof next === "object") this.__tesseraSetState(next);
+        return this.__tesseraDispatch(name, params, ev);
       }
 
     #{action_methods(spec)}#{lifecycle_block(spec)}
@@ -171,7 +171,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     // nil-safe interpolation helper (renders nothing for null/undefined).
     const __t = (v) => (v == null ? undefined : v);
 
-    class #{class} extends TesseraElement(#{base_class}, contract) {
+    class #{class} extends TesseraElement(#{base_class}, contract, #{extension_descriptor(spec)}) {
       static properties = #{derived_properties_object(spec)};
 
       static styles = #{derived_styles_array(spec, shared, base_class)};
@@ -430,6 +430,23 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     |> String.split("-")
     |> Enum.map(&String.capitalize/1)
     |> Enum.join()
+  end
+
+  # The extension descriptor passed to the TesseraElement mixin as its third
+  # argument (EXTENSION-CONTRACT.md §6.1): the declared state keys (snake —
+  # the compiled bodies keep Elixir names internally; the snapshot is the
+  # camelCase projection), EVERY declared action name (open surface, D2 —
+  # `internal:` ones included), and the `internal:` subset the runtime warns
+  # on interception against (advisory, never a gate, §10). For a derived
+  # spec this is the MERGED surface (new + inherited names ride the ES chain
+  # into the same registry).
+  defp extension_descriptor(%Spec{} = spec) do
+    state = Enum.map(spec.state, &Atom.to_string(&1.name))
+    actions = Enum.map(spec.actions, &Atom.to_string(&1.name))
+    internal = spec.actions |> Enum.filter(& &1[:internal]) |> Enum.map(&Atom.to_string(&1.name))
+
+    "{state: #{Spec.json_literal(state)}, actions: #{Spec.json_literal(actions)}, " <>
+      "internalActions: #{Spec.json_literal(internal)}}"
   end
 
   defp source_name(%Spec{module: nil, file: file}), do: file || "Noizu.Tessera.Spec"

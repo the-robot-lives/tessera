@@ -309,3 +309,176 @@ describe("TesseraElement over plain HTMLElement", () => {
     });
   });
 });
+
+// Action surface (EXTENSION-CONTRACT.md §6, brief 2a): statics, el.state,
+// onAction registration semantics, dispatchAction results + events. The full
+// onion/async/stale pipeline is pinned in pipeline.test.mjs (pure) and the
+// conformance X-family cases (end-to-end against a compiled fixture).
+describe("TesseraElement action surface", () => {
+  const ACT_TAG = "tsr-el-act";
+  const actContract = {
+    version: 2,
+    tag: ACT_TAG,
+    attrs: [],
+    props: [],
+    events: [{ name: "act-ping", detail: {} }],
+    slots: [],
+    cy: null,
+  };
+  const actExtension = {
+    state: ["count", "selected_id"],
+    actions: ["bump", "select_item", "sneaky", "thrower"],
+    internalActions: ["sneaky"],
+  };
+
+  before(() => {
+    class ActEl extends TesseraElement(HTMLElement, actContract, actExtension) {
+      constructor() {
+        super();
+        this.count = 0;
+        this.selected_id = "none";
+      }
+      __action_bump(params = {}) {
+        return { count: this.count + (params.step ?? 1), selected_id: this.selected_id };
+      }
+      __action_select_item(params = {}) {
+        return { count: this.count, selected_id: params.item_name };
+      }
+      __action_sneaky() {
+        return { count: this.count + 100, selected_id: this.selected_id };
+      }
+      __action_thrower() {
+        throw new Error("action exploded");
+      }
+    }
+    defineOnce(ACT_TAG, ActEl);
+  });
+
+  function makeAct() {
+    const el = document.createElement(ACT_TAG);
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it("contract statics: tesseraTag / tesseraContractVersion / tesseraActions", () => {
+    const ctor = customElements.get(ACT_TAG);
+    expect(ctor.tesseraTag).to.equal(ACT_TAG);
+    expect(ctor.tesseraContractVersion).to.equal(2);
+    // OPEN surface (D2): every declared name, snake canonical, internal included
+    expect(ctor.tesseraActions).to.deep.equal(["bump", "select_item", "sneaky", "thrower"]);
+  });
+
+  it("descriptorless component: frozen empty state + contract-tag statics", () => {
+    const el = document.createElement(PLAIN_TAG);
+    document.body.appendChild(el);
+    try {
+      expect(el.state).to.deep.equal({});
+      expect(Object.isFrozen(el.state)).to.equal(true);
+      const ctor = customElements.get(PLAIN_TAG);
+      expect(ctor.tesseraTag).to.equal(PLAIN_TAG);
+      expect(ctor.tesseraActions).to.deep.equal([]);
+    } finally {
+      el.remove();
+    }
+  });
+
+  it("dispatchAction commits a transition, fires tsr-state-change, value = post snapshot (U1/Q3)", () => {
+    const el = makeAct();
+    const seen = [];
+    const listener = (ev) => seen.push(ev.detail);
+    document.addEventListener("tsr-state-change", listener);
+    try {
+      const r = el.dispatchAction("select_item", { itemName: "x1" }); // camel key ok
+      expect(r.ok).to.equal(true);
+      expect(r.value.selectedId).to.equal("x1");
+      expect(Object.isFrozen(r.value)).to.equal(true);
+      expect(seen.length).to.equal(1);
+      expect(seen[0].keys).to.deep.equal(["selectedId"]);
+      expect(seen[0].state.selectedId).to.equal("x1");
+      expect(el.count).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-state-change", listener);
+      el.remove();
+    }
+  });
+
+  it("unknown action: warn, ok:false, no throw, no state, no event", () => {
+    const el = makeAct();
+    let events = 0;
+    const listener = () => (events += 1);
+    document.addEventListener("tsr-state-change", listener);
+    try {
+      const warns = captureWarns(() => {
+        const r = el.dispatchAction("does_not_exist");
+        expect(r).to.deep.equal({ ok: false, reason: "unknown-action" });
+        expect(el.dispatchAction(42)).to.deep.equal({ ok: false, reason: "unknown-action" });
+      });
+      expect(warns.filter((w) => w.includes("does_not_exist")).length).to.equal(1);
+      expect(el.count).to.equal(0);
+      expect(events).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-state-change", listener);
+      el.remove();
+    }
+  });
+
+  it("internal action: dispatches normally; onAction warns ONCE per tag+action but works (D2)", () => {
+    const el = makeAct();
+    let hits = 0;
+    const warns1 = captureWarns(() => el.onAction("sneaky", (p, next) => { hits += 1; return next(); }));
+    expect(warns1.filter((w) => w.includes("internal action")).length).to.equal(1);
+    // dedupe is GLOBAL per tag+action — a second instance's registration stays quiet
+    const el2 = makeAct();
+    const again = captureWarns(() => el2.onAction("sneaky", (p, next) => next()));
+    expect(again.length).to.equal(0);
+    expect(el2.dispatchAction("sneaky").ok).to.equal(true);
+    expect(el.dispatchAction("sneaky").ok).to.equal(true);
+    expect(hits).to.equal(1); // el's interceptor fired on el's dispatch only
+    expect(el.count).to.equal(100); // open surface — internal dispatch still commits
+    expect(el2.count).to.equal(100);
+    el.remove();
+    el2.remove();
+  });
+
+  it("throwing action: ok:false reason error + tsr-action-error, state untouched", () => {
+    const el = makeAct();
+    const errs = [];
+    const listener = (ev) => errs.push(ev.detail);
+    document.addEventListener("tsr-action-error", listener);
+    try {
+      const r = el.dispatchAction("thrower");
+      expect(r).to.deep.equal({ ok: false, reason: "error" });
+      expect(errs.length).to.equal(1);
+      expect(errs[0].action).to.equal("thrower");
+      expect(errs[0].message).to.include("action exploded");
+      expect(el.count).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-action-error", listener);
+      el.remove();
+    }
+  });
+
+  it("onAction: TypeError on non-function; unsubscribe removes the interceptor", () => {
+    const el = makeAct();
+    expect(() => el.onAction("bump", "not-a-function")).to.throw(TypeError);
+    let hits = 0;
+    const off = el.onAction("bump", (p, next) => { hits += 1; return next(); });
+    el.dispatchAction("bump");
+    expect(hits).to.equal(1);
+    off();
+    el.dispatchAction("bump");
+    expect(hits).to.equal(1);
+    expect(el.count).to.equal(2);
+    el.remove();
+  });
+
+  it("interceptors are per-instance — a sibling element is untouched", () => {
+    const a = makeAct();
+    const b = makeAct();
+    a.onAction("bump", () => ({ vetoed: "only-a" }));
+    expect(a.dispatchAction("bump").ok).to.equal(false);
+    expect(b.dispatchAction("bump").ok).to.equal(true);
+    a.remove();
+    b.remove();
+  });
+});

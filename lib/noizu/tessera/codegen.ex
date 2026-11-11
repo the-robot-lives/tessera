@@ -267,6 +267,14 @@ defmodule Noizu.Tessera.Codegen do
                 end)
             }
           end),
+        # Action docs (EXTENSION-CONTRACT.md §5.3): declared names in
+        # declaration order; `internal: true` only on the advisory-annotated
+        # subset (grouping under internal docs — NEVER access control, §10).
+        "actions" =>
+          Enum.map(spec.actions, fn a ->
+            base = %{"name" => Atom.to_string(a.name)}
+            if a[:internal], do: Map.put(base, "internal", true), else: base
+          end),
         "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
         "cssProperties" => cem_css_properties(spec),
         "cssParts" => cem_css_parts(spec)
