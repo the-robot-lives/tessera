@@ -17,6 +17,7 @@ defmodule Noizu.Tessera.Codegen do
   `test/fixtures/` pin their exact output.
   """
 
+  alias Noizu.Tessera.Component.Extension
   alias Noizu.Tessera.Component.Styles
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Spec
@@ -99,10 +100,17 @@ defmodule Noizu.Tessera.Codegen do
     end
   end
 
-  @doc "Path of the generated contract module for a spec, under `dir`."
+  @doc """
+  Path of the generated contract module for a spec, under `dir`.
+
+  Fresh and fresh-tag-derived specs name by `<snake_tag>`; a `tag: :inherit`
+  takeover layer is keyed by the BASE tag like every other artifact, so its
+  stem carries the declaring module too (`Extension.snake_stem/1`, §5.8) —
+  sibling layers never clobber one another's contract.
+  """
   @spec contract_path(Spec.t(), String.t()) :: String.t()
   def contract_path(%Spec{} = spec, dir),
-    do: Path.join(dir, snake_tag(spec) <> ".contract.generated.mjs")
+    do: Path.join(dir, Extension.snake_stem(spec) <> ".contract.generated.mjs")
 
   @doc "snake_case form of the tag (`persona-card` → `persona_card`)."
   @spec snake_tag(Spec.t()) :: String.t()

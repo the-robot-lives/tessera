@@ -918,4 +918,119 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
       end
     end
   end
+
+  # -- tag-takeover chain (§5.9, brief 2e) — X-19's compile-time half ----------
+
+  describe "tag takeover chain (§5.9): depth → priority → module name" do
+    test "chain_order sorts depth, then priority, then module name (innermost first)" do
+      entries = [
+        %{depth: 2, priority: 0, module: "App.Ccc"},
+        %{depth: 1, priority: 10, module: "App.Bbb"},
+        %{depth: 1, priority: 0, module: "App.Mmm"},
+        %{depth: 1, priority: 0, module: "App.Aaa"}
+      ]
+
+      assert Enum.map(Extension.chain_order(entries), & &1.module) == [
+               "App.Aaa",
+               "App.Mmm",
+               "App.Bbb",
+               "App.Ccc"
+             ]
+    end
+
+    test "takeover?/chain_depth classify the conformance takeover fixtures" do
+      base = Tessera.TestFixtures.Conformance.Takeover.__tessera_spec__()
+      aaa = Tessera.TestFixtures.Conformance.TakeoverExtAaa.__tessera_spec__()
+      bbb = Tessera.TestFixtures.Conformance.TakeoverExtBbb.__tessera_spec__()
+      ccc = Tessera.TestFixtures.Conformance.TakeoverExtCcc.__tessera_spec__()
+
+      refute Extension.takeover?(base)
+      assert Extension.takeover?(aaa)
+      assert Extension.takeover?(bbb)
+      assert Extension.takeover?(ccc)
+
+      # every layer registers under the BASE tag (D1 takeover)
+      assert aaa.tag == base.tag
+      assert bbb.tag == base.tag
+      assert ccc.tag == base.tag
+
+      # dependency depth walks the derived_from spine; priority: rides the spec
+      assert Extension.chain_depth(base) == 0
+      assert Extension.chain_depth(aaa) == 1
+      assert Extension.chain_depth(bbb) == 1
+      assert Extension.chain_depth(ccc) == 2
+      assert aaa.priority == 0
+      assert bbb.priority == 10
+    end
+
+    test "takeover artifacts carry the base tag + module stem, siblings never clobber (§5.8)" do
+      base = Tessera.TestFixtures.Conformance.Takeover.__tessera_spec__()
+      aaa = Tessera.TestFixtures.Conformance.TakeoverExtAaa.__tessera_spec__()
+
+      assert Extension.artifact_stem(base) == "tsr-conf-takeover"
+      assert Extension.artifact_stem(aaa) == "tsr-conf-takeover__takeover_ext_aaa"
+      assert Extension.snake_stem(aaa) == "tsr_conf_takeover__takeover_ext_aaa"
+    end
+
+    test "chain conflict: same-depth siblings overriding one action warn naming BOTH + the winner" do
+      id_a = :erlang.unique_integer([:positive])
+      id_b = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_base(id_a)
+
+      compile_derived(base, id_a, ~s(tag: :inherit, priority: 5), """
+      action :increment, fn state, _params -> %{state | count: state.count + 10} end
+      """)
+
+      warning =
+        capture_io(:stderr, fn ->
+          compile_derived(base, id_b, ~s(tag: :inherit, priority: 5), """
+          action :increment, fn state, _params -> %{state | count: state.count + 20} end
+          """)
+        end)
+
+      # §5.7: names both modules, the §5.9 winner, the contested body, and
+      # that the inner layer stays silent until the dispatch goes down-chain
+      assert warning =~ "chain conflict"
+      assert warning =~ "Tessera.Ext.Derived#{id_a}"
+      assert warning =~ "Tessera.Ext.Derived#{id_b}"
+      assert warning =~ "increment"
+      assert warning =~ "base_action/3"
+
+      # same depth + same priority ⇒ module name resolves the tie: the
+      # alphabetically-LATER module sits outermost and WINS
+      outer = Enum.max(["Tessera.Ext.Derived#{id_a}", "Tessera.Ext.Derived#{id_b}"])
+      assert warning =~ "#{outer} sits outermost"
+    end
+
+    test "a takeover layer compiles a registry mixin artifact, not an element module" do
+      aaa = Tessera.TestFixtures.Conformance.TakeoverExtAaa.__tessera_spec__()
+      stem = Extension.artifact_stem(aaa)
+
+      source =
+        IO.iodata_to_binary([
+          Noizu.Tessera.Component.LitCodegen.element_module(aaa),
+          Noizu.Tessera.Component.LitCodegen.wrapper_module(aaa)
+        ])
+
+      # the wrapper exports the MIXIN and never a class; the element module
+      # queues via extendElement and never defines the tag
+      assert source =~ "extendElement("
+      assert source =~ "export { mixin }"
+      refute source =~ "export { Tsr"
+      assert source =~ ~s(export const tag = "tsr-conf-takeover";)
+      assert stem == "tsr-conf-takeover__takeover_ext_aaa"
+    end
+
+    test "minting a fresh tag FROM a takeover layer raises (layers ship as mixins)" do
+      fresh = "ext-fresh-#{:erlang.unique_integer([:positive])}"
+
+      assert_raise CompileError, ~r/cannot mint a fresh tag from the tag-takeover layer/, fn ->
+        compile_derived(
+          Tessera.TestFixtures.Conformance.TakeoverExtBbb,
+          :erlang.unique_integer([:positive]),
+          ~s(tag: "#{fresh}")
+        )
+      end
+    end
+  end
 end

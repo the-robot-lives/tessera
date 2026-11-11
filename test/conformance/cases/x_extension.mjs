@@ -12,10 +12,14 @@
 // LOGICAL fixture "pipeline" (Tier 1 `<tsr-conf-pipeline>`, Tier 2 the
 // HoloKit mirror `<tsr-holo-pipeline-probe>` — same state keys, same action
 // semantics, same `internal:` annotation). X-01/X-04/X-18 pin scaffold
-// representatives; X-15 is Tier-1-only by nature (generated manifest maps).
-// Everything else lands with the extension briefs (2a–2f Tier 1, 3f Tier 2)
-// and is pending — never green for an unimplemented feature. X-21 is
-// explicitly [PENDING TIER-1] in §9.
+// representatives; X-15 is Tier-1-only by nature (generated manifest maps);
+// X-19 (tag-takeover chain) + X-21 (extendElement registry) landed with
+// brief 2e — X-19 gates "the base tag's conformance suite MUST still pass"
+// by REPLAYING the pipeline case bodies verbatim on the taken-over fixture,
+// X-21 is Tier-1-only by nature (the JS registry, like X-15; §9 lists it
+// [PENDING TIER-1] for Tier 2). Everything else lands with the extension
+// briefs (2a–2f Tier 1, 3f Tier 2) and is pending — never green for an
+// unimplemented feature.
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy} from "../support/dom.mjs";
@@ -80,30 +84,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "el.state canonical camelCase frozen snapshot + snake aliases",
-    async run(mount, expect) {
-      // Compiled-DSL "pipeline" fixture: state count / selected_id / meta.
-      const h = await mount({fixture: "pipeline"});
-      const s1 = h.el.state;
-      // canonical camel keys, enumerable (§6.2 does NOT mandate key ORDER —
-      // Tier-1 inserts in declaration order, Tier-2 in Hologram term order,
-      // so compare sorted; aliases never surface in Object.keys)
-      expect(Object.keys(s1).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
-      expect(s1.selectedId).to.equal("none");
-      // frozen top level — NOT deep (nested meta is shared by reference)
-      expect(Object.isFrozen(s1)).to.equal(true);
-      expect(Object.isFrozen(s1.meta)).to.equal(false);
-      // snake alias: present, readable, identical, NON-enumerable
-      expect(s1.selected_id).to.equal(s1.selectedId);
-      expect(Object.getOwnPropertyDescriptor(s1, "selected_id").enumerable).to.equal(false);
-      // JSON / spread see camelCase only (D3)
-      expect(JSON.parse(JSON.stringify(s1)).selected_id).to.equal(undefined);
-      expect(Object.keys({...s1}).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
-      // fresh object per access; nested values shared
-      const s2 = h.el.state;
-      expect(s2).to.not.equal(s1);
-      expect(s2).to.deep.equal(s1);
-      expect(s2.meta).to.equal(s1.meta);
-    },
+    run: stateSnapshotBody,
   }),
 
   defineCase({
@@ -111,38 +92,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "tsr-state-change — one event per transition, changed keys, post-state",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const seen = [];
-      const listener = (ev) => seen.push(ev.detail);
-      h.win.document.addEventListener("tsr-state-change", listener); // composed+bubbling
-      try {
-        const r = await h.el.dispatchAction("selectItem", {itemName: "alpha"});
-        expect(r.ok).to.equal(true);
-        // event already scheduled at commit — settle() (mount-contract helper:
-        // Tier 1 awaits el.updateComplete, Tier 2 is a tick — render is
-        // synchronous at the Tier-2 commit point) sees the NEW DOM
-        await h.settle();
-        expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-selected]").textContent).to.equal("alpha");
-        expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("1");
-        // one transition changing TWO keys ⇒ exactly ONE event (keys sorted —
-        // §6.2 does not mandate key order)
-        expect(seen.length).to.equal(1);
-        const d = seen[0];
-        expect(d.keys.slice().sort()).to.deep.equal(["count", "selectedId"]);
-        expect(d.state.selectedId).to.equal("alpha");
-        expect(d.state.count).to.equal(1);
-        // the dispatched action's snake-canonical name rides along (§6.2)
-        expect(d.action).to.equal("select_item");
-        // an action that changes nothing still fires one transition event, keys []
-        expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
-        expect(seen.length).to.equal(2);
-        expect(seen[1].keys).to.deep.equal([]);
-        expect(seen[1].action).to.equal("seed_cache");
-      } finally {
-        h.win.document.removeEventListener("tsr-state-change", listener);
-      }
-    },
+    run: stateChangeBody,
   }),
 
   defineCase({
@@ -150,48 +100,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "open dispatch — either casing runs; unknown-action ⇒ ok:false + warn",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const warns = [];
-      const orig = h.win.console.warn;
-      h.win.console.warn = (m) => warns.push(String(m));
-      const events = [];
-      const listener = (ev) => events.push(ev.detail);
-      h.win.document.addEventListener("tsr-state-change", listener);
-      try {
-        // both casings run (D2 open surface, D3 casing)
-        expect((await h.el.dispatchAction("bump")).ok).to.equal(true);
-        expect((await h.el.dispatchAction("select_item", {item_name: "snake"})).ok).to.equal(true);
-        // select_item changes TWO keys — count is now 1 (bump) + 1 (select)
-        expect(h.el.state.count).to.equal(2);
-        expect(h.el.state.selectedId).to.equal("snake");
-        // unknown action: no throw, ok:false, warn, NO state change, NO event
-        const before = events.length;
-        const u = await h.el.dispatchAction("nope_not_here");
-        expect(u.ok).to.equal(false);
-        expect(u.reason).to.equal("unknown-action");
-        expect(h.el.state.count).to.equal(2);
-        expect(events.length).to.equal(before);
-        expect(warns.some((w) => w.includes("nope_not_here"))).to.equal(true);
-        // internal action dispatches normally — annotation never restricts (D2)
-        expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
-        // registering against the internal action warns ONCE but STILL WORKS
-        let intercepted = 0;
-        const off1 = h.el.onAction("seed_cache", (params, next) => {
-          intercepted += 1;
-          return next();
-        });
-        h.el.onAction("seed_cache", (params, next) => next()); // second: no repeat warn
-        expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
-        expect(intercepted).to.equal(1);
-        const internalWarns = warns.filter((w) => w.includes("internal action"));
-        expect(internalWarns.length).to.equal(1);
-        off1();
-      } finally {
-        h.win.console.warn = orig;
-        h.win.document.removeEventListener("tsr-state-change", listener);
-      }
-    },
+    run: openDispatchBody,
   }),
 
   defineCase({
@@ -199,33 +108,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "interceptor ordering — first-registered outermost, overrides flow down",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const order = [];
-      const seen = [];
-      h.el.onAction("bump", (params, next) => {
-        order.push("outer");
-        seen.push(params);
-        return next({step: 2}); // override flows downstream in camelCase
-      });
-      h.el.onAction("bump", (params, next) => {
-        order.push("inner");
-        seen.push(params);
-        return next();
-      });
-      const r = await h.el.dispatchAction("bump", {step: 5});
-      expect(order).to.deep.equal(["outer", "inner"]);
-      expect(seen[0]).to.deep.equal({step: 5}); // camelCase at the boundary (D3)
-      expect(seen[1]).to.deep.equal({step: 2}); // downstream sees the override
-      expect(r.ok).to.equal(true);
-      expect(r.value.count).to.equal(2); // invoke ran with the OVERRIDDEN step
-      // template-bound ($click) invocations ride the SAME pipeline (§6.4)
-      order.length = 0;
-      clickCy(h, "conf-pipeline-inc");
-      await h.waitFor(() => order.length === 2);
-      expect(order).to.deep.equal(["outer", "inner"]);
-      expect(h.el.state.count).to.equal(4); // second bump: step overridden to 2 again
-    },
+    run: interceptorOrderBody,
   }),
 
   defineCase({
@@ -233,31 +116,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "veto — no next ⇒ no state change, no events, result returned",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const events = [];
-      const listener = (ev) => events.push(ev);
-      h.win.document.addEventListener("tsr-state-change", listener);
-      const vetoReturn = {blocked: "by-policy"};
-      const off = h.el.onAction("bump", () => vetoReturn); // never calls next ⇒ veto
-      try {
-        const r = await h.el.dispatchAction("bump");
-        expect(r.ok).to.equal(false);
-        expect(r.reason).to.equal("vetoed");
-        expect(r.value).to.equal(vetoReturn); // veto carries the stage's return (U1)
-        expect(h.el.state.count).to.equal(0);
-        expect(events.length).to.equal(0);
-        await h.settle();
-        expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("0");
-        // unsubscribe restores the direct path
-        off();
-        const r2 = await h.el.dispatchAction("bump");
-        expect(r2.ok).to.equal(true);
-        expect(h.el.state.count).to.equal(1);
-      } finally {
-        h.win.document.removeEventListener("tsr-state-change", listener);
-      }
-    },
+    run: vetoBody,
   }),
 
   defineCase({
@@ -265,38 +124,7 @@ export const cases = [
     family: "X",
     fast: false,
     title: "async pipeline — post-disconnect resolution applies nothing",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const preCount = h.el.state.count;
-      const events = [];
-      const listener = (ev) => events.push(ev);
-      h.win.document.addEventListener("tsr-state-change", listener);
-      try {
-        let release;
-        const gate = new Promise((res) => {
-          release = res;
-        });
-        h.el.onAction("bump", async (params, next) => {
-          await gate; // holds the pipeline open
-          return next();
-        });
-        const pending = h.el.dispatchAction("bump");
-        h.el.remove(); // disconnect WHILE the pipeline is still running
-        release();
-        const r = await pending;
-        // U6 stale-drop: applies nothing, reports the veto convention, NO value
-        expect(r.ok).to.equal(false);
-        expect(r.reason).to.equal("vetoed");
-        expect(r.value).to.equal(undefined);
-        // Tier-2's post-destroy snapshot is the §6.2 frozen-EMPTY object (the
-        // mount is gone), so the count read degrades to "unchanged" there;
-        // Tier 1 still reads the pre-disconnect 0.
-        expect(h.el.state.count ?? preCount).to.equal(preCount);
-        expect(events.length).to.equal(0);
-      } finally {
-        h.win.document.removeEventListener("tsr-state-change", listener);
-      }
-    },
+    run: asyncStaleBody,
   }),
 
   defineCase({
@@ -304,32 +132,7 @@ export const cases = [
     family: "X",
     fast: true,
     title: "error path — throwing stage ⇒ tsr-action-error + ok:false",
-    async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
-      const errs = [];
-      const listener = (ev) => errs.push(ev.detail);
-      h.win.document.addEventListener("tsr-action-error", listener);
-      let innerRan = 0;
-      h.el.onAction("bump", () => {
-        throw new Error("stage exploded"); // throws BEFORE next
-      });
-      h.el.onAction("bump", (params, next) => {
-        innerRan += 1;
-        return next();
-      });
-      try {
-        const r = await h.el.dispatchAction("bump");
-        expect(r.ok).to.equal(false);
-        expect(r.reason).to.equal("error");
-        expect(innerRan).to.equal(0); // downstream stages never see the poisoned dispatch
-        expect(h.el.state.count).to.equal(0);
-        expect(errs.length).to.equal(1);
-        expect(errs[0].action).to.equal("bump");
-        expect(errs[0].message).to.include("stage exploded");
-      } finally {
-        h.win.document.removeEventListener("tsr-action-error", listener);
-      }
-    },
+    run: errorPathBody,
   }),
   pendingCase({id: "X-12", family: "X", fast: true, title: "behaviors — add/connect/cleanup, throw isolation, remove, unsubscribe", reason: "behaviors conformance fixture owed (2f); core pinned by js/test/element.test.mjs"}),
   pendingCase({id: "X-13", family: "X", fast: false, title: "subclass hooks — allowed set super-chains; reserved members enforced", reason: "subclass hooks land with brief 2e / 3f"}),
@@ -433,60 +236,395 @@ export const cases = [
     },
   }),
 
-  pendingCase({id: "X-19", family: "X", fast: false, title: "tag-extension chain (D1) — inherit, deterministic order, base suite passes", reason: "tag-takeover chain lands with brief 2e"}),
+  defineCase({
+    id: "X-19",
+    family: "X",
+    fast: true,
+    title: "tag-extension chain (D1) — takeover registers, deterministic chain, base suite passes",
+    async run(mount, expect) {
+      // Identity (§5.9): the COMPOSED class owns the base tag. The three
+      // `tag: :inherit` layers queued themselves as registry mixins at
+      // import (they define NO element of their own) and the base module's
+      // defineOnce composed the whole chain at the tag's first definition.
+      const h = await mount({fixture: "takeover"});
+      expect(h.tag).to.equal("tsr-conf-takeover");
+      const ctor = h.win.customElements.get(h.tag);
+      expect(ctor).to.be.a("function");
+      expect(h.el.constructor).to.equal(ctor);
+
+      // Deterministic chain (§5.9: dependency depth → priority → module
+      // name). Ccc (depth 2, extends Bbb) sits outermost; Bbb (depth 1,
+      // priority 10) outside Aaa (depth 1, priority 0). The layers' marker
+      // events trace the down-chain: the outermost layer runs first, every
+      // layer hands off via real ES `super`, and the vendor base body still
+      // runs last. Layers this dispatch never overrides stay silent.
+      const trace = [];
+      const names = {["conf-ext-aaa"]: "aaa", ["conf-ext-bbb"]: "bbb", ["conf-ext-ccc"]: "ccc"};
+      const listeners = Object.entries(names).map(([event, label]) => {
+        const fn = () => trace.push(label);
+        h.win.document.addEventListener(event, fn);
+        return [event, fn];
+      });
+      try {
+        expect((await h.el.dispatchAction("bump")).ok).to.equal(true);
+        expect(trace).to.deep.equal(["ccc", "aaa"]); // Bbb never overrides bump
+        expect(h.el.state.count).to.equal(1); // the vendor body still ran
+        trace.length = 0;
+        expect((await h.el.dispatchAction("selectItem", {itemName: "taken"})).ok).to.equal(true);
+        expect(trace).to.deep.equal(["bbb"]); // Aaa never overrides select_item
+        expect(h.el.state.selectedId).to.equal("taken");
+        expect(h.el.state.count).to.equal(2); // the vendor body still ran
+      } finally {
+        for (const [event, fn] of listeners) h.win.document.removeEventListener(event, fn);
+      }
+
+      // THE GATE (§5.9): the BASE tag's conformance suite passes on the
+      // extended element — the pipeline case bodies replay VERBATIM on the
+      // taken-over fixture (mirror state keys, action semantics and data-cy
+      // surface; the layers add NO state keys, so every snapshot pin holds).
+      await stateSnapshotBody(mount, expect, "takeover"); // X-05
+      await stateChangeBody(mount, expect, "takeover"); // X-06
+      await openDispatchBody(mount, expect, "takeover"); // X-07
+      await interceptorOrderBody(mount, expect, "takeover"); // X-08
+      await vetoBody(mount, expect, "takeover"); // X-09
+      await asyncStaleBody(mount, expect, "takeover"); // X-10
+      await errorPathBody(mount, expect, "takeover"); // X-11
+      await caseNormalizationBody(mount, expect, "takeover"); // X-20
+
+      // The §5.7 chain-conflict WARNING is a compile-time Elixir property —
+      // the JS registry cannot compile — so it is proven in
+      // test/noizu/tessera/component/extension_test.exs. The takeover
+      // fixtures deliberately have NO same-depth overlap (Aaa overrides
+      // bump, Bbb select_item): every silence traced above is a per-action
+      // miss, never a conflict-induced one.
+    },
+  }),
   defineCase({
     id: "X-20",
     family: "X",
     fast: true,
     title: "case normalization end-to-end (D3) — camel/snake both accepted",
+    run: caseNormalizationBody,
+  }),
+  defineCase({
+    id: "X-21",
+    family: "X",
+    fast: true,
+    title: "JS tag extension — extendElement composes pre-define mixins; post-define warns",
     async run(mount, expect) {
-      const h = await mount({fixture: "pipeline"});
+      // Pre-define composition (§5.9): the harness queued two UNLABELLED
+      // mixins on <tsr-conf-x21> at module load and the FIRST defineOnce
+      // composed them into the single definition. A perfect tie (no depth /
+      // priority / module coordinates) resolves by the §6.4 onion fallback:
+      // FIRST-REGISTERED OUTERMOST ⇒ m1 outer, m2 inner.
+      const h = await mount({fixture: "x21"});
+      expect(h.el.layerTrace()).to.deep.equal(["base", "m2", "m1"]);
+      // exactly ONE class owns the tag — the composed one
+      const ctor = h.win.customElements.get(h.tag);
+      expect(h.el.constructor).to.equal(ctor);
+
+      // Post-define registration can no longer layer onto a defined class:
+      // extendElement returns false and warns ONCE, pointing at the
+      // sanctioned post-define paths (behaviors §6.5 / onAction §6.4).
       const warns = [];
       const orig = h.win.console.warn;
       h.win.console.warn = (m) => warns.push(String(m));
+      let queued;
       try {
-        // camel action name + camel params → same Elixir action (its body
-        // reads snake params.item_name — the state effect proves conversion)
-        const a = await h.el.dispatchAction("selectItem", {itemName: "one"});
-        expect(a.ok).to.equal(true);
-        expect(h.el.state.selectedId).to.equal("one");
-        // snake name + snake params accepted too
-        const b = await h.el.dispatchAction("select_item", {item_name: "two"});
-        expect(b.ok).to.equal(true);
-        expect(h.el.state.selectedId).to.equal("two");
-        // interceptor-facing params are camelCase regardless of input casing;
-        // mixed keys normalize per key
-        let seen;
-        h.el.onAction("select_item", (params, next) => {
-          seen = params;
-          return next();
-        });
-        const c = await h.el.dispatchAction("selectItem", {item_name: "three"});
-        expect(c.ok).to.equal(true);
-        expect(seen).to.deep.equal({itemName: "three"});
-        expect(h.el.state.selectedId).to.equal("three");
-        // onAction accepts either casing for the NAME
-        const off = h.el.onAction("seedCache", (params, next) => next());
-        expect((await h.el.dispatchAction("seed_cache")).ok).to.equal(true);
-        off();
-        // untrusted params: `_`-prefixed keys stripped (with a warn);
-        // function values REJECTED before any interceptor sees them
-        const d = await h.el.dispatchAction("bump", {_secret: 1});
-        expect(d.ok).to.equal(true);
-        expect(warns.some((w) => w.includes("_secret"))).to.equal(true);
-        const errs = [];
-        const listener = (ev) => errs.push(ev.detail);
-        h.win.document.addEventListener("tsr-action-error", listener);
-        const f = await h.el.dispatchAction("bump", {fn: () => {}});
-        h.win.document.removeEventListener("tsr-action-error", listener);
-        expect(f.ok).to.equal(false);
-        expect(f.reason).to.equal("error");
-        expect(errs.length).to.equal(1);
-        expect(errs[0].message).to.include("function");
+        queued = h.extend((Base) => class extends Base {});
       } finally {
         h.win.console.warn = orig;
       }
+      expect(queued).to.equal(false);
+      expect(warns.filter((w) => w.includes("already defined")).length).to.equal(1);
+      expect(warns.some((w) => w.includes("behaviors") && w.includes("onAction"))).to.equal(true);
+
+      // warn-once per tag: a second late registration stays silent
+      h.win.console.warn = (m) => warns.push(String(m));
+      try {
+        expect(h.extend((Base) => class extends Base {})).to.equal(false);
+      } finally {
+        h.win.console.warn = orig;
+      }
+      expect(warns.filter((w) => w.includes("already defined")).length).to.equal(1);
+
+      // neither late layer composed — the definition is immutable after the
+      // first define; layering happens pre-define or via the pipeline
+      expect(h.el.layerTrace()).to.deep.equal(["base", "m2", "m1"]);
     },
   }),
-  pendingCase({id: "X-21", family: "X", fast: false, title: "JS tag extension — extendElement composes pre-define mixins [PENDING TIER-1]", reason: "extendElement lands with brief 2e; marked [PENDING TIER-1] in EXTENSION-CONTRACT §9"}),
 ];
+
+// -- tier-agnostic pipeline bodies (X-05…X-11, X-20) ---------------------------
+//
+// Function DECLARATIONS (hoisted — the cases array above references them).
+// Each body mounts a LOGICAL fixture and uses only the mount-handle contract
+// (`el.state`, `settle()`, `waitFor`, `nextEvent`), so BOTH tiers and — for
+// X-19 — the tag-takeover mirror of the pipeline run them verbatim: the
+// `fixture` argument names which mount to pin ("pipeline" default; X-19
+// passes "takeover", whose data-cy + action surface mirrors it exactly).
+
+async function stateSnapshotBody(mount, expect, fixture = "pipeline") {
+  // state count / selected_id / meta (identical in the takeover mirror).
+  const h = await mount({fixture});
+  const s1 = h.el.state;
+  // canonical camel keys, enumerable (§6.2 does NOT mandate key ORDER —
+  // Tier-1 inserts in declaration order, Tier-2 in Hologram term order,
+  // so compare sorted; aliases never surface in Object.keys)
+  expect(Object.keys(s1).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
+  expect(s1.selectedId).to.equal("none");
+  // frozen top level — NOT deep (nested meta is shared by reference)
+  expect(Object.isFrozen(s1)).to.equal(true);
+  expect(Object.isFrozen(s1.meta)).to.equal(false);
+  // snake alias: present, readable, identical, NON-enumerable
+  expect(s1.selected_id).to.equal(s1.selectedId);
+  expect(Object.getOwnPropertyDescriptor(s1, "selected_id").enumerable).to.equal(false);
+  // JSON / spread see camelCase only (D3)
+  expect(JSON.parse(JSON.stringify(s1)).selected_id).to.equal(undefined);
+  expect(Object.keys({...s1}).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
+  // fresh object per access; nested values shared
+  const s2 = h.el.state;
+  expect(s2).to.not.equal(s1);
+  expect(s2).to.deep.equal(s1);
+  expect(s2.meta).to.equal(s1.meta);
+}
+
+async function stateChangeBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const seen = [];
+  const listener = (ev) => seen.push(ev.detail);
+  h.win.document.addEventListener("tsr-state-change", listener); // composed+bubbling
+  try {
+    const r = await h.el.dispatchAction("selectItem", {itemName: "alpha"});
+    expect(r.ok).to.equal(true);
+    // event already scheduled at commit — settle() (mount-contract helper:
+    // Tier 1 awaits el.updateComplete, Tier 2 is a tick — render is
+    // synchronous at the Tier-2 commit point) sees the NEW DOM
+    await h.settle();
+    expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-selected]").textContent).to.equal("alpha");
+    expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("1");
+    // one transition changing TWO keys ⇒ exactly ONE event (keys sorted —
+    // §6.2 does not mandate key order)
+    expect(seen.length).to.equal(1);
+    const d = seen[0];
+    expect(d.keys.slice().sort()).to.deep.equal(["count", "selectedId"]);
+    expect(d.state.selectedId).to.equal("alpha");
+    expect(d.state.count).to.equal(1);
+    // the dispatched action's snake-canonical name rides along (§6.2)
+    expect(d.action).to.equal("select_item");
+    // an action that changes nothing still fires one transition event, keys []
+    expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
+    expect(seen.length).to.equal(2);
+    expect(seen[1].keys).to.deep.equal([]);
+    expect(seen[1].action).to.equal("seed_cache");
+  } finally {
+    h.win.document.removeEventListener("tsr-state-change", listener);
+  }
+}
+
+async function openDispatchBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const warns = [];
+  const orig = h.win.console.warn;
+  h.win.console.warn = (m) => warns.push(String(m));
+  const events = [];
+  const listener = (ev) => events.push(ev.detail);
+  h.win.document.addEventListener("tsr-state-change", listener);
+  try {
+    // both casings run (D2 open surface, D3 casing)
+    expect((await h.el.dispatchAction("bump")).ok).to.equal(true);
+    expect((await h.el.dispatchAction("select_item", {item_name: "snake"})).ok).to.equal(true);
+    // select_item changes TWO keys — count is now 1 (bump) + 1 (select)
+    expect(h.el.state.count).to.equal(2);
+    expect(h.el.state.selectedId).to.equal("snake");
+    // unknown action: no throw, ok:false, warn, NO state change, NO event
+    const before = events.length;
+    const u = await h.el.dispatchAction("nope_not_here");
+    expect(u.ok).to.equal(false);
+    expect(u.reason).to.equal("unknown-action");
+    expect(h.el.state.count).to.equal(2);
+    expect(events.length).to.equal(before);
+    expect(warns.some((w) => w.includes("nope_not_here"))).to.equal(true);
+    // internal action dispatches normally — annotation never restricts (D2)
+    expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
+    // registering against the internal action warns ONCE but STILL WORKS
+    // (warn-once is per tag+action, so the takeover replay warns fresh)
+    let intercepted = 0;
+    const off1 = h.el.onAction("seed_cache", (params, next) => {
+      intercepted += 1;
+      return next();
+    });
+    h.el.onAction("seed_cache", (params, next) => next()); // second: no repeat warn
+    expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
+    expect(intercepted).to.equal(1);
+    const internalWarns = warns.filter((w) => w.includes("internal action"));
+    expect(internalWarns.length).to.equal(1);
+    off1();
+  } finally {
+    h.win.console.warn = orig;
+    h.win.document.removeEventListener("tsr-state-change", listener);
+  }
+}
+
+async function interceptorOrderBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const order = [];
+  const seen = [];
+  h.el.onAction("bump", (params, next) => {
+    order.push("outer");
+    seen.push(params);
+    return next({step: 2}); // override flows downstream in camelCase
+  });
+  h.el.onAction("bump", (params, next) => {
+    order.push("inner");
+    seen.push(params);
+    return next();
+  });
+  const r = await h.el.dispatchAction("bump", {step: 5});
+  expect(order).to.deep.equal(["outer", "inner"]);
+  expect(seen[0]).to.deep.equal({step: 5}); // camelCase at the boundary (D3)
+  expect(seen[1]).to.deep.equal({step: 2}); // downstream sees the override
+  expect(r.ok).to.equal(true);
+  expect(r.value.count).to.equal(2); // invoke ran with the OVERRIDDEN step
+  // template-bound ($click) invocations ride the SAME pipeline (§6.4)
+  order.length = 0;
+  clickCy(h, "conf-pipeline-inc");
+  await h.waitFor(() => order.length === 2);
+  expect(order).to.deep.equal(["outer", "inner"]);
+  expect(h.el.state.count).to.equal(4); // second bump: step overridden to 2 again
+}
+
+async function vetoBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const events = [];
+  const listener = (ev) => events.push(ev);
+  h.win.document.addEventListener("tsr-state-change", listener);
+  const vetoReturn = {blocked: "by-policy"};
+  const off = h.el.onAction("bump", () => vetoReturn); // never calls next ⇒ veto
+  try {
+    const r = await h.el.dispatchAction("bump");
+    expect(r.ok).to.equal(false);
+    expect(r.reason).to.equal("vetoed");
+    expect(r.value).to.equal(vetoReturn); // veto carries the stage's return (U1)
+    expect(h.el.state.count).to.equal(0);
+    expect(events.length).to.equal(0);
+    await h.settle();
+    expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("0");
+    // unsubscribe restores the direct path
+    off();
+    const r2 = await h.el.dispatchAction("bump");
+    expect(r2.ok).to.equal(true);
+    expect(h.el.state.count).to.equal(1);
+  } finally {
+    h.win.document.removeEventListener("tsr-state-change", listener);
+  }
+}
+
+async function asyncStaleBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const preCount = h.el.state.count;
+  const events = [];
+  const listener = (ev) => events.push(ev);
+  h.win.document.addEventListener("tsr-state-change", listener);
+  try {
+    let release;
+    const gate = new Promise((res) => {
+      release = res;
+    });
+    h.el.onAction("bump", async (params, next) => {
+      await gate; // holds the pipeline open
+      return next();
+    });
+    const pending = h.el.dispatchAction("bump");
+    h.el.remove(); // disconnect WHILE the pipeline is still running
+    release();
+    const r = await pending;
+    // U6 stale-drop: applies nothing, reports the veto convention, NO value
+    expect(r.ok).to.equal(false);
+    expect(r.reason).to.equal("vetoed");
+    expect(r.value).to.equal(undefined);
+    // Tier-2's post-destroy snapshot is the §6.2 frozen-EMPTY object (the
+    // mount is gone), so the count read degrades to "unchanged" there;
+    // Tier 1 still reads the pre-disconnect 0.
+    expect(h.el.state.count ?? preCount).to.equal(preCount);
+    expect(events.length).to.equal(0);
+  } finally {
+    h.win.document.removeEventListener("tsr-state-change", listener);
+  }
+}
+
+async function errorPathBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const errs = [];
+  const listener = (ev) => errs.push(ev.detail);
+  h.win.document.addEventListener("tsr-action-error", listener);
+  let innerRan = 0;
+  h.el.onAction("bump", () => {
+    throw new Error("stage exploded"); // throws BEFORE next
+  });
+  h.el.onAction("bump", (params, next) => {
+    innerRan += 1;
+    return next();
+  });
+  try {
+    const r = await h.el.dispatchAction("bump");
+    expect(r.ok).to.equal(false);
+    expect(r.reason).to.equal("error");
+    expect(innerRan).to.equal(0); // downstream stages never see the poisoned dispatch
+    expect(h.el.state.count).to.equal(0);
+    expect(errs.length).to.equal(1);
+    expect(errs[0].action).to.equal("bump");
+    expect(errs[0].message).to.include("stage exploded");
+  } finally {
+    h.win.document.removeEventListener("tsr-action-error", listener);
+  }
+}
+
+async function caseNormalizationBody(mount, expect, fixture = "pipeline") {
+  const h = await mount({fixture});
+  const warns = [];
+  const orig = h.win.console.warn;
+  h.win.console.warn = (m) => warns.push(String(m));
+  try {
+    // camel action name + camel params → same Elixir action (its body
+    // reads snake params.item_name — the state effect proves conversion)
+    const a = await h.el.dispatchAction("selectItem", {itemName: "one"});
+    expect(a.ok).to.equal(true);
+    expect(h.el.state.selectedId).to.equal("one");
+    // snake name + snake params accepted too
+    const b = await h.el.dispatchAction("select_item", {item_name: "two"});
+    expect(b.ok).to.equal(true);
+    expect(h.el.state.selectedId).to.equal("two");
+    // interceptor-facing params are camelCase regardless of input casing;
+    // mixed keys normalize per key
+    let seen;
+    h.el.onAction("select_item", (params, next) => {
+      seen = params;
+      return next();
+    });
+    const c = await h.el.dispatchAction("selectItem", {item_name: "three"});
+    expect(c.ok).to.equal(true);
+    expect(seen).to.deep.equal({itemName: "three"});
+    expect(h.el.state.selectedId).to.equal("three");
+    // onAction accepts either casing for the NAME
+    const off = h.el.onAction("seedCache", (params, next) => next());
+    expect((await h.el.dispatchAction("seed_cache")).ok).to.equal(true);
+    off();
+    // untrusted params: `_`-prefixed keys stripped (with a warn);
+    // function values REJECTED before any interceptor sees them
+    const d = await h.el.dispatchAction("bump", {_secret: 1});
+    expect(d.ok).to.equal(true);
+    expect(warns.some((w) => w.includes("_secret"))).to.equal(true);
+    const errs = [];
+    const listener = (ev) => errs.push(ev.detail);
+    h.win.document.addEventListener("tsr-action-error", listener);
+    const f = await h.el.dispatchAction("bump", {fn: () => {}});
+    h.win.document.removeEventListener("tsr-action-error", listener);
+    expect(f.ok).to.equal(false);
+    expect(f.reason).to.equal("error");
+    expect(errs.length).to.equal(1);
+    expect(errs[0].message).to.include("function");
+  } finally {
+    h.win.console.warn = orig;
+  }
+}

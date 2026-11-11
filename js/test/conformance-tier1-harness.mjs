@@ -12,10 +12,14 @@
 //
 // Mount handle contract (both tiers satisfy it — see test/conformance/README.md):
 //   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?), settle() }
+// Tier 1 adds ONE optional capability: extend(mixin, opts) — queue a tag-
+// takeover layer on the fixture's tag BEFORE its first define (§5.9); after
+// define it returns false and warns, which is exactly what X-21 asserts.
 
 import {expect} from "@open-wc/testing";
 import {TesseraElement} from "../../priv/js/src/element.mjs";
 import {defineOnce} from "../../priv/js/src/define.mjs";
+import {extendElement} from "../../priv/js/src/extend.mjs";
 import {emit} from "../../priv/js/src/events.mjs";
 import {CASES, tally} from "../../test/conformance/support/registry.mjs";
 
@@ -36,6 +40,16 @@ import {tag as PIPELINE_TAG, TsrConfPipeline} from "./fixtures/conformance/tsr-c
 // path); defineOnce keeps both registrations idempotent.
 import {tag as REGION_TAG, TsrConfRegion} from "./fixtures/conformance/tsr-conf-region.element.generated.mjs";
 import {tag as REGION_VENDOR_TAG, TsrConfRegionVendor} from "./fixtures/conformance/tsr-conf-region-vendor.element.generated.mjs";
+// X-19 (brief 2e): the D1 tag-takeover chain. The three `tag: :inherit`
+// layers register as extendElement MIXINS at import (they define NO tag); the
+// BASE module defineOnce's at its own import — and the registry composes the
+// whole queued chain into that first definition. Import ORDER IS LOAD-BEARING:
+// layers before base, else the base defines un-composed and the layers fall
+// into the post-define warn path (§5.9/§5.10).
+import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_aaa.element.generated.mjs";
+import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_bbb.element.generated.mjs";
+import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_ccc.element.generated.mjs";
+import {tag as TAKEOVER_TAG} from "./fixtures/conformance/tsr-conf-takeover.element.generated.mjs";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -115,6 +129,30 @@ class ConfEvents extends TesseraElement(HTMLElement, eventsContract) {
 // <tsr-conf-props> — contract-driven attr coercion + tsr-props (no template).
 class ConfProps extends TesseraElement(HTMLElement, propsContract) {}
 
+// <tsr-conf-x21> — X-21 (brief 2e, §5.9/§5.10): a hand-written base with TWO
+// pre-define extendElement mixins, proving the JS registry composes at the
+// first defineOnce. Both mixins carry NO opts (empty module labels), so the
+// §6.4 perfect-tie fallback is the rule under test: FIRST-REGISTERED OUTERMOST
+// ⇒ m1 outer, m2 inner ⇒ layerTrace() === ["base", "m2", "m1"].
+const X21_TAG = "tsr-conf-x21";
+const x21Contract = {version: 1, tag: X21_TAG, attrs: [], props: [], events: [], slots: ["default"]};
+
+class ConfX21 extends TesseraElement(HTMLElement, x21Contract) {
+  layerTrace() {
+    return ["base"];
+  }
+}
+
+const x21Layer = (label) => (Base) =>
+  class extends Base {
+    layerTrace() {
+      return [...super.layerTrace(), label];
+    }
+  };
+
+extendElement(X21_TAG, x21Layer("m1"));
+extendElement(X21_TAG, x21Layer("m2"));
+
 const FIXTURES = {
   counter: {tag: COUNTER_TAG, ctor: ConfCounter},
   props: {tag: PROPS_TAG, ctor: ConfProps},
@@ -129,6 +167,10 @@ const FIXTURES = {
   pipeline: {tag: PIPELINE_TAG, ctor: TsrConfPipeline},
   regionBase: {tag: REGION_TAG, ctor: TsrConfRegion},
   regionVendor: {tag: REGION_VENDOR_TAG, ctor: TsrConfRegionVendor},
+  // The takeover base auto-defineOnce'd at import WITH its three queued layers
+  // composed in (ctor: null — nothing left to register; §5.9).
+  takeover: {tag: TAKEOVER_TAG, ctor: null},
+  x21: {tag: X21_TAG, ctor: ConfX21},
 };
 
 let defined = false;
@@ -137,7 +179,7 @@ const mounted = [];
 /** Register the fixture elements once (idempotent via defineOnce). */
 export function defineFixtures() {
   if (defined) return;
-  for (const {tag, ctor} of Object.values(FIXTURES)) defineOnce(tag, ctor);
+  for (const {tag, ctor} of Object.values(FIXTURES)) if (ctor) defineOnce(tag, ctor);
   defined = true;
 }
 
@@ -203,6 +245,11 @@ export async function mount(spec) {
       if (el.updateComplete) await el.updateComplete;
       await Promise.resolve();
     },
+    // Tier-1 tag-takeover capability (§5.9/§5.10, X-21): queue a mixin for
+    // this fixture's tag. TRUE + composed when the tag has not been defined
+    // yet; FALSE + one loud warn once it has (the class can no longer be
+    // layered — behaviors §6.5 / onAction §6.4 are the sanctioned paths).
+    extend: (mixin, opts) => extendElement(fixture.tag, mixin, opts),
   };
 }
 
@@ -222,7 +269,7 @@ const SUPPORTED = new Set([
   "SD-01", "SD-02", "SD-03",
   "E-01", "E-02", "E-03",
   "X-01", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
-  "X-11", "X-14", "X-15", "X-17", "X-18", "X-20",
+  "X-11", "X-14", "X-15", "X-17", "X-18", "X-19", "X-20", "X-21",
 ]);
 
 /**
