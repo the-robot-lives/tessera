@@ -17,9 +17,11 @@
 // brief 2e — X-19 gates "the base tag's conformance suite MUST still pass"
 // by REPLAYING the pipeline case bodies verbatim on the taken-over fixture,
 // X-21 is Tier-1-only by nature (the JS registry, like X-15; §9 lists it
-// [PENDING TIER-1] for Tier 2). Everything else lands with the extension
-// briefs (2a–2f Tier 1, 3f Tier 2) and is pending — never green for an
-// unimplemented feature.
+// [PENDING TIER-1] for Tier 2). X-02 (contract-surface agreement: attrs, props, events, slots)
+// and X-13 (§6.6 subclass hooks) close the registry after brief 3f -
+// tier-agnostic bodies over the shared logical fixtures; their per-tier
+// SUPPORTED sets are the adapters' honest accounting - never green for an
+// unimplemented feature or an unwired fixture.
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy} from "../support/dom.mjs";
@@ -43,7 +45,13 @@ export const cases = [
     },
   }),
 
-  pendingCase({id: "X-02", family: "X", fast: false, title: "runtime attrs/props/events/slots match the generated contract exactly", reason: "full contract-surface fixture owed (2a/2b)"}),
+  defineCase({
+    id: "X-02",
+    family: "X",
+    fast: false,
+    title: "runtime attrs/props/events/slots match the generated contract exactly",
+    run: contractSurfaceBody,
+  }),
   defineCase({
     id: "X-03",
     family: "X",
@@ -191,7 +199,13 @@ export const cases = [
       expect(trace.filter((t) => t === "run").length).to.equal(runs);
     },
   }),
-  pendingCase({id: "X-13", family: "X", fast: false, title: "subclass hooks — allowed set super-chains; reserved members enforced", reason: "subclass hooks land with brief 2e / 3f"}),
+  defineCase({
+    id: "X-13",
+    family: "X",
+    fast: true,
+    title: "subclass hooks — allowed set super-chains; reserved members enforced",
+    run: subclassHooksBody,
+  }),
   defineCase({
     id: "X-14",
     family: "X",
@@ -727,4 +741,163 @@ async function caseNormalizationBody(mount, expect, fixture = "pipeline") {
   } finally {
     h.win.console.warn = orig;
   }
+}
+
+// -- X-02: contract-surface agreement (attrs / props / events / slots) --------
+//
+// The generated manifest maps are the CONTRACT for the shared logical
+// fixtures (§9 rule 1 — one spec, two engines); the physical tags are adapter
+// knowledge, so the body keys by logical fixture name and reads the contract
+// under the spec's Tier-1 tag. Runtime observation is through the
+// mount-handle contract only:
+//   * attrs — a DECLARED attr is accepted and cast (integer step drives the
+//     bump); an UNdeclared attribute is inert on both engines (never a prop);
+//   * props — tsr-props camelCase JSON overrides the attr default;
+//   * events — sweeping every declared action while the window's
+//     HTMLElement.prototype.dispatchEvent is recorded (both engines dispatch
+//     contract events through it) proves the fired set is exactly
+//     declared ∪ runtime plumbing (§6.2 tsr-state-change / §6.4
+//     tsr-action-error), and each declared event fires with EXACTLY its
+//     declared detail keys;
+//   * slots — the shadow root renders exactly the declared named slots plus
+//     the implicit default.
+async function contractSurfaceBody(mount, expect) {
+  const stateContract = manifests["tsr-conf-state"];
+  const pipelineContract = manifests["tsr-conf-pipeline"];
+  const slotsContract = manifests["tsr-conf-slots"];
+
+  // attrs — declared default, declared + cast, undeclared inert
+  const def = await mount({fixture: "state"});
+  expect((await def.el.dispatchAction("bump")).ok).to.equal(true);
+  expect(def.el.state.count).to.equal(1); // declared attr default (step = 1)
+
+  const typed = await mount({fixture: "state", attrs: {step: "3"}});
+  expect((await typed.el.dispatchAction("bump")).ok).to.equal(true);
+  expect(typed.el.state.count).to.equal(3); // declared attr, integer cast
+
+  const inert = await mount({fixture: "state", attrs: {"not-in-contract": "5"}});
+  expect((await inert.el.dispatchAction("bump")).ok).to.equal(true);
+  expect(inert.el.state.count).to.equal(1); // undeclared attr is NOT a prop
+
+  // props — tsr-props camelCase JSON overrides the attribute default
+  const props = await mount({fixture: "state", attrs: {"tsr-props": JSON.stringify({step: 2})}});
+  expect((await props.el.dispatchAction("bump")).ok).to.equal(true);
+  expect(props.el.state.count).to.equal(2);
+
+  // events — declared-set sweep with dispatchEvent recorded
+  const plumbing = ["tsr-state-change", "tsr-action-error"]; // §6.2/§6.4 runtime events
+  const sweeps = [
+    ["state", stateContract, ["bump"]],
+    ["pipeline", pipelineContract, ["bump", "selectItem", "seedCache"]],
+  ];
+  for (const [fixture, contract, actions] of sweeps) {
+    const h = await mount({fixture});
+    const fired = [];
+    const proto = h.win.HTMLElement.prototype;
+    const orig = proto.dispatchEvent;
+    const inScope = (node) => node === h.el || node.getRootNode() === h.shadowRoot;
+    proto.dispatchEvent = function (ev) {
+      if (inScope(this)) fired.push(ev);
+      return orig.call(this, ev);
+    };
+    try {
+      for (const name of actions) {
+        expect((await h.el.dispatchAction(name)).ok, `${fixture}:${name} dispatches`).to.equal(true);
+        await h.settle();
+      }
+    } finally {
+      proto.dispatchEvent = orig;
+    }
+    const types = fired.filter((ev) => ev instanceof h.win.CustomEvent).map((ev) => ev.type);
+    const declared = contract.events.map((e) => e.name);
+    for (const t of types) {
+      expect(
+        declared.includes(t) || plumbing.includes(t),
+        `undeclared event "${t}" fired on ${fixture}`,
+      ).to.equal(true);
+    }
+    for (const decl of contract.events) {
+      expect(types, `${fixture} fires declared event ${decl.name}`).to.include(decl.name);
+      const hit = fired.find((ev) => ev.type === decl.name);
+      expect(Object.keys(hit.detail ?? {}).slice().sort()).to.deep.equal(
+        Object.keys(decl.detail).slice().sort(),
+      );
+    }
+  }
+
+  // slots — exactly the declared named slots + the implicit default
+  const s = await mount({fixture: "slots"});
+  const names = [...s.shadowRoot.querySelectorAll("slot")].map((sl) => sl.getAttribute("name") ?? "");
+  expect(names.filter((n) => n !== "").sort()).to.deep.equal(slotsContract.slots.slice().sort());
+  expect(names.filter((n) => n === "")).to.have.lengthOf(1);
+}
+
+// -- X-13: §6.6 subclass hooks -------------------------------------------------
+//
+// The ALLOWED hook set (connected/disconnected/attributeChangedCallback MUST
+// super; firstUpdated/updated SHOULD super — present on both engines, Tier 2
+// via the brief-3c lifecycle projection) is exercised through the shared
+// "subclass" fixture: EACH adapter supplies the subclass wiring (the LC/FM
+// recording-subclass precedent — a defined tag cannot be re-defined, and the
+// tier-2 registration path runs through the runtime's defineElement), and the
+// SHARED body asserts the CONTRACT on the subclass instance using only the
+// mount-handle contract. The adapter subclass overrides every documented hook
+// with a REAL super call, tracing through the NON-reserved `x13Trace` array
+// (§6.8: `_`-prefixed members are tessera-internal). Super-chaining is proven
+// by EFFECT — the component mounts, re-observes tsr-props, and survives
+// disconnect/reconnect. Reserved members are enforced where the platform makes
+// that observable: the state accessor is read-only (getter, no setter), the
+// tag cannot be re-defined (first definition wins), and the §6.1 static
+// surface inherits unmutated. The render() row of §6.6 is deliberately NOT
+// exercised here — it is Tier-1-overridable and Tier-2-reserved by decision
+// U5, so no shared body can assert it; the divergence is pinned by the
+// contract itself, not by this case.
+async function subclassHooksBody(mount, expect) {
+  const base = await mount({fixture: "state"});
+  const baseCtor = base.win.customElements.get(base.tag);
+  const h = await mount({fixture: "subclass"});
+  const subCtor = h.win.customElements.get(h.tag);
+
+  // allowed set: the hooks ran AND their super-chains are live (the component
+  // mounted — state reads report the real snapshot, §6.2)
+  await h.settle();
+  const trace = h.el.x13Trace ?? [];
+  expect(trace, "connected").to.include("connected");
+  expect(Object.keys(h.el.state).length).to.be.greaterThan(0);
+  expect(trace, "firstUpdated").to.include("firstUpdated");
+  expect(trace, "updated").to.include("updated");
+
+  // attributeChangedCallback super-chain: tsr-props applies POST-connect on
+  // both engines (the Tier-2 guard only forwards on a live mount)
+  h.el.setAttribute("tsr-props", JSON.stringify({step: 5}));
+  await h.settle();
+  expect(trace, "tsr-props observed").to.include("tsr-props");
+  // What a shared body may assert about the attribute's EFFECT is that the
+  // super-chain left the engine live, not prop propagation into action state:
+  // Tier 1 syncs attrs -> properties reactively (the bump would observe step
+  // 5), while Tier 2 seeds component state from props at init and a live
+  // tsr-props update reaches the render view only (lit-parity SS2.2 - attrs
+  // flow one-way in). The propagation delta is a SS2.2 fact, not an X-13
+  // failure; X-13's contract surface is the hook chain + reserved set.
+  expect((await h.el.dispatchAction("bump")).ok, "bump after live tsr-props").to.equal(true);
+
+  // reserved members enforced
+  expect(() => {
+    h.el.state = {}; // getter without a setter — strict-mode TypeError
+  }).to.throw();
+  expect(() => h.win.customElements.define(h.tag, baseCtor)).to.throw(); // first definition wins
+  expect(subCtor.tesseraActions.slice().sort()).to.deep.equal(baseCtor.tesseraActions.slice().sort());
+  expect(subCtor.observedAttributes.slice().sort()).to.deep.equal(baseCtor.observedAttributes.slice().sort());
+  expect(subCtor.tesseraExtensionApi).to.equal(baseCtor.tesseraExtensionApi);
+
+  // disconnect → reconnect: super-chained teardown AND re-establishment.
+  // Count continuity is tier-divergent by contract (§6.2 — Tier 2 remounts
+  // fresh; Tier 1 keeps the element), so only the result convention holds.
+  h.el.remove();
+  await h.settle();
+  expect(trace, "disconnected").to.include("disconnected");
+  h.win.document.body.appendChild(h.el);
+  await h.settle();
+  expect(h.el.isConnected).to.equal(true);
+  expect((await h.el.dispatchAction("bump")).ok).to.equal(true);
 }

@@ -37,14 +37,19 @@ import {visitTier2Host, mount, cleanup} from "../support/tessera/conformance";
 // + the forms family on the FormProbe fixture (FM-01…FM-03 — brief 3e:
 // manifest-declared formAssociated, ElementInternals attached by the gated
 // constructor, setFormValue / formResetCallback / formDisabledCallback driven
-// through the glue recording subclass). Cases outside this set remain
-// adapter-pending on Tier 2 — never green.
+// through the glue recording subclass) + the contract-surface sweep (X-02 —
+// attrs/props/events/slots against the generated contract over the shared
+// state/pipeline/slots fixtures) + the subclass-hooks contract (X-13 — §6.6,
+// the StateProbe module mounted through the glue's StateSubProbeElement
+// recording subclass). Cases outside this set remain adapter-pending on
+// Tier 2 — never green.
 const SUPPORTED = new Set<string>([
   "C-01", "C-13", "C-14", "T-01", "E-01", "E-02", "E-03",
   "LC-01", "LC-02", "LC-03", "LC-04",
   "SD-01", "SD-02", "SD-03", "SD-04",
   "FM-01", "FM-02", "FM-03",
   "X-03", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10", "X-11", "X-16", "X-19", "X-20",
+  "X-02", "X-13",
 ]);
 
 type ConfCase = {

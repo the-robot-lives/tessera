@@ -137,6 +137,42 @@ export function loadHoloRuntime() {
       }
     }
     rt.defineElement("tsr-holo-form-probe", "HoloKit.Components.FormProbe", FormProbeElement);
+    // X-13 (EXTENSION-CONTRACT §6.6): the subclass-hooks fixture —
+    // `tsr-holo-state-sub` mounts the SAME StateProbe module through a
+    // subclass overriding every documented hook with a real super call,
+    // traced through the non-reserved `x13Trace` array (§6.8: `_`-prefixed
+    // members are tessera-internal). shouldUpdate has no Tier-2 projection,
+    // so the MAY-override row stays Tier-1 wiring only. ES6-safe like the
+    // recording subclasses above (no class fields, no ??=). The shared
+    // subclassHooksBody asserts the contract behaviors; this class is
+    // adapter wiring (the LC/FormProbe pattern).
+    class StateSubProbeElement extends rt.TesseraHoloElement {
+      recordX13(entry) {
+        if (!this.x13Trace) this.x13Trace = [];
+        this.x13Trace.push(entry);
+      }
+      connectedCallback() {
+        super.connectedCallback();
+        this.recordX13("connected");
+      }
+      disconnectedCallback() {
+        super.disconnectedCallback();
+        this.recordX13("disconnected");
+      }
+      attributeChangedCallback(name, oldValue, newValue) {
+        super.attributeChangedCallback(name, oldValue, newValue);
+        if (name === "tsr-props") this.recordX13("tsr-props");
+      }
+      firstUpdated(changed) {
+        super.firstUpdated(changed);
+        this.recordX13("firstUpdated");
+      }
+      updated(changed) {
+        super.updated(changed);
+        this.recordX13("updated");
+      }
+    }
+    rt.defineElement("tsr-holo-state-sub", "HoloKit.Components.StateProbe", StateSubProbeElement);
     // takeover first: markup elements upgrade against the layered module
     rt.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
     // the untouched vendor element stays mountable under an explicit alias
