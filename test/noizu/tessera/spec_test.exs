@@ -207,7 +207,10 @@ defmodule Noizu.Tessera.SpecTest do
                "events" => [
                  %{"name" => "persona-select", "detail" => %{"personaId" => "string"}}
                ],
-               "slots" => ["header"]
+               "slots" => ["header"],
+               "state" => [],
+               "actions" => [],
+               "template" => nil
              }
 
       # Must be JSON-encodable (the manifest task writes it verbatim).

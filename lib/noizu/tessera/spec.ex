@@ -28,7 +28,10 @@ defmodule Noizu.Tessera.Spec do
             attrs: [],
             props: [],
             events: [],
-            slots: []
+            slots: [],
+            state: [],
+            actions: [],
+            template: nil
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -54,6 +57,26 @@ defmodule Noizu.Tessera.Spec do
 
   @type slot_entry :: %{required(:name) => String.t(), optional(:line) => non_neg_integer()}
 
+  @type state_entry :: %{
+          required(:name) => Naming.snake(),
+          required(:type) => atom(),
+          optional(:default) => any(),
+          optional(:line) => non_neg_integer()
+        }
+
+  @type action_entry :: %{
+          required(:name) => atom(),
+          required(:js) => String.t(),
+          optional(:line) => non_neg_integer()
+        }
+
+  @type template_entry :: %{
+          required(:raw) => String.t(),
+          required(:lexer) => :hologram | :minimal,
+          required(:render_js) => String.t(),
+          optional(:line) => non_neg_integer()
+        }
+
   @type t :: %__MODULE__{
           version: pos_integer(),
           tag: Naming.kebab() | nil,
@@ -64,7 +87,10 @@ defmodule Noizu.Tessera.Spec do
           attrs: [attr_entry()],
           props: [prop_entry()],
           events: [event_entry()],
-          slots: [slot_entry()]
+          slots: [slot_entry()],
+          state: [state_entry()],
+          actions: [action_entry()],
+          template: template_entry() | nil
         }
 
   @doc """
@@ -111,7 +137,7 @@ defmodule Noizu.Tessera.Spec do
     :ok
   end
 
-  def validate!(kind, name, opts, file, line) when kind in [:attr, :prop] do
+  def validate!(kind, name, opts, file, line) when kind in [:attr, :prop, :state] do
     validate_snake_name!(kind, name, file, line)
     validate_round_trip!(kind, name, file, line)
 
@@ -297,7 +323,18 @@ defmodule Noizu.Tessera.Spec do
               |> Map.new(fn {k, t} -> {Naming.snake_to_camel(k), Atom.to_string(t)} end)
           }
         end),
-      "slots" => Enum.map(spec.slots, & &1.name)
+      "slots" => Enum.map(spec.slots, & &1.name),
+      "state" =>
+        Enum.map(spec.state, fn s ->
+          %{"name" => Atom.to_string(s.name), "type" => Atom.to_string(s.type), "default" => s[:default]}
+        end),
+      "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name)),
+      "template" =>
+        if spec.template do
+          %{"lexer" => Atom.to_string(spec.template.lexer), "raw" => spec.template.raw}
+        else
+          nil
+        end
     }
   end
 end
