@@ -6,6 +6,7 @@
   "scripts": {
     "test": "wtr --config web-test-runner.config.mjs",
     "test:watch": "wtr --config web-test-runner.config.mjs --watch",
+    "test:runtime": "npm run build:bundles && wtr --config web-test-runner.runtime.config.mjs",
     "build:bundles": "node scripts/build-bundles.mjs"
   },
   "devDependencies": {
