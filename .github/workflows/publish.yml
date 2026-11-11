@@ -1,0 +1,52 @@
+# Publish to hex.pm — tag-driven.
+#
+# Push a `v*` tag (from main, at the release commit) and this workflow:
+#   1. guards that the tag equals the `@version` in mix.exs,
+#   2. runs the library test suite,
+#   3. runs `mix hex.publish --yes` with HEX_API_KEY from the repo secret.
+#
+# `mix hex.publish` already generates and uploads the documentation — never
+# run a separate `mix hex.publish docs` afterwards. If the HEX_API_KEY repo
+# secret is not set, the publish step fails loudly; local publishing from a
+# machine with authenticated `mix hex.user` remains the fallback.
+
+name: Publish to hex.pm
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - name: Guard — tag must equal mix.exs version
+        run: |
+          VERSION="$(grep -oP '(?<=@version ")[^"]+' mix.exs | head -1)"
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "tag v$TAG vs mix.exs @version $VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::tag v$TAG does not match mix.exs @version $VERSION"
+            exit 1
+          fi
+
+      - name: Test
+        run: |
+          mix deps.get
+          mix compile --warnings-as-errors
+          mix test
+
+      - name: Publish to hex.pm (includes docs)
+        run: mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
