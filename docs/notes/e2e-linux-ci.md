@@ -1,10 +1,16 @@
 # e2e job red on Linux CI — findings (`TODO(tessera-e2e-linux)`)
 
-Status: **open**. The `e2e` CI job boots both demos but the Cypress suite fails
-on GitHub's ubuntu runners while the identical specs pass locally (macOS,
-headless Electron) — and the toolchain was ruled out (see below). The job is
-`continue-on-error: true` until this is fixed; the ExUnit and js jobs are hard
-gates and green.
+Status: **open**. The e2e legs are split across two CI jobs (see
+`.github/workflows/ci.yml`): **`e2e-smoke` is BLOCKING** and runs the legs
+that are green on Linux (plain_html 2/2, hologram_nav 1/1, hologram_main leg
+(b)), while **`e2e-full` is non-blocking** (`continue-on-error: true`) and
+runs the three failing hologram_main legs (a)/(c)/(d). The suite fails on
+GitHub's ubuntu runners while the identical specs pass locally (macOS,
+headless Electron) — and the toolchain was ruled out (see below). A red
+`e2e-full` must still be triaged, it just does not block; the ExUnit, js and
+e2e-smoke jobs are hard gates and green. Upstream-drift watch: the weekly
+`canary` workflow compiles + tests against `noizu-forks/hologram@dev`
+(`TESSERA_HOLOGRAM=git`).
 
 ## Symptoms
 

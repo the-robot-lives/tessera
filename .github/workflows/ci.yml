@@ -1,14 +1,24 @@
 # tessera CI — Phase 1 MVP
 #
 # Jobs:
-#   exunit — format check, warnings-as-errors compile, ExUnit for the library
-#            and the persona_kit example package
-#   js     — @noizu/tessera-core WTR suite (incl. the assert-no-lit guard)
-#            + persona_kit component WTR suite
-#   e2e    — boots the Hologram demo (:5586) and the plain-HTML demo (:5587),
-#            then runs the Cypress suite; continue-on-error while the boot
-#            recipe stabilises on CI runners (TODO: make blocking once green
-#            for a full cycle)
+#   exunit     — format check, warnings-as-errors compile, ExUnit for the
+#                library and the persona_kit example package
+#   js         — @noizu/tessera-core WTR suite (incl. the assert-no-lit guard)
+#                + persona_kit component WTR suite
+#   e2e-smoke  — BLOCKING: boots both demos and runs the Cypress legs that are
+#                green on Linux (plain_html, hologram_nav, hologram_main leg
+#                (b)). This is the hard gate behind the "integration-tested
+#                end to end" claim for shadow events on the primary CI
+#                platform.
+#   e2e-full   — NON-BLOCKING (continue-on-error): the remaining hologram_main
+#                legs (a)/(c)/(d), which fail on ubuntu runners while passing
+#                on macOS. TODO(tessera-e2e-linux): make blocking once the
+#                Linux failure mode is fixed — docs/notes/e2e-linux-ci.md.
+#
+# No job in this workflow depends on another (`needs:` is unused) — house
+# rule: GitHub skips propagate through `needs`, so if a deploy-type job is
+# ever added it MUST gate on `!cancelled() && needs.<job>.result == 'success'`
+# rather than a bare `needs:`, or a skipped dependency would silently skip it.
 #
 # Elixir 1.18.x / OTP 27: hologram 0.10.1 supports ~> 1.15; 1.18 avoids the
 # Elixir 1.20+ "redundant init/3 clause" type warning that would fail the
@@ -106,14 +116,10 @@ jobs:
         working-directory: examples/persona_kit
         run: npm ci && npm test
 
-  e2e:
+  # Shared demo-boot steps for the two e2e jobs (duplicated deliberately —
+  # GH Actions has no YAML anchors, and both jobs must be hermetic).
+  e2e-smoke:
     runs-on: ubuntu-latest
-    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
-    # mode below is fixed — see docs/notes/e2e-linux-ci.md (component-own
-    # shadow updates are lost under the Hologram host on ubuntu runners while
-    # all specs pass on macOS; toolchain + Linux browser both ruled out).
-    # A red e2e must still be triaged, it just does not block.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -170,16 +176,82 @@ jobs:
           done
           echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
 
-      - name: Cypress suite
+      - name: Cypress smoke suite (blocking legs)
         working-directory: demo/e2e
         run: |
           npm ci
-          npx cypress run --spec "src/e2e/*.cy.ts"
+          npx cypress run --spec "src/e2e/plain_html.cy.ts,src/e2e/hologram_nav.cy.ts,src/e2e/hologram_main_smoke.cy.ts"
 
       - name: Upload cypress screenshots on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: cypress-screenshots
+          name: cypress-screenshots-smoke
+          path: demo/e2e/cypress/screenshots
+          if-no-files-found: ignore
+
+  e2e-full:
+    runs-on: ubuntu-latest
+    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
+    # mode below is fixed — see docs/notes/e2e-linux-ci.md (component-own
+    # shadow updates are lost under the Hologram host on ubuntu runners while
+    # all specs pass on macOS; toolchain + Linux browser both ruled out).
+    # A red run must still be triaged, it just does not block.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install inotify-tools (file_system / LiveReload)
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Boot Hologram demo on :5586
+        working-directory: demo/hologram_app
+        run: |
+          export HOLOGRAM_START=1
+          mix deps.get
+          mix tessera.install
+          nohup mix holo > /tmp/holo.log 2>&1 &
+          for i in $(seq 1 120); do
+            curl -sf -o /dev/null http://localhost:5586/ && exit 0
+            sleep 2
+          done
+          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
+
+      - name: Install persona_kit npm deps (lit resolves from importer path)
+        working-directory: examples/persona_kit
+        run: npm ci
+
+      - name: Boot plain-HTML demo on :5587
+        working-directory: demo/plain_html
+        run: |
+          npm install
+          npm run build
+          nohup npm run serve > /tmp/plain.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5587/ && exit 0
+            sleep 1
+          done
+          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
+
+      - name: "Cypress full suite (non-blocking legs: hologram_main a/c/d)"
+        working-directory: demo/e2e
+        run: |
+          npm ci
+          npx cypress run --spec "src/e2e/hologram_main.cy.ts"
+
+      - name: Upload cypress screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-full
           path: demo/e2e/cypress/screenshots
           if-no-files-found: ignore
