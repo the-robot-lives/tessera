@@ -25,24 +25,37 @@ defmodule Tessera.TestFixtures.Conformance.Pipeline do
 
   cy("conf-pipeline-root")
 
-  template ~TSR"""
+  template(~TSR"""
   <div data-cy="conf-pipeline-root">
     <button type="button" data-cy="conf-pipeline-inc" $click={:bump}>+</button>
     <span data-cy="conf-pipeline-count">{@count}</span>
     <span data-cy="conf-pipeline-selected">{@selected_id}</span>
   </div>
-  """
+  """)
 
-  action :bump, fn state, params ->
-    %{state | count: state.count + (if params.step do params.step else 1 end)}
-  end
+  action(:bump, fn state, params ->
+    %{
+      state
+      | count:
+          state.count +
+            if params.step do
+              params.step
+            else
+              1
+            end
+    }
+  end)
 
-  action :select_item, fn state, params ->
+  action(:select_item, fn state, params ->
     %{state | selected_id: params.item_name, count: state.count + 1}
-  end
+  end)
 
-  action :seed_cache, fn state, _params ->
-    emit("conf-pipeline-ping", %{count: state.count})
-    state
-  end, internal: true
+  action(
+    :seed_cache,
+    fn state, _params ->
+      emit("conf-pipeline-ping", %{count: state.count})
+      state
+    end,
+    internal: true
+  )
 end

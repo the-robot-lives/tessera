@@ -213,6 +213,12 @@ jobs:
             export HOLOGRAM_START=1
             mix deps.get || return 1
             mix tessera.install || return 1
+            # `mix tessera.bundles` shells out to Hologram's OWN esbuild
+            # (deps/hologram/assets/node_modules/.bin/esbuild), which `mix holo`
+            # would install later but the bundles step needs first — without
+            # this CI died with :enoent on open_port. The hex tarball ships no
+            # package-lock.json, so this must be `npm install`, not `npm ci`.
+            npm install --prefix deps/hologram/assets --no-audit --no-fund || return 1
             # Emit the Tier-2 serving bundles into priv/static/tessera BEFORE
             # boot — the /holo_runtime glue imports tessera-runtime.esm.js +
             # counter/editable_list/fancy_list/tidy_list from /tessera/. Without

@@ -230,7 +230,8 @@ defmodule Noizu.Tessera.Component.Expr do
 
   # variables
   defp translate_expr({name, _meta, var_ctx}, _ctx)
-       when name in [:state, :params] and is_atom(var_ctx), do: Atom.to_string(name)
+       when name in [:state, :params] and is_atom(var_ctx),
+       do: Atom.to_string(name)
 
   defp translate_expr({name, _meta, var_ctx}, %__MODULE__{} = ctx) when is_atom(var_ctx) do
     if MapSet.member?(ctx.vars, name) do

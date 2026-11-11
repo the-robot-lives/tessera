@@ -38,7 +38,9 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   def element_module(%Spec{derived_from: nil} = spec), do: fresh_element_module(spec)
 
   def element_module(%Spec{} = spec) do
-    if Extension.takeover?(spec), do: takeover_element_module(spec), else: derived_element_module(spec)
+    if Extension.takeover?(spec),
+      do: takeover_element_module(spec),
+      else: derived_element_module(spec)
   end
 
   defp fresh_element_module(%Spec{} = spec) do
@@ -80,7 +82,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{properties_object(spec)};
 
       static styles = #{styles_array(spec, shared)};
-#{form_associated_static(spec)}
+    #{form_associated_static(spec)}
       constructor() {
         super();
     #{constructor_defaults(spec)}
@@ -179,7 +181,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{derived_properties_object(spec)};
 
       static styles = #{derived_styles_array(spec, shared, base_class)};
-#{form_associated_static(spec)}
+    #{form_associated_static(spec)}
       constructor() {
         super();
     #{derived_constructor_defaults(spec)}
@@ -261,7 +263,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{derived_properties_object(spec)};
 
       static styles = #{derived_styles_array(spec, shared, "Base")};
-#{form_associated_static(spec)}
+    #{form_associated_static(spec)}
       constructor() {
         super();
     #{derived_constructor_defaults(spec)}
@@ -459,7 +461,9 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   """
   @spec wrapper_module(Spec.t()) :: String.t()
   def wrapper_module(%Spec{} = spec) do
-    if Extension.takeover?(spec), do: takeover_wrapper_module(spec), else: fresh_wrapper_module(spec)
+    if Extension.takeover?(spec),
+      do: takeover_wrapper_module(spec),
+      else: fresh_wrapper_module(spec)
   end
 
   defp fresh_wrapper_module(%Spec{} = spec) do

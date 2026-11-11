@@ -358,7 +358,9 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
     defp derived_spec, do: Tessera.TestFixtures.DerivedWidgetSpec.spec()
 
     test "matches the derived golden fixture byte-for-byte" do
-      golden = File.read!(Path.join(__DIR__, "../../../fixtures/derived_widget.element.golden.mjs"))
+      golden =
+        File.read!(Path.join(__DIR__, "../../../fixtures/derived_widget.element.golden.mjs"))
+
       assert LitCodegen.element_module(derived_spec()) == golden
     end
 
@@ -368,6 +370,7 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       # the §6 extension descriptor carries the MERGED state + actions (brief 2a)
       assert js =~
                ~s|class DerivedWidget extends TesseraElement(WidgetBase, contract, {state: ["count","extra"], actions: ["increment","bump"], internalActions: [], extensionApi: "1.0.0"})|
+
       assert js =~ ~S|import { WidgetBase } from "./widget-base.element.generated.mjs"|
       assert js =~ ~S|import contract from "./derived_widget.contract.generated.mjs"|
       # base artifacts are referenced, never re-emitted
@@ -410,8 +413,10 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
 
     test "a fresh (non-derived) spec still lowers through the fresh path" do
       js = LitCodegen.element_module(spec())
+
       assert js =~
                ~s|class SpikeWidget extends TesseraElement(LitElement, contract, {state: ["count"], actions: ["increment"], internalActions: [], extensionApi: "1.0.0"})|
+
       assert js =~ "const baseStyles = css`"
       # template-bound invocations ride the public action pipeline (§6.4)
       assert js =~ "return this.__tesseraDispatch(name, params, ev);"

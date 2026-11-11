@@ -324,7 +324,12 @@ defmodule Noizu.Tessera.ComponentTest do
 
       assert spec.extension_api == "2.5.1"
       assert mod.__tessera_manifest__()["extension_api"] == "2.5.1"
-      assert hd(Codegen.cem([spec])["modules"])["tessera"] == %{"extensionApi" => "2.5.1", "actions" => []}
+
+      assert hd(Codegen.cem([spec])["modules"])["tessera"] == %{
+               "extensionApi" => "2.5.1",
+               "actions" => []
+             }
+
       assert LitCodegen.element_module(spec) =~ ~s|extensionApi: "2.5.1"|
     end
 
@@ -386,7 +391,13 @@ defmodule Noizu.Tessera.ComponentTest do
 
     test "declaring true flows into spec, manifest, CEM and the element static" do
       id = :erlang.unique_integer([:positive])
-      mod = compile_source(~s(tag: "form-on-#{id}", js: "form_on_#{id}.mjs", form_associated: true), "")
+
+      mod =
+        compile_source(
+          ~s(tag: "form-on-#{id}", js: "form_on_#{id}.mjs", form_associated: true),
+          ""
+        )
+
       spec = mod.__tessera_spec__()
 
       assert spec.form_associated == true
@@ -399,12 +410,16 @@ defmodule Noizu.Tessera.ComponentTest do
       id = :erlang.unique_integer([:positive])
 
       assert_raise CompileError, ~r/:form_associated option must be a boolean/, fn ->
-        compile_source(~s(tag: "form-bad-#{id}", js: "form_bad_#{id}.mjs", form_associated: "yes"), "")
+        compile_source(
+          ~s(tag: "form-bad-#{id}", js: "form_bad_#{id}.mjs", form_associated: "yes"),
+          ""
+        )
       end
     end
 
     test "a derived spec inherits the base's participation unless it declares its own" do
       base_id = :erlang.unique_integer([:positive])
+
       base =
         compile_source(
           ~s(tag: "form-base-#{base_id}", js: "form_base_#{base_id}.mjs", form_associated: true),
@@ -427,7 +442,9 @@ defmodule Noizu.Tessera.ComponentTest do
       # Additive: participation flows down the chain, never silently dropped.
       assert derived.__tessera_spec__().form_associated == true
       assert derived.__tessera_manifest__()["formAssociated"] == true
-      assert LitCodegen.element_module(derived.__tessera_spec__()) =~ "static formAssociated = true;"
+
+      assert LitCodegen.element_module(derived.__tessera_spec__()) =~
+               "static formAssociated = true;"
     end
   end
 
@@ -765,12 +782,15 @@ defmodule Noizu.Tessera.ComponentTest do
 
     test "all four hooks translate and land in spec.lifecycle + the manifest" do
       mod =
-        compile_source(@lifecycle_body <> """
-        should_update fn state, _changed -> state.count < 5 end
-        will_update fn state, _changed -> %{state | count: state.count + 1} end
-        first_updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
-        updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            should_update fn state, _changed -> state.count < 5 end
+            will_update fn state, _changed -> %{state | count: state.count + 1} end
+            first_updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
+            updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
+            """
+        )
 
       spec = mod.__tessera_spec__()
       assert spec.lifecycle[:should_update].js == "(state.count < 5)"
@@ -791,34 +811,46 @@ defmodule Noizu.Tessera.ComponentTest do
 
     test "a differently-named second argument is rejected (the binding is `changed`)" do
       assert_raise CompileError, ~r/second argument must be named `changed`/, fn ->
-        compile_source(@lifecycle_body <> """
-        will_update fn state, delta -> %{state | count: delta.count} end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            will_update fn state, delta -> %{state | count: delta.count} end
+            """
+        )
       end
     end
 
     test "a hook reading an undeclared state key raises at compile time" do
       assert_raise CompileError, ~r/not a declared state key/, fn ->
-        compile_source(@lifecycle_body <> """
-        updated fn state, _changed -> %{state | count: state.nope} end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            updated fn state, _changed -> %{state | count: state.nope} end
+            """
+        )
       end
     end
 
     test "a hook outside the subset is rejected by name" do
       assert_raise CompileError, ~r/case/, fn ->
-        compile_source(@lifecycle_body <> """
-        will_update fn state, _changed -> case state.count do 0 -> state end end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            will_update fn state, _changed -> case state.count do 0 -> state end end
+            """
+        )
       end
     end
 
     test "duplicate hook declarations raise" do
       assert_raise CompileError, ~r/duplicate tessera lifecycle hook :updated/, fn ->
-        compile_source(@lifecycle_body <> """
-        updated fn state, _changed -> state end
-        updated fn state, _changed -> state end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            updated fn state, _changed -> state end
+            updated fn state, _changed -> state end
+            """
+        )
       end
     end
 
@@ -832,18 +864,24 @@ defmodule Noizu.Tessera.ComponentTest do
       end
 
       assert_raise CompileError, ~r/single-clause|exactly two arguments/, fn ->
-        compile_source(@lifecycle_body <> """
-        updated fn
-          state, _changed -> state
-          state, _changed -> state
-        end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            updated fn
+              state, _changed -> state
+              state, _changed -> state
+            end
+            """
+        )
       end
 
       assert_raise CompileError, ~r/second argument must be named `changed`/, fn ->
-        compile_source(@lifecycle_body <> """
-        updated fn state, %{count: c} -> state end
-        """)
+        compile_source(
+          @lifecycle_body <>
+            """
+            updated fn state, %{count: c} -> state end
+            """
+        )
       end
     end
 
@@ -866,7 +904,9 @@ defmodule Noizu.Tessera.ComponentTest do
       assert mod.__tessera_spec__().lifecycle == %{}
       assert mod.__tessera_manifest__()["lifecycle"] == []
 
-      element = File.read!(Path.join(@tmp_dir, "#{mod.__tessera_spec__().tag}.element.generated.mjs"))
+      element =
+        File.read!(Path.join(@tmp_dir, "#{mod.__tessera_spec__().tag}.element.generated.mjs"))
+
       refute element =~ "shouldUpdate"
       refute element =~ "willUpdate"
       refute element =~ "firstUpdated"
