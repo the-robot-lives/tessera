@@ -12,7 +12,16 @@ defmodule PersonaKit.MixProject do
       name: "PersonaKit",
       description:
         "tessera example component package: persona-card and persona-picker web components.",
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
+    ]
+  end
+
+  # Fast per-change lane excludes :slow/:nightly; `mix test` runs everything.
+  # See ../../docs/notes/test-tiering.md.
+  defp aliases do
+    [
+      "test.fast": ["test --exclude slow --exclude nightly"]
     ]
   end
 
