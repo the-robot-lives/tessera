@@ -9,16 +9,17 @@
 > - **Tier 1 (spike/elixir-to-lit)**: Compile an Elixir subset directly to Lit element output.
 > - **Tier 2 (spike/hologram-runtime-element)**: Host a Hologram component inside a custom element wrapper.
 
-> **TIER-1 PARITY DECLARED — 2026-11-12** (owner decision; `develop` @ `477d157`, brief 2f merged).
+> **PARITY DECLARED — 2026-11-12** (owner decision). Tier 1 declared at `develop` @ `477d157` (brief 2f merged); **extended to Tier 2's extension contract at `1ca9e81`** (brief 3f + the X-02/X-13 shared cases). Released as **0.2.0**.
 >
 > **What "Tier-1 parity reached" means here:**
 > - **P0 author-facing gaps are closed or accepted.** Of the 80 P0 rows, Tier 1 is 51 ✅ / 23 🔌 (sanctioned escape hatch) / 6 ❌ — and every one of those 6 is consciously accepted in `docs/notes/gap-acceptance.md`: context protocol #166–#169 (bus-seam hatch, §1 there), decorator-free output #195 and no `.d.ts` generation #198 (documented non-goals of the compiler).
-> - **The extension contract is green on Tier 1, stated precisely:** X-01…X-21 are pinned on the Tier-1 WTR conformance suite except **X-02 and X-13** (registry-pending — the case bodies are unwritten; the underlying surfaces are landed; bodies are queued to land AFTER brief 3f, in the same shared `x_extension.mjs`, to avoid conflicts) and **X-16** (proven on Tier 1 by brief 2c's `examples/spike_kit` WTR suite; its shared-registry case rides brief 3f, which is wiring the X-family on Tier 2 in that same file now). X-12/X-17/X-19/X-21 landed with briefs 2d/2e/2f.
-> - **The conformance suite is the gate.** Re-run at declaration time on `477d157`: Tier-1 WTR conformance FULL lane **53 passed / 0 failed / 28 skipped** (exit 0); fast lane **163 passed / 0 failed / 13 skipped** (exit 0). Tier 2's last landed counts (CHANGELOG, brief 3e): `conformance_tier2.cy.ts` 27 passing / 0 failing / 53 pending of 80.
+> - **The extension contract is green, stated precisely:** all of X-01…X-21 have shared, tier-agnostic case bodies in `test/conformance/cases/x_extension.mjs` (X-02/X-13 landed at `1ca9e81`, X-16 shared case with brief 3f). Tier 1 runs the full X family. Tier 2 runs X-16/X-19 (incl. the X-05…X-11 + X-20 base-suite replay on a taken-over tag) since brief 3f; cases the Hologram runtime can't host stay honest adapter-pending (e.g. X-21, per 3f). X-13 on Tier 2 asserts the §6.6 hook chain + reserved surface only: a live attribute change there reaches the render view, not action-visible state (the documented §2.2 "attrs flow one way in" divergence).
+> - **Tier 2 rides the same canonical macro** (brief 3f): `use Vendor.Element` drives both tiers through one shared derivation layer; cross-runtime derivation is a pointed CompileError (T2-6); Tier-2 takeover chains are linear (no `super` in Hologram IR — §5.9).
+> - **The conformance suite is the gate.** Re-run at `1ca9e81`: Tier-1 WTR conformance FULL lane **55 passed / 0 failed / 26 skipped** (exit 0); fast lane **164 / 0 / 13** (exit 0); Tier-2 `conformance_tier2.cy.ts` **31 passing / 0 failing / 49 pending of 80**.
 > - **The remaining gaps are accepted** in `docs/notes/gap-acceptance.md`: **40 universal ❌ rows — 34 accepted-with-hatch · 6 accepted-design-choice** (recount 2026-11-12: #178 Signals is one-sided, Tier 2 🔌; the per-category owner ballot, §6 there, is OPEN).
 >
 > **What this declaration does NOT claim (still owed):**
-> - **Tier 2 parity** — brief **3f** (in flight) remains a FOLLOW-UP: Tier-2 reuse of the canonical `use Vendor.Element` macro, X-16/X-19 exercised on Tier 2, the cross-runtime CompileError decision. Nothing here declares Tier 2 done.
+> - **Full Tier-2 Lit parity** — Tier 2's extension contract landed (above), but its §2 matrix column is still 30 ✅ / 13 🟡 / 114 🔌 / 64 ❌ / 1 ❓ (+5 ⚠ spike-proven). Tier 2 is a full-Hologram-runtime engine by design, not a Lit re-implementation; its remaining gaps are accepted or hatch-covered in `gap-acceptance.md`.
 > - **SSR production** — spike 4c's verdict is **GO-conditional**: DSD emission + hydration are *proven in a spike*; the production deltas (`docs/notes/ssr-dsd-spike.md` §4) are owed, unshipped.
 > - **Two open owner questions** — two-layer rename chaining (§5.6) and whether a pinned derived `extension_api` stores the requirement string vs the resolved version.
 
