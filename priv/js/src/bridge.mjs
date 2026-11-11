@@ -40,10 +40,16 @@ export function parseTsrOn(str) {
   const out = new Map();
   if (typeof str !== "string" || str.length === 0) return out;
   for (const rawEntry of str.split(";")) {
+    // Entry-level trim is redundant with the per-slice trims of event/action/
+    // target below — but it keeps the empty-entry skip SILENT (a whitespace-
+    // only entry would otherwise fall through to the malformed-entry warn).
     const entry = rawEntry.trim();
     if (entry.length === 0) continue;
     const colon = entry.indexOf(":");
     const at = entry.lastIndexOf("@");
+    // The trailing-`@` guard is redundant with the `!target` emptiness check
+    // below (every entry this rejects is rejected there too) — kept so the
+    // malformed-shape test reads directly.
     if (colon <= 0 || at < colon + 1 || at === entry.length - 1) {
       console.warn(`[tessera] skipping malformed data-tsr-on entry: "${entry}"`);
       continue;

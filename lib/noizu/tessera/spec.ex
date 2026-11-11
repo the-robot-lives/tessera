@@ -156,6 +156,20 @@ defmodule Noizu.Tessera.Spec do
   end
 
   defp validate_grammar!(kind, name, file, line) when kind in [:tag, :event] do
+    # Reserved wire characters first, with their own pointed message: `:` `@`
+    # `;` and whitespace delimit the `event:action@target;…` data-tsr-on entry
+    # grammar (CONTRACT.md §3), so a name carrying one would corrupt or kill
+    # its bridge entry at runtime even if some looser grammar allowed it.
+    if is_binary(name) and String.match?(name, ~r/[\s:@;]/) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{kind} name #{inspect(name)} contains a reserved data-tsr-on character " <>
+            "(whitespace, `:`, `@` or `;`) — these delimit the `event:action@target;…` bridge " <>
+            "grammar (CONTRACT.md §3) and can never appear in a #{kind} name"
+    end
+
     regex = if kind == :tag, do: Naming.tag_regex(), else: Naming.event_regex()
 
     unless is_binary(name) and Regex.match?(regex, name) do

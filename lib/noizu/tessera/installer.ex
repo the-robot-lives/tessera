@@ -28,21 +28,76 @@ defmodule Noizu.Tessera.Installer do
   `priv/js/package.json` with a `name` — relative to `assets_dir`. Apps
   equal to `current_app` are skipped (their runtime is the core entry).
   Pure function of its arguments so it is unit-testable without Mix.
+
+  Raises `ArgumentError` for a dep that cannot be referenced with a REAL
+  relative path (different volume/root) — a host-absolute `file:` URL in the
+  generated `assets/package.json` would make the tree non-relocatable.
   """
   @spec dep_js_entries(map(), String.t(), atom() | nil) :: [{String.t(), String.t()}]
   def dep_js_entries(deps_paths, assets_dir, current_app)
       when is_map(deps_paths) and is_binary(assets_dir) do
     deps_paths
     |> Enum.reject(fn {app, _root} -> app == current_app end)
-    |> Enum.flat_map(fn {_app, root} ->
+    |> Enum.flat_map(fn {app, root} ->
       case js_package_name(root) do
         {name, js_dir} ->
-          [{name, "file:" <> Path.relative_to(js_dir, assets_dir)}]
+          case relative_path(assets_dir, js_dir) do
+            {:ok, relpath} ->
+              [{name, "file:" <> relpath}]
+
+            {:error, msg} ->
+              raise ArgumentError,
+                    "tessera: cannot wire the JS runtime of dep #{inspect(app)} into " <>
+                      "assets/package.json: " <> msg
+          end
 
         nil ->
           []
       end
     end)
+  end
+
+  @doc """
+  A REAL relative path from `from_dir` to `to_path`, including `..` traversal
+  for targets OUTSIDE `from_dir` (sibling directories, e.g. a dep kept outside
+  the host tree). `Path.relative_to/2` silently returns the absolute path in
+  that case, which used to embed a host-absolute `file:` URL into the
+  generated `assets/package.json` and made the tree non-relocatable.
+
+  Returns `{:error, message}` when no relative path can be computed — the two
+  paths do not share a root (different volumes, e.g. Windows drives). Pure
+  function so the fallback branch is unit-testable (the old tested case only
+  ever kept the dep under the assets root).
+  """
+  @spec relative_path(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def relative_path(from_dir, to_path) when is_binary(from_dir) and is_binary(to_path) do
+    from_parts = Path.split(from_dir)
+    to_parts = Path.split(to_path)
+
+    cond do
+      from_parts == [] or to_parts == [] or hd(from_parts) != hd(to_parts) ->
+        {:error,
+         "cannot compute a relative path from #{from_dir} to #{to_path} — the two paths do " <>
+           "not share a root (different volumes?), so assets/package.json cannot reference " <>
+           "it with a relocatable relative `file:` path. Move the dependency inside the " <>
+           "host app tree."}
+
+      true ->
+        # Expand first so `..` and symlinked prefixes (e.g. /tmp → /private/tmp)
+        # normalize before the segment diff.
+        from = from_dir |> Path.expand() |> Path.split()
+        to = to_path |> Path.expand() |> Path.split()
+
+        common =
+          from
+          |> Enum.zip(to)
+          |> Enum.take_while(fn {a, b} -> a == b end)
+          |> length()
+
+        up = List.duplicate("..", length(from) - common)
+
+        {:ok, Path.join(up ++ Enum.drop(to, common))}
+    end
   end
 
   @doc """
@@ -139,6 +194,27 @@ defmodule Noizu.Tessera.Installer do
       else
         {:error, reason} -> {:error, reason}
       end
+    end
+  end
+
+  @doc """
+  Resolves the npm executable: `{:ok, path}` when npm is on PATH, else
+  `{:error, guidance}`. `lookup` is injectable so tests can simulate a
+  missing npm. Without this check `System.cmd("npm", ...)` surfaced as a raw
+  `:enoent` ErlangError on hosts without node (bare elixir docker images).
+  """
+  @spec find_npm((String.t() -> String.t() | nil)) :: {:ok, String.t()} | {:error, String.t()}
+  def find_npm(lookup \\ fn cmd -> System.find_executable(cmd) end) do
+    case lookup.("npm") do
+      nil ->
+        {:error,
+         "npm was not found on PATH — the install step needs Node.js/npm to install the " <>
+           "assets JS dependencies. Install Node.js (https://nodejs.org or your platform's " <>
+           "package manager) and re-run `mix tessera.install`, or re-run with `--no-npm` " <>
+           "to skip the npm leg and manage assets/package.json yourself."}
+
+      path when is_binary(path) ->
+        {:ok, path}
     end
   end
 

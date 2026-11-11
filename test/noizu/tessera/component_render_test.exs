@@ -123,6 +123,62 @@ defmodule Noizu.Tessera.ComponentRenderTest do
     end
   end
 
+  test "any other non-atom binding (integer/map) raises a pointed ArgumentError, not FunctionClauseError" do
+    # The catch-all exists so an author typo (on_persona_select={123}) cannot
+    # crash the whole page render with a bare FunctionClauseError.
+    for bad <- [123, %{cid: "p1"}] do
+      error =
+        assert_raise ArgumentError, fn ->
+          Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{on_persona_select: bad})
+        end
+
+      assert error.message =~ "PersonaCard", "names the component"
+      assert error.message =~ "persona-select", "names the event"
+      assert error.message =~ inspect(bad), "shows the value it got"
+    end
+  end
+
+  test "a binding action containing a reserved wire character raises at render time" do
+    for bad_action <- [:"bad:action", :"bad action", :"bad;action"] do
+      error =
+        assert_raise ArgumentError, fn ->
+          Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{
+            on_persona_select: bad_action
+          })
+        end
+
+      assert error.message =~ "reserved data-tsr-on character"
+      # The guard inspects the STRING form of the action name.
+      assert error.message =~ Atom.to_string(bad_action), "names the offending action"
+      assert error.message =~ "persona-select"
+    end
+  end
+
+  test "a target containing a reserved wire character raises at render time" do
+    error =
+      assert_raise ArgumentError, fn ->
+        Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{
+          on_persona_select: {:chose, target: "page;persona-hover:evil@page"}
+        })
+      end
+
+    assert error.message =~ "reserved data-tsr-on character"
+    assert error.message =~ ~r/target "page;persona-hover:evil\@page"/
+    assert error.message =~ "persona-select"
+  end
+
+  test "a non-string target raises a pointed ArgumentError (was a bare FunctionClauseError)" do
+    error =
+      assert_raise ArgumentError, fn ->
+        Tessera.TestFixtures.PersonaCard.__tessera_data_tsr_on__(%{
+          on_persona_select: {:chose, target: :layout}
+        })
+      end
+
+    assert error.message =~ ~r/target for event "persona-select" must be a string/
+    assert error.message =~ ":layout"
+  end
+
   test "renders data-cy" do
     {html, _} = render([{"display_name", [expression: {"Ada"}]}])
     assert html =~ ~s(data-cy="persona-card-root")

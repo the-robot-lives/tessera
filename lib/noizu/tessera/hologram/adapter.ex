@@ -300,6 +300,38 @@ defmodule Noizu.Tessera.Hologram.Adapter do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Wire-grammar guard for the generated data-tsr-on builder (CONTRACT.md §3).
+  # `:` `@` `;` and whitespace are RESERVED: they delimit the
+  # `event:action@target;…` entry grammar, so a value carrying one of them
+  # would corrupt its entry or be silently dropped by the tolerant JS parser
+  # (a dead binding with no signal). Declared names (tag/event/attr/prop) are
+  # rejected at COMPILE time by `Noizu.Tessera.Spec.validate!/5`; binding
+  # values only exist at render time, so they are rejected here.
+  @reserved_wire_chars [" ", "\t", "\n", "\r", ":", "@", ";"]
+
+  @doc false
+  @spec validate_wire_segment!(:action | :target, term(), module(), String.t()) :: :ok
+  def validate_wire_segment!(kind, value, component, event)
+
+  def validate_wire_segment!(kind, value, component, event) when is_binary(value) do
+    if String.contains?(value, @reserved_wire_chars) do
+      raise ArgumentError,
+            "tessera component #{inspect(component)}: #{kind} #{inspect(value)} for event " <>
+              "\"#{event}\" contains a reserved data-tsr-on character (whitespace, `:`, `@` " <>
+              "or `;`) — these delimit the `event:action@target;…` grammar (CONTRACT.md §3). " <>
+              "Rename the #{kind} so the binding stays parseable."
+    end
+
+    :ok
+  end
+
+  def validate_wire_segment!(kind, value, component, event) do
+    raise ArgumentError,
+          "tessera component #{inspect(component)}: #{kind} for event \"#{event}\" must be a " <>
+            "string, got: #{inspect(value)}"
+  end
+
   # -- internals -------------------------------------------------------------
 
   defp bridge_helper_asts(%Spec{} = spec) do
@@ -313,21 +345,23 @@ defmodule Noizu.Tessera.Hologram.Adapter do
           @spec __tessera_data_tsr_on__(map) :: String.t() | nil
           def __tessera_data_tsr_on__(bindings) do
             parts =
-              Enum.flat_map(unquote(Macro.escape(event_pairs)), fn pair ->
+              Enum.flat_map(unquote(Macro.escape(event_pairs)), fn {binding_prop, event_name} ->
                 # nil/false bindings mean "not bound" (the attr is simply
                 # omitted). Any other value must be an action atom or an
                 # {action, opts} tuple — bindings are runtime template
                 # expressions, so validation happens here, at render time;
                 # the DEFAULT action wired into the template is
                 # compile-time generated from the spec and always valid.
-                case Map.get(bindings, elem(pair, 0)) do
+                case Map.get(bindings, binding_prop) do
                   v when v in [nil, false] ->
                     []
 
                   binding ->
                     [
-                      elem(pair, 1) <>
-                        ":" <> tessera_action_name(binding) <> "@" <> tessera_target_name(binding)
+                      event_name <>
+                        ":" <>
+                        tessera_action_name(binding, event_name) <>
+                        "@" <> tessera_target_name(binding, event_name)
                     ]
                 end
               end)
@@ -404,29 +438,65 @@ defmodule Noizu.Tessera.Hologram.Adapter do
             |> String.replace("\t", "\\t")
           end
 
-          defp tessera_action_name(action) when is_atom(action), do: Atom.to_string(action)
+          # `event` is threaded through the binding helpers so every failure
+          # names the event whose entry it is (render-time diagnostics).
+          defp tessera_action_name(action, event) when is_atom(action) do
+            name = Atom.to_string(action)
 
-          defp tessera_action_name({action, _opts}) when is_atom(action),
-            do: Atom.to_string(action)
+            Noizu.Tessera.Hologram.Adapter.validate_wire_segment!(
+              :action,
+              name,
+              __MODULE__,
+              event
+            )
 
-          # CONTRACT.md §3 supports cid targets only as {:action, target: "cid"};
-          # a bare binary binding is always a mistake (strings are not valid
-          # Hologram actions), so fail loudly instead of rendering a broken
-          # data-tsr-on attribute.
-          defp tessera_action_name(binding) when is_binary(binding) do
-            raise ArgumentError,
-                  "tessera event binding #{inspect(binding)} is not supported — " <>
-                    "bind an action atom or {:action, target: \"layout\" | cid}"
+            name
           end
 
-          defp tessera_target_name({_action, opts}) when is_list(opts) do
+          defp tessera_action_name({action, _opts}, event) when is_atom(action) do
+            name = Atom.to_string(action)
+
+            Noizu.Tessera.Hologram.Adapter.validate_wire_segment!(
+              :action,
+              name,
+              __MODULE__,
+              event
+            )
+
+            name
+          end
+
+          # CONTRACT.md §3 supports cid targets only as {:action, target: "cid"};
+          # anything else (integer, map, a bare binary) is always a mistake —
+          # strings are not valid Hologram actions. A missing catch-all here
+          # used to crash the WHOLE page render with a bare FunctionClauseError;
+          # fail with a pointed ArgumentError instead.
+          defp tessera_action_name(binding, event) do
+            raise ArgumentError,
+                  "tessera component #{inspect(__MODULE__)}: binding for event " <>
+                    "\"#{event}\" must be an action atom or {:action, target: \"layout\" | cid} " <>
+                    "— got: #{inspect(binding)} (bare binaries are not supported: wrap a cid " <>
+                    "target as {:action, target: \"cid\"})"
+          end
+
+          defp tessera_target_name({_action, opts}, event) when is_list(opts) do
             case :lists.keyfind(:target, 1, opts) do
-              {:target, target} -> target
-              _ -> "page"
+              {:target, target} ->
+                Noizu.Tessera.Hologram.Adapter.validate_wire_segment!(
+                  :target,
+                  target,
+                  __MODULE__,
+                  event
+                )
+
+                target
+
+              _ ->
+                "page"
             end
           end
 
-          defp tessera_target_name(_), do: "page"
+          defp tessera_target_name(_binding, _event), do: "page"
         end
       ]
     else

@@ -4,27 +4,27 @@ defmodule Noizu.Tessera.CodegenTest do
   alias Noizu.Tessera.Codegen
   alias Noizu.Tessera.Spec
 
-  # The golden fixtures pin the exact byte output of the generators for the
-  # PersonaCard fixture component (every DSL entry kind). The CEM golden is
-  # checked in; the CONTRACT golden is gitignored (`*.contract.generated.mjs`)
-  # because it is a compile-time artifact, so `contract_golden/0` BOOTSTRAPS
-  # it from the current generator on a fresh checkout and then pins it
-  # byte-for-byte on every later run. To re-review by eye against
-  # CONTRACT.md §2 after an intentional change, delete
-  # `test/fixtures/persona_card.contract.generated.mjs` and run the suite.
+  # Both goldens pin the exact byte output of the generators for the
+  # PersonaCard fixture component (every DSL entry kind) and are CHECKED IN:
+  # `persona_card.contract.golden.mjs` (the wire interface, CONTRACT.md §2) and
+  # `persona_card.cem.json` (the Custom Elements Manifest). They are handled
+  # IDENTICALLY on purpose — the old asymmetry (contract golden
+  # self-bootstrapped from the current generator and was gitignored) made the
+  # byte-identity test vacuous: on every fresh checkout the golden WAS the
+  # output, so it could never fail. A missing golden now fails the suite
+  # (`File.read!/1` below), and regeneration is an explicit, reviewed step:
+  # `MIX_ENV=test mix tessera.golden` rewrites both files from the current
+  # generators. Never bootstrap them in-test.
   @golden_dir Path.expand("../../fixtures", __DIR__)
   @cem_golden File.read!(Path.join(@golden_dir, "persona_card.cem.json"))
 
   @fixture_spec Tessera.TestFixtures.PersonaCard.__tessera_spec__()
 
   defp contract_golden do
-    path = Path.join(@golden_dir, "persona_card.contract.generated.mjs")
-
-    unless File.exists?(path) do
-      File.write!(path, Codegen.contract_module(@fixture_spec))
-    end
-
-    File.read!(path)
+    # Deliberately NOT `File.exists?` + bootstrap: an absent or stale golden
+    # must FAIL here so an intentional codegen change forces a reviewed
+    # `mix tessera.golden` regen (CONTRACT.md §2 byte-determinism).
+    File.read!(Path.join(@golden_dir, "persona_card.contract.golden.mjs"))
   end
 
   describe "contract_module/1" do
