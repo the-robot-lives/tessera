@@ -57,7 +57,7 @@ defmodule Tessera.TestFixtures.Conformance.Styles do
   <div class="row" part="row" data-cy="conf-styles-row">
     <span class="accent" part="accent" data-cy="conf-styles-accent">{@tone}</span>
     <span class="shared-marker" data-cy="conf-styles-shared">shared</span>
-    <slot>
+    <slot></slot>
   </div>
   """
 end

@@ -1,11 +1,11 @@
 // Family SD — Shadow DOM slots (lit-parity §4.1, SD-01…SD-03).
-// Slot rendering landed via D-T1: the compiled "slots" fixture renders bare
-// <slot> / <slot name="…"> into the shadow root and light-DOM children assign
-// (Tier 1; brief 4b case-fill). SD-03 (fallback CONTENT) stays pending: the
-// develop Hologram lexer rejects an explicit </slot> close (the styles-panel
-// boot bug owned by brief 1c), so `<slot>fallback</slot>` cannot be expressed.
+// Slot rendering landed via D-T1; fallback content via brief 1c's slot
+// pre-pass (Hologram treats <slot> as void, so 1c renames it through a reserved
+// placeholder). The compiled "slots" fixture renders <slot> / <slot name="…">
+// (with fallback) into the shadow root and light-DOM children assign (Tier 1;
+// brief 4b case-fill).
 
-import {defineCase, pendingCase} from "../support/case.mjs";
+import {defineCase} from "../support/case.mjs";
 
 export const cases = [
   defineCase({
@@ -44,5 +44,26 @@ export const cases = [
     },
   }),
 
-  pendingCase({id: "SD-03", family: "SD", fast: true, title: "slot fallback renders when no child is slotted", reason: "fallback content needs <slot>…</slot>; the develop Hologram lexer rejects </slot> (styles-panel boot bug, brief 1c owns the fix). Bare slots work (SD-01/02)."}),
+  defineCase({
+    id: "SD-03",
+    family: "SD",
+    fast: true,
+    title: "slot fallback renders when no child is slotted",
+    async run(mount, expect) {
+      const h = await mount({fixture: "slots"});
+      const fb = h.shadowRoot.querySelector("[data-cy=conf-slots-fallback] slot");
+      // No child slotted ⇒ the slot's fallback content is what renders
+      // (assignedNodes flatten:true yields the fallback when nothing assigns).
+      expect(fb.assignedElements().length).to.equal(0);
+      expect(fb.assignedNodes({flatten: true}).map((n) => n.textContent).join("")).to.equal("fallback-content");
+      // Slot a child ⇒ the fallback is replaced by the slotted node.
+      const child = h.win.document.createElement("span");
+      child.setAttribute("slot", "fb");
+      child.textContent = "slotted-fb";
+      h.el.appendChild(child);
+      await h.waitFor(() => fb.assignedElements().includes(child));
+      expect(fb.assignedElements()).to.include(child);
+      expect(fb.assignedNodes({flatten: true}).map((n) => n.textContent).join("")).to.equal("slotted-fb");
+    },
+  }),
 ];

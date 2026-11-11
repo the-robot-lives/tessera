@@ -62,6 +62,7 @@ class TsrConfSlots extends TesseraElement(LitElement, contract) {
   <span data-cy="conf-slots-label">${__t(this.label)}</span>
   <div data-cy="conf-slots-default"><slot></slot></div>
   <div data-cy="conf-slots-named"><slot name="header"></slot></div>
+  <div data-cy="conf-slots-fallback"><slot name="fb">fallback-content</slot></div>
 </div>`;
   }
 }

@@ -20,7 +20,7 @@ const baseStyles = css`
 class TsrConfTemplate extends TesseraElement(LitElement, contract) {
   static properties = {
       flag: { type: Boolean },
-      items: { type: Object },
+      items: { type: Array },
       label: { type: String },
     };
 

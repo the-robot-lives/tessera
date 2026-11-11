@@ -146,19 +146,18 @@ adapter visits `/holo_runtime` and mounts fresh `tsr-holo-counter` instances.
 
 ## Current coverage
 
-- **Implemented + Tier-1 green (30):** C-01, C-03, C-04, C-05, C-06, C-07,
+- **Implemented + Tier-1 green (31):** C-01, C-03, C-04, C-05, C-06, C-07,
   C-10, T-01, T-02, T-04, T-05, T-07, T-08, T-09, S-01…S-06, SD-01, SD-02,
-  E-01, E-02, E-03, X-01, X-03, X-04, X-14, X-18.
+  SD-03, E-01, E-02, E-03, X-01, X-03, X-04, X-14, X-18.
   - JS-core fixtures (`counter`/`props`/`events`): the original 13.
   - Compiled-DSL fixtures (`state`/`template`/`styles`/`slots`, brief 4b
-    case-fill): C-07, T-02/T-04/T-05/T-07/T-08/T-09, S-01…S-06, SD-01/02,
-    X-03, X-14 (17).
+    case-fill): C-07, T-02/T-04/T-05/T-07/T-08/T-09, S-01…S-06, SD-01/02/03,
+    X-03, X-14 (18). SD-03 (fallback content) uses brief 1c's slot pre-pass.
 - **Implemented + Tier-2 green (counter fixture):** C-01, T-01, E-01, E-02, E-03 (5).
-- **Pending (49):** reflection / property options / lifecycle (1c/3c),
-  directives classMap/styleMap/ifDefined/nothing + when/choose (1d),
-  slot fallback content (SD-03 — blocked by the develop `</slot>` Hologram-lexer
-  bug, brief 1c), the extension surface (2a–2f/3d/3f), and the accepted-gap
-  families (CT/RC/SSR). FM/RC/SSR ids are provisional placeholders.
+- **Pending (48):** reflection / property options / lifecycle (1c — landed;
+  cases owed to a follow-up 4b wave), directives classMap/styleMap/ifDefined/
+  nothing + when/choose (1d), the extension surface (2a–2f/3d/3f), and the
+  accepted-gap families (CT/RC/SSR). FM/RC/SSR ids are provisional placeholders.
 
 ## Owed next (not in this scaffold)
 

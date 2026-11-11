@@ -6,6 +6,6 @@ export default {
   attrs:  [{ name: "label", key: "label", type: "string", required: false, default: "slots" }],
   props:  [],
   events: [],
-  slots:  ["header"],
+  slots:  ["header", "fb"],
   cy: "conf-slots-root",
 };
