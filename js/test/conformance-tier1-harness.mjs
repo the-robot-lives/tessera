@@ -31,6 +31,11 @@ import {tag as STYLES_TAG, TsrConfStyles} from "./fixtures/conformance/tsr-conf-
 import {tag as SLOTS_TAG, TsrConfSlots} from "./fixtures/conformance/tsr-conf-slots.element.generated.mjs";
 import {tag as DIRECTIVES_TAG, TsrConfDirectives} from "./fixtures/conformance/tsr-conf-directives.element.generated.mjs";
 import {tag as PIPELINE_TAG, TsrConfPipeline} from "./fixtures/conformance/tsr-conf-pipeline.element.generated.mjs";
+// X-17 (brief 2d): region base + slot_template-derived vendor. Importing the
+// vendor module side-effect-registers the base too (it imports it by relative
+// path); defineOnce keeps both registrations idempotent.
+import {tag as REGION_TAG, TsrConfRegion} from "./fixtures/conformance/tsr-conf-region.element.generated.mjs";
+import {tag as REGION_VENDOR_TAG, TsrConfRegionVendor} from "./fixtures/conformance/tsr-conf-region-vendor.element.generated.mjs";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -122,6 +127,8 @@ const FIXTURES = {
   slots: {tag: SLOTS_TAG, ctor: TsrConfSlots},
   directives: {tag: DIRECTIVES_TAG, ctor: TsrConfDirectives},
   pipeline: {tag: PIPELINE_TAG, ctor: TsrConfPipeline},
+  regionBase: {tag: REGION_TAG, ctor: TsrConfRegion},
+  regionVendor: {tag: REGION_VENDOR_TAG, ctor: TsrConfRegionVendor},
 };
 
 let defined = false;
@@ -215,7 +222,7 @@ const SUPPORTED = new Set([
   "SD-01", "SD-02", "SD-03",
   "E-01", "E-02", "E-03",
   "X-01", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
-  "X-11", "X-14", "X-15", "X-18", "X-20",
+  "X-11", "X-14", "X-15", "X-17", "X-18", "X-20",
 ]);
 
 /**

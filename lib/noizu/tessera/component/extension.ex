@@ -34,6 +34,7 @@ defmodule Noizu.Tessera.Component.Extension do
   ES class chain.
   """
 
+  alias Noizu.Tessera.Component.Template
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Spec
 
@@ -249,7 +250,11 @@ defmodule Noizu.Tessera.Component.Extension do
 
       Enum.map(entries, fn {name, type, opts} ->
         quote do
-          Module.put_attribute(__MODULE__, :__props__, {unquote(name), unquote(type), unquote(opts)})
+          Module.put_attribute(
+            __MODULE__,
+            :__props__,
+            {unquote(name), unquote(type), unquote(opts)}
+          )
         end
       end)
     else
@@ -270,15 +275,38 @@ defmodule Noizu.Tessera.Component.Extension do
 
   Rules (§5.5): additive new names append in declaration order; override-by-name
   replaces wholesale (events merge detail, keeping inherited keys); removal is
-  forbidden; `required:` may relax not tighten. Duplicate AUTHOR declarations
-  raise here (the merge would otherwise silently last-wins them).
+  forbidden; `required:` may relax not tighten; retyping an inherited
+  attr/prop/state key the base READS is rejected (the type-change
+  reference-graph guard). Duplicate AUTHOR declarations raise here (the merge
+  would otherwise silently last-wins them).
+
+  Event renames (§5.6, brief 2d): `event "new", renames: "inherited"` replaces
+  the inherited name in place (detail inherited keys kept, `renamed_from`
+  marker). The rename is then propagated over the merged emission points —
+  inherited action/lifecycle JS that still emits the OLD event name is
+  rewritten to the new one and marked `re_emit: true` so the derived class
+  re-emits the method and shadows the base's (which would otherwise emit the
+  dead name).
   """
   @spec merge_spec!(Spec.t(), map(), Macro.Env.t()) :: map()
   def merge_spec!(%Spec{} = base_spec, deltas, %Macro.Env{} = env) do
+    author_events = Map.get(deltas, :events, [])
+    renames = collect_renames!(base_spec, author_events, env)
+
     merged =
       Map.new(list_kinds(), fn kind ->
-        base_entries = Map.get(base_spec, kind, [])
-        author_entries = Map.get(deltas, kind, [])
+        base_entries =
+          if kind == :events do
+            apply_renames(Map.get(base_spec, kind, []), renames, env)
+          else
+            Map.get(base_spec, kind, [])
+          end
+
+        author_entries =
+          if kind == :events,
+            do: Enum.reject(author_events, & &1[:renames]),
+            else: Map.get(deltas, kind, [])
+
         assert_author_duplicates!(kind, author_entries, env)
         {kind, merge_entries(kind, base_entries, author_entries, env)}
       end)
@@ -290,8 +318,184 @@ defmodule Noizu.Tessera.Component.Extension do
       |> Map.put(:lifecycle, merge_lifecycle(base_spec, deltas))
       |> Map.put(:cy, Map.get(deltas, :cy) || base_spec.cy)
 
-    assert_no_removal!(base_spec, merged, env)
+    assert_no_removal!(base_spec, merged, renames, env)
+    assert_type_change!(base_spec, merged, env)
+
     merged
+    |> Map.update!(:actions, &rewrite_emissions(&1, renames))
+    |> Map.update!(:lifecycle, &rewrite_lifecycle_emissions(&1, renames))
+  end
+
+  # -- event renames (§5.6, brief 2d) ------------------------------------------
+
+  # Collects author rename declarations (old_inherited_name => author entry).
+  # Guards: the target must be an inherited event; renaming an already-renamed
+  # event is forbidden (no rename chains); the new name must be fresh w.r.t.
+  # the inherited surface; two renames may not share a target or a new name.
+  defp collect_renames!(%Spec{} = base_spec, author_events, env) do
+    renames = Enum.filter(author_events, & &1[:renames])
+
+    by_old =
+      Map.new(renames, fn e ->
+        old = e[:renames]
+        new = e.name
+
+        unless is_binary(old) do
+          raise CompileError,
+            file: env.file,
+            line: e.line || 0,
+            description:
+              "tessera event #{inspect(new)}: `renames:` must name the inherited event as a " <>
+                "string, got: #{inspect(old)} (EXTENSION-CONTRACT.md §5.6)"
+        end
+
+        base_entry = Enum.find(base_spec.events, &(&1.name == old))
+
+        cond do
+          is_nil(base_entry) ->
+            raise CompileError,
+              file: env.file,
+              line: e.line || 0,
+              description:
+                "broken rename chain: tessera event #{inspect(new)} renames #{inspect(old)}, " <>
+                  "but #{inspect(old)} is not an inherited event of base " <>
+                  "#{inspect(base_spec.module)} (EXTENSION-CONTRACT.md §5.6)"
+
+          base_entry[:renamed_from] ->
+            raise CompileError,
+              file: env.file,
+              line: e.line || 0,
+              description:
+                "broken rename chain: tessera event #{inspect(new)} renames #{inspect(old)}, " <>
+                  "but #{inspect(old)} is itself already a rename of " <>
+                  "#{inspect(base_entry[:renamed_from])} — renaming an already-renamed event " <>
+                  "is forbidden (EXTENSION-CONTRACT.md §5.6)"
+
+          new == old ->
+            raise CompileError,
+              file: env.file,
+              line: e.line || 0,
+              description:
+                "tessera event #{inspect(new)} renames itself — drop the `renames:` option " <>
+                  "(EXTENSION-CONTRACT.md §5.6)"
+
+          Enum.any?(base_spec.events, &(&1.name == new)) ->
+            raise CompileError,
+              file: env.file,
+              line: e.line || 0,
+              description:
+                "rename target conflict: tessera event #{inspect(new)} renames " <>
+                  "#{inspect(old)}, but #{inspect(new)} is already an inherited event of " <>
+                  "#{inspect(base_spec.module)} — a rename must produce a fresh name " <>
+                  "(EXTENSION-CONTRACT.md §5.6)"
+
+          true ->
+            :ok
+        end
+
+        {old, e}
+      end)
+
+    dup_targets =
+      renames
+      |> Enum.map(& &1[:renames])
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_k, c} -> c > 1 end)
+
+    if dup_targets != [] do
+      raise CompileError,
+        file: env.file,
+        line: env.line || 0,
+        description:
+          "two tessera events rename the same inherited event " <>
+            "#{inspect(Enum.map(dup_targets, &elem(&1, 0)))} (EXTENSION-CONTRACT.md §5.6)"
+    end
+
+    dup_new_names =
+      renames |> Enum.map(& &1.name) |> Enum.frequencies() |> Enum.filter(fn {_k, c} -> c > 1 end)
+
+    if dup_new_names != [] do
+      raise CompileError,
+        file: env.file,
+        line: env.line || 0,
+        description:
+          "two tessera renames land on the same new name " <>
+            "#{inspect(Enum.map(dup_new_names, &elem(&1, 0)))} (EXTENSION-CONTRACT.md §5.6)"
+    end
+
+    by_old
+  end
+
+  defp apply_renames(base_events, renames, _env) when map_size(renames) == 0, do: base_events
+
+  defp apply_renames(base_events, renames, env) do
+    Enum.map(base_events, fn entry ->
+      case Map.fetch(renames, entry.name) do
+        {:ok, author} ->
+          detail =
+            merge_detail!(
+              entry[:detail] || %{},
+              author[:detail] || %{},
+              author.name,
+              author.line || 0,
+              env
+            )
+
+          author
+          |> Map.put(:detail, detail)
+          |> Map.put(:renamed_from, entry.name)
+          |> Map.delete(:renames)
+
+        :error ->
+          entry
+      end
+    end)
+  end
+
+  defp rewrite_emissions(entries, renames) when map_size(renames) == 0, do: entries
+
+  defp rewrite_emissions(entries, renames) do
+    Enum.map(entries, fn entry ->
+      case rewrite_js(entry[:js], renames) do
+        :unchanged ->
+          entry
+
+        {:changed, js} ->
+          entry |> Map.put(:js, js) |> Map.put(:re_emit, true)
+      end
+    end)
+  end
+
+  defp rewrite_lifecycle_emissions(lifecycle, renames) when map_size(renames) == 0, do: lifecycle
+
+  defp rewrite_lifecycle_emissions(lifecycle, renames) do
+    Map.new(lifecycle, fn {hook, entry} ->
+      case rewrite_js(entry[:js], renames) do
+        :unchanged ->
+          {hook, entry}
+
+        {:changed, js} ->
+          {hook, entry |> Map.put(:js, js) |> Map.put(:re_emit, true)}
+      end
+    end)
+  end
+
+  # The compiled emission point for an event is `emit(this, "name", …)` (see
+  # Noizu.Tessera.Component.Expr's emit lowering) — rewriting the name literal
+  # is the whole rename at the JS layer. A re-emitted inherited method shadows
+  # the base's (which still emits the dead name on the class chain).
+  defp rewrite_js(js, _renames) when not is_binary(js), do: :unchanged
+
+  defp rewrite_js(js, renames) do
+    {new_js, changed?} =
+      Enum.reduce(renames, {js, false}, fn {old, author}, {acc, changed} ->
+        pattern = "emit(this, \"#{old}\""
+        replacement = "emit(this, \"#{author.name}\""
+        rewritten = String.replace(acc, pattern, replacement)
+        {rewritten, changed or rewritten != acc}
+      end)
+
+    if changed?, do: {:changed, new_js}, else: :unchanged
   end
 
   defp list_kinds,
@@ -312,7 +516,7 @@ defmodule Noizu.Tessera.Component.Extension do
           MapSet.member?(seen, entry.name) ->
             # override-by-name: replace the inherited entry in place
             replaced = maybe_guard_required!(kind, base_index[entry.name], entry, env)
-            replaced = merge_entry_detail(kind, base_index[entry.name], replaced)
+            replaced = merge_entry_detail(kind, base_index[entry.name], replaced, env)
             {replace_by_name(acc, entry.name, replaced), seen}
 
           true ->
@@ -341,13 +545,42 @@ defmodule Noizu.Tessera.Component.Extension do
   defp maybe_guard_required!(_kind, _base, entry, _env), do: entry
 
   # Events keep inherited detail keys; the author may extend (§5.6). The
-  # narrowing/retype guard is brief 2d — merging inherited keys back in means a
-  # redeclare cannot drop them by construction.
-  defp merge_entry_detail(:events, %{detail: base_detail}, entry) do
-    Map.put(entry, :detail, Map.merge(base_detail || %{}, entry[:detail] || %{}))
+  # detail-narrowing guard rejects RETYPING an inherited detail key (same key,
+  # different type) — the CEM detail shape is a published surface, so a derived
+  # element may add keys but never change an inherited key's type.
+  defp merge_entry_detail(:events, %{detail: base_detail}, entry, env) do
+    Map.put(
+      entry,
+      :detail,
+      merge_detail!(base_detail || %{}, entry[:detail] || %{}, entry.name, entry.line || 0, env)
+    )
   end
 
-  defp merge_entry_detail(_kind, _base, entry), do: entry
+  defp merge_entry_detail(_kind, _base, entry, _env), do: entry
+
+  # Merges an inherited event detail map with the author's, rejecting retypes
+  # of keys present in both (§5.6 detail-narrowing guard).
+  defp merge_detail!(base_detail, author_detail, event_name, line, env) do
+    retypes =
+      for {key, type} <- author_detail,
+          Map.has_key?(base_detail, key),
+          base_detail[key] != type,
+          do: {key, base_detail[key], type}
+
+    case retypes do
+      [{key, base_type, author_type} | _] ->
+        raise CompileError,
+          file: env.file,
+          line: line,
+          description:
+            "tessera event #{inspect(event_name)} narrows the inherited detail key " <>
+              "#{inspect(key)} from #{inspect(base_type)} to #{inspect(author_type)} — " <>
+              "event detail may be extended but never retyped (EXTENSION-CONTRACT.md §5.6)"
+
+      [] ->
+        Map.merge(base_detail, author_detail)
+    end
+  end
 
   defp merge_template(base_spec, deltas) do
     case Map.get(deltas, :template) do
@@ -382,13 +615,17 @@ defmodule Noizu.Tessera.Component.Extension do
 
   # Removal is forbidden (§5.5): every inherited name must persist. The merge
   # only adds/replaces, so this is an invariant guard — it fires if a future
-  # removal syntax ever drops a name.
-  defp assert_no_removal!(base_spec, merged, env) do
+  # removal syntax ever drops a name. A base EVENT name renamed away via
+  # `renames:` (§5.6) is the one allowed disappearance — its replacement (the
+  # new name) is verified present in its stead.
+  defp assert_no_removal!(base_spec, merged, renames, env) do
     Enum.each(list_kinds(), fn kind ->
       merged_names = MapSet.new(Enum.map(merged[kind], & &1.name))
 
       Enum.each(Map.get(base_spec, kind, []), fn entry ->
-        unless MapSet.member?(merged_names, entry.name) do
+        renamed? = kind == :events and Map.has_key?(renames, entry.name)
+
+        unless MapSet.member?(merged_names, entry.name) or renamed? do
           raise CompileError,
             file: env.file,
             line: 0,
@@ -398,6 +635,128 @@ defmodule Noizu.Tessera.Component.Extension do
         end
       end)
     end)
+  end
+
+  # Type-change reference-graph guard (§5.5, brief 2d): an override MAY retype
+  # an inherited attr/prop/state key that the base never reads, but retyping a
+  # REFERENCED key silently breaks the base's already-compiled JS (template
+  # interpolations, `state.key` reads, action bodies compiled against the old
+  # shape). The guard walks the BASE's compiled template tree and action
+  # function ASTs to collect referenced keys, then rejects any author override
+  # that changes the `:type` of one of those keys.
+  defp assert_type_change!(%Spec{} = base_spec, merged, env) do
+    referenced = referenced_keys(base_spec)
+
+    if MapSet.size(referenced) > 0 do
+      base_by_kind =
+        Map.new([:attrs, :props, :state], fn kind ->
+          {kind, Map.new(Map.get(base_spec, kind, []), &{&1.name, &1})}
+        end)
+
+      Enum.each([:attrs, :props, :state], fn kind ->
+        Enum.each(merged[kind], fn entry ->
+          # only AUTHOR (non-inherited) overrides can change a type
+          if !entry[:inherited] and MapSet.member?(referenced, entry.name) do
+            case base_by_kind[kind][entry.name] do
+              %{type: base_type} when is_atom(base_type) and base_type != entry.type ->
+                raise CompileError,
+                  file: env.file,
+                  line: entry[:line] || env.line || 0,
+                  description:
+                    "tessera type-change guard: derived #{inspect(env.module)} retypes " <>
+                      "#{kind} #{inspect(entry.name)} from #{inspect(base_type)} to " <>
+                      "#{inspect(entry.type)}, but #{inspect(base_spec.module)}'s compiled " <>
+                      "template/actions READ that key — a referenced key's type is load-bearing " <>
+                      "(EXTENSION-CONTRACT.md §5.5)"
+
+              _ ->
+                :ok
+            end
+          end
+        end)
+      end)
+    end
+
+    :ok
+  end
+
+  # Collects every state/attr/prop key the base references: `{@key}` reads in
+  # the compiled template (both lexers) plus `state.key` / `@key` reads in the
+  # base's action fn ASTs. (Lifecycle hooks are data-only in the spec — no
+  # fn_ast survives to the base spec — so template + action reads are the
+  # complete reference surface available at merge time.)
+  defp referenced_keys(%Spec{} = base_spec) do
+    template_keys =
+      case base_spec.template do
+        %{raw: raw} when is_binary(raw) ->
+          case Template.parse(raw) do
+            {:ok, tree} -> tree_referenced_keys(tree)
+            {:error, _} -> MapSet.new()
+          end
+
+        _ ->
+          MapSet.new()
+      end
+
+    action_keys =
+      base_spec.actions
+      |> Enum.flat_map(fn a -> if a[:fn_ast], do: ast_referenced_keys(a.fn_ast), else: [] end)
+      |> MapSet.new()
+
+    MapSet.union(template_keys, action_keys)
+  end
+
+  # Walks a parsed template tree, translating every {:expr, ast} and attribute
+  # expression through the reference-key extractor.
+  defp tree_referenced_keys(tree) do
+    tree
+    |> collect_exprs([])
+    |> Enum.flat_map(&ast_referenced_keys/1)
+    |> MapSet.new()
+  end
+
+  defp collect_exprs({:element, _tag, attrs, children}, acc) do
+    attr_exprs = for {_k, {:parts, parts}} <- attrs, {:expr, e} <- parts, do: e
+    acc = acc ++ attr_exprs
+    Enum.reduce(children, acc, &collect_exprs/2)
+  end
+
+  defp collect_exprs({:fragment, children}, acc), do: Enum.reduce(children, acc, &collect_exprs/2)
+
+  defp collect_exprs({:if, ast, then_c, else_c}, acc) do
+    acc = acc ++ [ast]
+    acc = Enum.reduce(then_c, acc, &collect_exprs/2)
+    Enum.reduce(else_c, acc, &collect_exprs/2)
+  end
+
+  defp collect_exprs({:for, _var, coll, children}, acc) do
+    acc = acc ++ [coll]
+    Enum.reduce(children, acc, &collect_exprs/2)
+  end
+
+  defp collect_exprs({:region, _name, children}, acc),
+    do: Enum.reduce(children, acc, &collect_exprs/2)
+
+  defp collect_exprs({:expr, ast}, acc), do: acc ++ [ast]
+  defp collect_exprs(_leaf, acc), do: acc
+
+  # Extracts the state/attr/prop keys an expression AST reads: `@key` sigil
+  # reads (attrs, props, state) and `state.key` accesses (state only).
+  defp ast_referenced_keys(ast) do
+    {_ast, keys} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:@, _meta, [{name, _, ctx}]} = node, acc
+        when is_atom(name) and name != nil and ctx == nil ->
+          {node, MapSet.put(acc, name)}
+
+        {{:., _, [{:state, _, nil}, key]}, _, []} = node, acc when is_atom(key) ->
+          {node, MapSet.put(acc, key)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    MapSet.to_list(keys)
   end
 
   # -- extension-api pin (§8) --------------------------------------------------
@@ -445,7 +804,8 @@ defmodule Noizu.Tessera.Component.Extension do
     raise CompileError,
       file: env.file,
       line: env.line,
-      description: "tessera extension_api pin must be a semver requirement string, got: #{inspect(other)}"
+      description:
+        "tessera extension_api pin must be a semver requirement string, got: #{inspect(other)}"
   end
 
   # Elixir's Version understands "~> x.y" / exact, not npm's caret. "^x.y.z"
@@ -527,7 +887,7 @@ defmodule Noizu.Tessera.Component.Extension do
           end
         end)
 
-      [quote do: (unquote_splicing(clauses))]
+      [quote(do: (unquote_splicing(clauses)))]
     else
       []
     end

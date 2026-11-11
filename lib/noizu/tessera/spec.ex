@@ -63,7 +63,14 @@ defmodule Noizu.Tessera.Spec do
             # the base unless the derived module declares its own pin).
             derived_from: nil,
             priority: 0,
-            extension_api: nil
+            extension_api: nil,
+            # Template regions (EXTENSION-CONTRACT.md §5.4, brief 2d):
+            # `regions` lists the regions declared by the compiled template
+            # (preorder, outer before inner) as `%{name: atom, nested: [atom]}`;
+            # `region_overrides` lists the region names this derived module
+            # overrides via `slot_template` (empty for a fresh component).
+            regions: [],
+            region_overrides: []
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -85,10 +92,15 @@ defmodule Noizu.Tessera.Spec do
           optional(:line) => non_neg_integer()
         }
 
+  @type region_entry :: %{required(:name) => atom(), required(:nested) => [atom()]}
+
   @type event_entry :: %{
           required(:name) => Naming.kebab(),
           optional(:detail) => %{Naming.snake() => atom()},
-          optional(:line) => non_neg_integer()
+          optional(:line) => non_neg_integer(),
+          optional(:inherited) => boolean(),
+          optional(:renames) => Naming.kebab(),
+          optional(:renamed_from) => Naming.kebab()
         }
 
   @type slot_entry :: %{required(:name) => String.t(), optional(:line) => non_neg_integer()}
@@ -116,14 +128,20 @@ defmodule Noizu.Tessera.Spec do
           optional(:fn_ast) => Macro.t(),
           optional(:inherited) => boolean(),
           optional(:internal) => boolean(),
+          optional(:re_emit) => boolean(),
           optional(:line) => non_neg_integer()
         }
+
+  @type region_method :: %{required(:name) => atom(), required(:js) => String.t()}
 
   @type template_entry :: %{
           required(:raw) => String.t(),
           required(:lexer) => :hologram | :minimal,
           required(:render_js) => String.t(),
-          optional(:line) => non_neg_integer()
+          optional(:line) => non_neg_integer(),
+          optional(:regions) => [region_entry()],
+          optional(:region_methods) => [region_method()],
+          optional(:region_overrides) => [atom()]
         }
 
   @type style_entry :: %{
@@ -161,7 +179,9 @@ defmodule Noizu.Tessera.Spec do
           lifecycle: lifecycle(),
           derived_from: module() | nil,
           priority: integer(),
-          extension_api: String.t() | nil
+          extension_api: String.t() | nil,
+          regions: [region_entry()],
+          region_overrides: [atom()]
         }
 
   @doc """
@@ -519,9 +539,11 @@ defmodule Noizu.Tessera.Spec do
         end),
       "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name)),
       "lifecycle" =>
-        (for hook <- [:should_update, :will_update, :first_updated, :updated],
-             Map.has_key?(spec.lifecycle, hook),
-             do: Atom.to_string(hook)),
+        for(
+          hook <- [:should_update, :will_update, :first_updated, :updated],
+          Map.has_key?(spec.lifecycle, hook),
+          do: Atom.to_string(hook)
+        ),
       "template" =>
         if spec.template do
           %{"lexer" => Atom.to_string(spec.template.lexer), "raw" => spec.template.raw}

@@ -29,7 +29,13 @@ fixtures = [
   Tessera.TestFixtures.Conformance.Styles,
   Tessera.TestFixtures.Conformance.Slots,
   Tessera.TestFixtures.Conformance.Directives,
-  Tessera.TestFixtures.Conformance.Pipeline
+  Tessera.TestFixtures.Conformance.Pipeline,
+  # X-17 (brief 2d): the first DERIVED conformance pair — the vendor element
+  # replaces the base's `:row` region via slot_template + {%super%}. Its
+  # generated element imports the base element by relative path, which lands
+  # correctly because both fixtures are emitted into the same directory.
+  Tessera.TestFixtures.Conformance.RegionBase,
+  Tessera.TestFixtures.Conformance.RegionVendor
 ]
 
 out_dir = Path.expand("js/test/fixtures/conformance", File.cwd!())

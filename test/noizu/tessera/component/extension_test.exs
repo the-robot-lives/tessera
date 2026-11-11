@@ -34,7 +34,12 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
         %{name: :increment, js: "({ ...state, count: (state.count + 1) })", fn_ast: nil, line: 7}
       ],
       styles: [%{kind: :css, value: "a{}", line: 8}],
-      template: %{raw: "<div>{@count}</div>", lexer: :minimal, render_js: "html`<div></div>`", line: 9},
+      template: %{
+        raw: "<div>{@count}</div>",
+        lexer: :minimal,
+        render_js: "html`<div></div>`",
+        line: 9
+      },
       lifecycle: %{}
     }
   end
@@ -64,12 +69,14 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
       merged =
         Extension.merge_spec!(
           base_spec(),
-          deltas(%{attrs: [%{name: :badge, type: :string, required: false, default: "", line: 20}]}),
+          deltas(%{
+            attrs: [%{name: :badge, type: :string, required: false, default: "", line: 20}]
+          }),
           __ENV__
         )
 
       assert Enum.map(merged.attrs, & &1.name) == [:label, :disabled, :badge]
-      assert Enum.map(merged.attrs, & !!&1[:inherited]) == [true, true, false]
+      assert Enum.map(merged.attrs, &(!!&1[:inherited])) == [true, true, false]
     end
 
     test "override-by-name replaces wholesale and is not marked inherited" do
@@ -104,7 +111,9 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
       merged =
         Extension.merge_spec!(
           base_spec(),
-          deltas(%{attrs: [%{name: :label, type: :string, required: false, default: "x", line: 20}]}),
+          deltas(%{
+            attrs: [%{name: :label, type: :string, required: false, default: "x", line: 20}]
+          }),
           __ENV__
         )
 
@@ -157,7 +166,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
         )
 
       assert Enum.map(merged.styles, & &1.value) == ["a{}", "b{}"]
-      assert Enum.map(merged.styles, & !!&1[:inherited]) == [true, false]
+      assert Enum.map(merged.styles, &(!!&1[:inherited])) == [true, false]
     end
 
     test "template: author replaces; absent inherits the base raw markup" do
@@ -454,6 +463,457 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
         action :brand_new, fn state, params ->
           base_action(:brand_new, state, params)
         end
+        """)
+      end
+    end
+  end
+
+  # -- brief 2d: event renames + detail/type guards (§5.5/§5.6) ----------------
+
+  describe "event renames (merge level, §5.6)" do
+    test "rename replaces the inherited event in place: new name, merged detail, provenance" do
+      merged =
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [
+              %{name: "persona-select", detail: %{persona: :string}, renames: "pick", line: 20}
+            ]
+          }),
+          __ENV__
+        )
+
+      assert Enum.map(merged.events, & &1.name) == ["persona-select"]
+      [ev] = merged.events
+      assert ev.detail == %{id: :string, persona: :string}
+      assert ev.renamed_from == "pick"
+      refute Map.has_key?(ev, :renames)
+    end
+
+    test "emission rewrite: inherited action JS re-emits under the new name + :re_emit" do
+      spec = %{
+        base_spec()
+        | actions: [
+            %{
+              name: :increment,
+              js: ~S|emit(this, "pick", {id: state.id}); state|,
+              fn_ast: nil,
+              line: 7
+            }
+          ]
+      }
+
+      merged =
+        Extension.merge_spec!(
+          spec,
+          deltas(%{
+            events: [%{name: "chip-pick", detail: %{}, renames: "pick", line: 20}]
+          }),
+          __ENV__
+        )
+
+      [a] = merged.actions
+      assert a.js == ~S|emit(this, "chip-pick", {id: state.id}); state|
+      assert a[:re_emit] == true
+    end
+
+    test "renaming a non-inherited event is a broken chain" do
+      assert_raise CompileError, ~r/broken rename chain.*not an inherited event/, fn ->
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [%{name: "x-sel", detail: %{}, renames: "nope", line: 20}]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "renaming an already-renamed event is forbidden (no rename chains)" do
+      spec = %{
+        base_spec()
+        | events: [%{name: "pick", detail: %{id: :string}, renamed_from: "orig", line: 4}]
+      }
+
+      assert_raise CompileError, ~r/broken rename chain.*already a rename/, fn ->
+        Extension.merge_spec!(
+          spec,
+          deltas(%{
+            events: [%{name: "pick-again", detail: %{}, renames: "pick", line: 20}]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "renaming an event to itself raises" do
+      assert_raise CompileError, ~r/renames itself/, fn ->
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [%{name: "pick", detail: %{}, renames: "pick", line: 20}]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "a rename landing on an existing inherited name is a target conflict" do
+      spec = %{
+        base_spec()
+        | events: [
+            %{name: "pick", detail: %{id: :string}, line: 4},
+            %{name: "swap", detail: %{}, line: 4}
+          ]
+      }
+
+      assert_raise CompileError, ~r/rename target conflict/, fn ->
+        Extension.merge_spec!(
+          spec,
+          deltas(%{
+            events: [%{name: "pick", detail: %{}, renames: "swap", line: 20}]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "two renames of the same inherited event raise" do
+      assert_raise CompileError, ~r/rename the same inherited event/, fn ->
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [
+              %{name: "a-sel", detail: %{}, renames: "pick", line: 20},
+              %{name: "b-sel", detail: %{}, renames: "pick", line: 21}
+            ]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "a non-string renames: target raises" do
+      assert_raise CompileError, ~r/`renames:` must name the inherited event as a string/, fn ->
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [%{name: "a-sel", detail: %{}, renames: :pick, line: 20}]
+          }),
+          __ENV__
+        )
+      end
+    end
+
+    test "removal guard exempts exactly the renamed-away base name" do
+      merged =
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [%{name: "persona-select", detail: %{}, renames: "pick", line: 20}]
+          }),
+          __ENV__
+        )
+
+      # every OTHER inherited kind still carries its base names (assert_no_removal!
+      # would have raised on any loss before returning)
+      assert Enum.map(merged.attrs, & &1.name) == [:label, :disabled]
+      assert Enum.map(merged.state, & &1.name) == [:count]
+    end
+  end
+
+  describe "detail narrowing + type-change guards (merge level, §5.5/§5.6)" do
+    test "re-declaring an event with a retyped detail key narrows the inherited detail" do
+      assert_raise CompileError,
+                   ~r/narrows the inherited detail key :id from :string to :integer/,
+                   fn ->
+                     Extension.merge_spec!(
+                       base_spec(),
+                       deltas(%{events: [%{name: "pick", detail: %{id: :integer}, line: 20}]}),
+                       __ENV__
+                     )
+                   end
+    end
+
+    test "retyping a key the base template READS is rejected (§5.5 reference graph)" do
+      assert_raise CompileError,
+                   ~r/type-change guard.*retypes state :count from :integer to :string/,
+                   fn ->
+                     Extension.merge_spec!(
+                       base_spec(),
+                       deltas(%{state: [%{name: :count, type: :string, default: "", line: 20}]}),
+                       __ENV__
+                     )
+                   end
+    end
+
+    test "retyping a key the base never reads is allowed (attr :label in the fixture)" do
+      merged =
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            attrs: [%{name: :label, type: :integer, required: false, default: 5, line: 20}]
+          }),
+          __ENV__
+        )
+
+      assert Enum.find(merged.attrs, &(&1.name == :label)).type == :integer
+    end
+
+    test "an event rename may also extend detail but never retype it" do
+      assert_raise CompileError, ~r/narrows the inherited detail key/, fn ->
+        Extension.merge_spec!(
+          base_spec(),
+          deltas(%{
+            events: [
+              %{name: "persona-select", detail: %{id: :integer}, renames: "pick", line: 20}
+            ]
+          }),
+          __ENV__
+        )
+      end
+    end
+  end
+
+  # -- brief 2d: regions + slot_template (compile level, §5.4/§5.7) -------------
+
+  defp compile_region_base(id) do
+    dir = Path.join(@tmp_dir, "tessera_ext_rbase_#{id}")
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "base_region_#{id}.ex")
+    mod = "Tessera.Ext.RBase#{id}"
+
+    Code.compile_string(
+      """
+      defmodule #{mod} do
+        use Noizu.Tessera.Component, tag: "ext-rbase-#{id}", js: "rbase_#{id}.mjs"
+        attr :label, :string, required: true
+        state :count, :integer, default: 0
+        event "row-pick", detail: %{id: :string}
+        template ~TSR'<div class="card">{%region :header}<h2>hdr</h2>{%endregion}<ul><li class="outer">{%region :outer}O{%region :inner}I<em>{@label}</em>{%endregion}x{%endregion}</li></ul></div>'
+        action :pick, fn state, _params ->
+          emit("row-pick", %{id: "x"})
+          state
+        end
+      end
+      """,
+      path
+    )
+
+    {String.to_atom("Elixir." <> mod), dir}
+  end
+
+  defp artifact(dir, tag, suffix), do: Path.join(dir, "#{tag}.#{suffix}")
+
+  describe "regions + slot_template (compile level, §5.4)" do
+    test "a fresh base compiles region methods into its element module" do
+      id = :erlang.unique_integer([:positive])
+      {_base, dir} = compile_region_base(id)
+      element = File.read!(artifact(dir, "ext-rbase-#{id}", "element.generated.mjs"))
+
+      assert element =~ "__region_header() {"
+      assert element =~ "__region_outer() {"
+      assert element =~ "__region_inner() {"
+      assert element =~ "${this.__region_header()}"
+      assert element =~ "${this.__region_outer()}"
+    end
+
+    test "region names with nested sets survive into the spec" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+      spec = base.__tessera_spec__()
+
+      assert spec.regions == [
+               %{name: :header, nested: []},
+               %{name: :outer, nested: [:inner]},
+               %{name: :inner, nested: []}
+             ]
+    end
+
+    test "slot_template override composes via {%super%} → super.__region_x()" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      derived =
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        slot_template :header, ~TSR'<h2 class="vh">{%super%}</h2>'
+        """)
+
+      spec = derived.__tessera_spec__()
+      assert spec.region_overrides == [:header]
+
+      dir = Path.join(@tmp_dir, "tessera_ext_derived_#{id}")
+      element = File.read!(artifact(dir, "ext-rder-#{id}", "element.generated.mjs"))
+      assert element =~ "__region_header() {"
+      assert element =~ "super.__region_header()"
+      # regions the derived never overrides ride the ES chain — not re-emitted
+      refute element =~ "__region_outer() {"
+    end
+
+    test "override of a nesting region must keep the nested region set (§5.7 mismatch)" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      assert_raise CompileError, ~r/region mismatch.*nested region set/, fn ->
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        slot_template :outer, ~TSR'<div class="flat">{%super%}</div>'
+        """)
+      end
+    end
+
+    test "override that keeps the nested set compiles and redefines the nested region too" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      derived =
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        slot_template :outer, ~TSR'<div class="v-outer">{%region :inner}<b>v</b>{%endregion}{%super%}</div>'
+        """)
+
+      assert derived.__tessera_spec__().region_overrides == [:outer]
+      dir = Path.join(@tmp_dir, "tessera_ext_derived_#{id}")
+      element = File.read!(artifact(dir, "ext-rder-#{id}", "element.generated.mjs"))
+      assert element =~ "super.__region_outer()"
+      assert element =~ "__region_inner() {"
+    end
+
+    test "override of an unknown region is a CompileError (§5.7)" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      assert_raise CompileError,
+                   ~r/unknown override.*slot_template :nope.*declares no region/,
+                   fn ->
+                     compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+                     slot_template :nope, ~TSR"<b>x</b>"
+                     """)
+                   end
+    end
+
+    test "duplicate overrides of the same region are a CompileError" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      assert_raise CompileError, ~r/duplicate tessera slot_template/, fn ->
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        slot_template :header, ~TSR"<h2>a</h2>"
+        slot_template :header, ~TSR"<h2>b</h2>"
+        """)
+      end
+    end
+
+    test "slot_template on a fresh component is a CompileError" do
+      id = :erlang.unique_integer([:positive])
+      dir = Path.join(@tmp_dir, "tessera_ext_rfresh_#{id}")
+      File.mkdir_p!(dir)
+
+      assert_raise CompileError, ~r/slot_template.*on a fresh component/, fn ->
+        Code.compile_string(
+          """
+          defmodule Tessera.Ext.RFresh#{id} do
+            use Noizu.Tessera.Component, tag: "ext-rfresh-#{id}", js: "rfresh_#{id}.mjs"
+            template ~TSR"<div>x</div>"
+            slot_template :header, ~TSR"<h2>a</h2>"
+          end
+          """,
+          Path.join(dir, "rfresh.ex")
+        )
+      end
+    end
+
+    test "{%super%} in a base template (outside any override) fails the compile" do
+      id = :erlang.unique_integer([:positive])
+      dir = Path.join(@tmp_dir, "tessera_ext_rsuper_#{id}")
+      File.mkdir_p!(dir)
+
+      assert_raise CompileError, ~r/only valid inside a slot_template/, fn ->
+        Code.compile_string(
+          """
+          defmodule Tessera.Ext.RSuper#{id} do
+            use Noizu.Tessera.Component, tag: "ext-rsuper-#{id}", js: "rsuper_#{id}.mjs"
+            template ~TSR"<div>{%region :a}{%super%}{%endregion}</div>"
+          end
+          """,
+          Path.join(dir, "rsuper.ex")
+        )
+      end
+    end
+
+    test "region nesting beyond 8 fails the compile" do
+      id = :erlang.unique_integer([:positive])
+      dir = Path.join(@tmp_dir, "tessera_ext_rdeep_#{id}")
+      File.mkdir_p!(dir)
+
+      body =
+        Enum.map_join(1..9, "", fn i -> "{%region :r#{i}}" end) <>
+          "x" <> String.duplicate("{%endregion}", 9)
+
+      assert_raise CompileError, ~r/nest more than 8 regions deep/, fn ->
+        Code.compile_string(
+          """
+          defmodule Tessera.Ext.RDeep#{id} do
+            use Noizu.Tessera.Component, tag: "ext-rdeep-#{id}", js: "rdeep_#{id}.mjs"
+            template ~TSR"<div>#{body}</div>"
+          end
+          """,
+          Path.join(dir, "rdeep.ex")
+        )
+      end
+    end
+  end
+
+  describe "event rename end-to-end (compile level, §5.6)" do
+    test "rename rewrites the inherited emission and shadows the action; base artifacts untouched" do
+      id = :erlang.unique_integer([:positive])
+      {base, base_dir} = compile_region_base(id)
+
+      derived =
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        event "persona-select", detail: %{persona: :string}, renames: "row-pick"
+        """)
+
+      spec = derived.__tessera_spec__()
+      assert Enum.map(spec.events, & &1.name) == ["persona-select"]
+      [ev] = spec.events
+      assert ev.detail == %{id: :string, persona: :string}
+      assert ev.renamed_from == "row-pick"
+
+      dir = Path.join(@tmp_dir, "tessera_ext_derived_#{id}")
+      element = File.read!(artifact(dir, "ext-rder-#{id}", "element.generated.mjs"))
+      # rewritten emission + shadowing re-emit of the base action
+      assert element =~ ~S|emit(this, "persona-select"|
+      refute element =~ ~S|emit(this, "row-pick"|
+      assert element =~ "__action_pick"
+
+      base_element = File.read!(artifact(base_dir, "ext-rbase-#{id}", "element.generated.mjs"))
+      assert base_element =~ ~S|emit(this, "row-pick"|
+      refute base_element =~ "persona-select"
+
+      contract_files = Path.wildcard(Path.join(dir, "*.contract.generated.mjs"))
+      assert contract_files != []
+      contract = contract_files |> hd() |> File.read!()
+      assert contract =~ "persona-select"
+      refute contract =~ "row-pick"
+    end
+
+    test "type-change guard fires on a compile-level derived override" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      assert_raise CompileError, ~r/type-change guard/, fn ->
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        attr :label, :integer, required: true
+        """)
+      end
+    end
+
+    test "detail narrowing fires on a compile-level derived redeclare" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_region_base(id)
+
+      assert_raise CompileError, ~r/narrows the inherited detail key/, fn ->
+        compile_derived(base, id, ~s(tag: "ext-rder-#{id}"), """
+        event "row-pick", detail: %{id: :integer}
         """)
       end
     end
