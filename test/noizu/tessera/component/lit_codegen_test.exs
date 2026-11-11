@@ -23,7 +23,11 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       events: [%{name: "count-change", detail: %{count: :integer}, line: 4}],
       state: [%{name: :count, type: :integer, default: 0, line: 3}],
       actions: [
-        %{name: :increment, js: ~S|(() => { return ({ ...state, count: (state.count + 1) }); })()|, line: 5}
+        %{
+          name: :increment,
+          js: ~S|(() => { return ({ ...state, count: (state.count + 1) }); })()|,
+          line: 5
+        }
       ],
       template: %{
         lexer: :minimal,
@@ -97,7 +101,10 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
 
       assert LitCodegen.write_wrapper_module(spec(), dir) == :written
       wrapper = Path.join(dir, spec().js)
-      assert File.read!(wrapper) =~ "import { register } from \"./spike-widget.element.generated.mjs\""
+
+      assert File.read!(wrapper) =~
+               "import { register } from \"./spike-widget.element.generated.mjs\""
+
       assert File.read!(wrapper) =~ "register();"
 
       # a hand-written wrapper is never clobbered

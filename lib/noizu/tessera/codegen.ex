@@ -110,6 +110,12 @@ defmodule Noizu.Tessera.Codegen do
   @doc """
   A Custom Elements Manifest (schemaVersion #{@cem_schema_version}) covering
   `specs`, as a JSON-encodable map with string keys.
+
+  Per component declaration: `tagName`, `attributes` (kebab name, type,
+  required flag, JSON-literal default), `members` (camelCase property fields
+  with type, `json` flag and JSON-literal default), `events` (name +
+  camelCase detail schema), `slots`, `cssProperties` (name + default) and
+  `cssParts` — the last two fed by the spec DSL's `css`/`part` declarations.
   """
   @spec cem([Spec.t()]) :: map()
   def cem(specs) when is_list(specs) do
@@ -184,7 +190,11 @@ defmodule Noizu.Tessera.Codegen do
               "type" => %{"text" => Atom.to_string(p.type)}
             }
 
-            if p[:json], do: Map.put(member, "json", true), else: member
+            member = if p[:json], do: Map.put(member, "json", true), else: member
+
+            if p[:default] != nil,
+              do: Map.put(member, "default", Spec.json_literal(p[:default])),
+              else: member
           end),
         "events" =>
           Enum.map(spec.events, fn e ->
@@ -198,7 +208,13 @@ defmodule Noizu.Tessera.Codegen do
                 end)
             }
           end),
-        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end)
+        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
+        "cssProperties" =>
+          Enum.map(spec.css_properties, fn c ->
+            base = %{"name" => c.name}
+            if c[:default] != nil, do: Map.put(base, "default", c.default), else: base
+          end),
+        "cssParts" => Enum.map(spec.parts, fn p -> %{"name" => p.name} end)
       }
     ]
 

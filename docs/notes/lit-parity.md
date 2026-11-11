@@ -614,7 +614,7 @@ Notes convention: every 🔌 says how and every ❌ says why in Notes; ❓ carri
 | 191 | Observers | @lit-labs/observers | ❌ | 🔌 Usable with compiled Lit elements (controller-based, so limited) | ❌ | controller-based — no controller host |
 | 192 | Scoped registry mixin | @lit-labs/scoped-registry-mixin | ❌ | 🔌 subclassing | 🔌 | tag→module map is per-runtime-instance; customElements global registry caveat · Tier 1: usable via subclassing only, not generated |
 | 193 | Wrapper generators | @lit-labs/gen-wrapper-* | ❌ | ❌ | 🔌 Generate from wrapper CEM | Tier 1: not implemented |
-| 194 | Custom Elements Manifest | @custom-elements-manifest/analyzer | 🔌 Analyze hand-written elements | ❌ | 🔌 Analyze wrapper classes | Tier 1: contract.generated.mjs is a wire contract, not a CEM; nothing generated |
+| 194 | Custom Elements Manifest | @custom-elements-manifest/analyzer | ✅ Generated from spec DSL (`Codegen.cem/1`; `mix tessera.cem` / `tessera.manifest`) + interactive gallery (`mix tessera.gen.gallery`) | ❌ | 🔌 Analyze wrapper classes | CEM (schemaVersion 1.0.0) is generated from the spec DSL — attrs/props (name, type, default), events + detail schema, slots, cssProperties, cssParts; `mix tessera.gen.gallery` scaffolds a live gallery from it. `contract.generated.mjs` remains the separate wire contract, not the CEM. |
 
 ### 2.14 Tooling and DX
 

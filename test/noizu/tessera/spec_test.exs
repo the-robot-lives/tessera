@@ -119,6 +119,42 @@ defmodule Noizu.Tessera.SpecTest do
     end
   end
 
+  describe "validate! :part" do
+    test "accepts lowercase part names" do
+      assert Spec.validate!(:part, "select-button", %{}, "t.ex", 1) == :ok
+      assert Spec.validate!(:part, "header_left", %{}, "t.ex", 1) == :ok
+    end
+
+    test "rejects other names" do
+      for bad <- ["Select", "1part", "select button", ""] do
+        assert_raise CompileError, ~r/tessera part name/, fn ->
+          Spec.validate!(:part, bad, %{}, "t.ex", 1)
+        end
+      end
+    end
+  end
+
+  describe "validate! :css" do
+    test "accepts --kebab custom property names with a string default" do
+      assert Spec.validate!(:css, "--persona-card-accent", [default: "#6366f1"], "t.ex", 1) == :ok
+      assert Spec.validate!(:css, "--gap", [], "t.ex", 1) == :ok
+    end
+
+    test "rejects names that are not lowercase --kebab custom properties" do
+      for bad <- ["accent", "-accent", "--Accent", "--accent_color", "--1accent", ""] do
+        assert_raise CompileError, ~r/tessera css property/, fn ->
+          Spec.validate!(:css, bad, [], "t.ex", 1)
+        end
+      end
+    end
+
+    test "rejects non-string defaults" do
+      assert_raise CompileError, ~r/default must be a string/, fn ->
+        Spec.validate!(:css, "--gap", [default: 4], "t.ex", 1)
+      end
+    end
+  end
+
   describe "json_literal/1" do
     test "maps nil and booleans" do
       assert Spec.json_literal(nil) == "null"
@@ -223,7 +259,9 @@ defmodule Noizu.Tessera.SpecTest do
         attrs: [%{name: :display_name, type: :string, required: true, default: nil, line: 3}],
         props: [%{name: :tag_list, type: :list, json: true, default: [], line: 4}],
         events: [%{name: "persona-select", detail: %{persona_id: :string}, line: 5}],
-        slots: [%{name: "header", line: 6}]
+        slots: [%{name: "header", line: 6}],
+        css_properties: [%{name: "--persona-card-accent", default: "#6366f1", line: 7}],
+        parts: [%{name: "select-button", line: 8}]
       }
 
       map = Spec.to_manifest_map(spec)
@@ -250,6 +288,10 @@ defmodule Noizu.Tessera.SpecTest do
                  %{"name" => "persona-select", "detail" => %{"personaId" => "string"}}
                ],
                "slots" => ["header"],
+               "cssProperties" => [
+                 %{"name" => "--persona-card-accent", "default" => "#6366f1"}
+               ],
+               "parts" => ["select-button"],
                "state" => [],
                "actions" => [],
                "template" => nil

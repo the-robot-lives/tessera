@@ -165,9 +165,28 @@ jobs:
           done
           echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
 
-      # @fast = the Linux-green core-claim legs (plain_html, hologram_nav,
-      # hologram_main leg (b)). grepFilterSpecs loads only these specs. This is
-      # the hard gate behind the shadow-event core claim — BLOCKING in both lanes.
+      # The generated package gallery (mix tessera.gen.gallery) — static HTML
+      # + the package's own bundles, driven by custom-elements.json. The
+      # component .mjs import their contract.generated.mjs siblings, so
+      # persona_kit must be compiled first; esbuild resolves the components'
+      # bare imports from persona_kit's node_modules (installed above).
+      - name: Boot component gallery on :5588
+        run: |
+          (cd examples/persona_kit && mix deps.get && mix compile)
+          cd examples/persona_kit/gallery
+          npm ci
+          npm run build
+          nohup npm run serve > /tmp/gallery.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5588/ && exit 0
+            sleep 1
+          done
+          echo "::error::gallery did not come up on :5588"; tail -20 /tmp/gallery.log; exit 1
+
+      # @fast = the Linux-green core-claim legs (plain_html, gallery,
+      # hologram_nav, hologram_main leg (b)). grepFilterSpecs loads only these
+      # specs. This is the hard gate behind the shadow-event core claim —
+      # BLOCKING in both lanes.
       - name: Cypress FAST smoke (blocking core claim, @fast)
         working-directory: demo/e2e
         run: |

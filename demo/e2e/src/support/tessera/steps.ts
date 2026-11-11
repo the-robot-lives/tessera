@@ -8,6 +8,7 @@
 // browser against a host server) without touching the specs.
 const HOLOGRAM: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
 const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
+const GALLERY: string = Cypress.env("tsrGalleryUrl") ?? "http://localhost:5588";
 
 export const tesseraSteps = {
   visitHologramMain(): void {
@@ -20,6 +21,22 @@ export const tesseraSteps = {
 
   visitPlain(): void {
     cy.visit(`${PLAIN}/`);
+  },
+
+  visitGallery(): void {
+    cy.visit(`${GALLERY}/`);
+  },
+
+  /**
+   * Set a gallery JSON editor's value and fire `input` — for brace-heavy
+   * payloads where Cypress `.type` would parse `{}` as special sequences.
+   */
+  setGalleryJson(selector: string, value: string): void {
+    cy.get(selector).then(($el) => {
+      const node = $el[0] as HTMLTextAreaElement | HTMLInputElement;
+      node.value = value;
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+    });
   },
 
   /** Mount proof (CONVENTIONS §7 requirement 1): the custom element is DEFINED. */

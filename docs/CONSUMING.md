@@ -82,6 +82,18 @@ writes `tessera-manifest.json` (full specs) and `custom-elements.json`
 (Custom Elements Manifest, schemaVersion "1.0.0") into the current directory —
 commit them where your tooling or downstream consumers expect.
 
+`mix tessera.cem` writes just the CEM for the current project's package(s)
+(`--package Module` to scope, `--output PATH` to relocate). The package module
+also exposes it programmatically as `cem/0`.
+
+### Interactive gallery
+
+`mix tessera.gen.gallery` scaffolds a framework-agnostic interactive gallery
+from the package CEM — live demos, typed attr/prop editors, slot-content
+editing, CSS custom-property theming and an event log per component. See
+`docs/AUTHORING.md` § Gallery for the build/serve steps;
+`examples/persona_kit/gallery` is a working, e2e-tested instance.
+
 ## 5. Runtime model (what the wiring does)
 
 - **Server render:** tessera components render as their tag with kebab-case

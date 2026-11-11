@@ -1,0 +1,140 @@
+{
+  "modules": [
+    {
+      "declarations": [
+        {
+          "attributes": [
+            {
+              "name": "display-name",
+              "required": true,
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "default": "\"\"",
+              "name": "tagline",
+              "type": {
+                "text": "string"
+              }
+            },
+            {
+              "default": "false",
+              "name": "disabled",
+              "type": {
+                "text": "boolean"
+              }
+            }
+          ],
+          "cssParts": [
+            {
+              "name": "select-button"
+            }
+          ],
+          "cssProperties": [
+            {
+              "default": "#6366f1",
+              "name": "--persona-card-accent"
+            }
+          ],
+          "customElements": false,
+          "description": "tessera component persona-card (spec: PersonaKit.PersonaCard)",
+          "events": [
+            {
+              "detail": {
+                "clickCount": {
+                  "text": "integer"
+                },
+                "personaId": {
+                  "text": "string"
+                }
+              },
+              "name": "persona-select",
+              "type": {
+                "text": "CustomEvent"
+              }
+            }
+          ],
+          "kind": "custom-element-definition",
+          "members": [
+            {
+              "default": "[]",
+              "json": true,
+              "kind": "field",
+              "name": "tagList",
+              "type": {
+                "text": "list"
+              }
+            }
+          ],
+          "name": "persona-card",
+          "slots": [
+            {
+              "name": "default"
+            },
+            {
+              "name": "footer"
+            }
+          ],
+          "tagName": "persona-card"
+        }
+      ],
+      "kind": "javascript-module",
+      "path": "persona_card.mjs"
+    },
+    {
+      "declarations": [
+        {
+          "attributes": [
+            {
+              "name": "title",
+              "required": true,
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "cssParts": [],
+          "cssProperties": [],
+          "customElements": false,
+          "description": "tessera component persona-picker (spec: PersonaKit.PersonaPicker)",
+          "events": [
+            {
+              "detail": {
+                "personaId": {
+                  "text": "string"
+                }
+              },
+              "name": "persona-picked",
+              "type": {
+                "text": "CustomEvent"
+              }
+            }
+          ],
+          "kind": "custom-element-definition",
+          "members": [
+            {
+              "default": "[]",
+              "json": true,
+              "kind": "field",
+              "name": "personas",
+              "type": {
+                "text": "list"
+              }
+            }
+          ],
+          "name": "persona-picker",
+          "slots": [
+            {
+              "name": "default"
+            }
+          ],
+          "tagName": "persona-picker"
+        }
+      ],
+      "kind": "javascript-module",
+      "path": "persona_picker.mjs"
+    }
+  ],
+  "schemaVersion": "1.0.0"
+}

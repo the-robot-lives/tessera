@@ -15,7 +15,7 @@ class PersonaCard extends TesseraElement(LitElement, contract) {
   static styles = css`
     :host {
       display: inline-block;
-      border: 1px solid #6366f1;
+      border: 1px solid var(--persona-card-accent, #6366f1);
       border-radius: 8px;
       padding: 12px;
       margin: 4px;
@@ -80,6 +80,7 @@ class PersonaCard extends TesseraElement(LitElement, contract) {
       </div>
       <button
         id="select-btn"
+        part="select-button"
         data-cy="persona-card-btn"
         ?disabled=${disabled}
         @click=${this.#onSelect}

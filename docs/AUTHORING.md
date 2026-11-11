@@ -43,6 +43,8 @@ end
 | `prop :name, :type, json: true` | JSON payload shipped through `tsr-props` | DOM property, camelCased key (`tagList`) |
 | `event "name-detail"` | CustomEvent the element emits | binding prop `on_persona_select`, default action `persona_select`, `data-tsr-on="persona-select:action@target"` |
 | `slot "name"` | declared slot (documented in manifest) | passthrough `<slot />` |
+| `css "--name", default: "…"` | CSS custom property the element reads (CEM + gallery metadata) | `var(--name, …)` in your styles; **not** on the wire contract |
+| `part "name"` | styling hook exposed as `::part(name)` (CEM + gallery metadata) | `part="name"` in your template; **not** on the wire contract |
 | `cy "name"` | `data-cy` value | rendered verbatim |
 
 All DSL options must be compile-time literals (variables and module attributes
@@ -151,6 +153,35 @@ package inside your element for events and shared behavior.
 use Noizu.Tessera.Package, components: [MyApp.Components.PersonaCard]
 ```
 
-generates `components/0` (component modules) and `manifest/0` (aggregated
-manifest maps) on the host module — feed `mix tessera.manifest` with it to
-emit `tessera-manifest.json` + `custom-elements.json` for tooling.
+generates `components/0` (component modules), `manifest/0` (aggregated
+manifest maps), `cem/0` (the package's Custom Elements Manifest) and the
+`__tessera_package__/0` discovery marker on the host module — feed
+`mix tessera.manifest` with it to emit `tessera-manifest.json` +
+`custom-elements.json` for tooling, or `mix tessera.cem` to write just the
+package's `custom-elements.json`.
+
+## Gallery
+
+Every package includes the built-in **interactive component gallery** by
+default — no opt-in flag. From the package's Mix project:
+
+```sh
+mix tessera.gen.gallery            # scaffolds gallery/ from the package CEM
+npm install                        # package root: lit + @noizu/tessera-core
+                                   # (esbuild resolves the components' bare
+                                   #  imports from the component files' dir)
+cd gallery && npm install && npm run build && npm run serve
+```
+
+serves a framework-agnostic gallery on http://localhost:5588 (PORT
+overridable). It reads `gallery/custom-elements.json` and, per component,
+renders a **live demo** plus typed **attribute/property editors**, **slot-content
+editors**, **CSS custom-property editors** (live theming) and an **event log**
+(event name + camelCase detail). The runtime lives in tessera
+`priv/gallery/gallery.mjs`; the generated `gallery/src/main.mjs` imports the
+package's component `.mjs` modules (their load-bearing `register()` defines the
+elements) and that runtime, and esbuild bundles them. Re-run
+`mix tessera.gen.gallery` after changing the package's components.
+
+`examples/persona_kit/gallery` is a checked-in, e2e-tested instance
+(`demo/e2e/src/e2e/gallery.cy.ts`).
