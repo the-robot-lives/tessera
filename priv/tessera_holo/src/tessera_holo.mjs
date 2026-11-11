@@ -37,6 +37,10 @@ import {takeQueuedComponents} from "./register.mjs";
 
 const HOST_SUFFIX = "$h";
 
+// Pre-mount / post-destroy `el.state`: the frozen EMPTY snapshot — never null
+// (EXTENSION-CONTRACT §6.1 instance surface is total).
+export const EMPTY_SNAPSHOT = Object.freeze({});
+
 // Hologram 0.10.1 boxed bitstrings carry `.text` (+ bytes/hex), NOT `.value`
 // — reading `.value` on one yields undefined. Always go through Bitstring.
 function bitstringText(value) {
@@ -116,13 +120,22 @@ function patchExecuteAction() {
       return emitDomEvent(bitstringText(target), action);
     }
 
-    // 2. per-instance onAction hooks (spike item B). Action names are
-    //    accepted in snake/camel/kebab case (EXTENSION-CONTRACT v0.1); all
+    // A dispatchAction wrapper (when this call came from page JS) installs a
+    // per-instance context so the pipeline outcome (commit / veto / stale-drop
+    // / throw) can be wrapped into a DispatchResult — EXTENSION-CONTRACT §6.3.
+    // Internal invocations ($click bindings) run with ctx === null: their
+    // errors are caught + warned here, never rethrown (§6.4).
+    const instance =
+      !T.isNil(target) && T.isBitstring(target) ? instances.get(bitstringText(target)) : null;
+    const ctx = instance ? instance.__dispatch || null : null;
+
+    // 2. per-instance onAction hooks (spike item B, element-owned chain —
+    //    survives disconnect/reconnect, EXTENSION-CONTRACT §6.4). Action names
+    //    are accepted in snake/camel/kebab case (EXTENSION-CONTRACT v0.1); all
     //    actions are open — no allowlist. Multiple hooks on the same action
-    //    compose in registration order (middleware chain); skipping next()
-    //    swallows the action.
-    if (!T.isNil(target) && T.isBitstring(target) && instances.has(bitstringText(target))) {
-      const instance = instances.get(bitstringText(target));
+    //    compose in registration order — FIRST-registered OUTERMOST (onion,
+    //    D3); skipping next() vetoes the action.
+    if (instance) {
       const name = Maps["get/2"](T.atom("name"), action).value;
       const chain = instance.hooks.get(normalizeActionName(name));
 
@@ -131,6 +144,17 @@ function patchExecuteAction() {
 
         const runFrom = (index, currentParams) => {
           if (index >= chain.length) {
+            // Stale-resolution drop: an async stage that called next() after
+            // the element disconnected applies NO state and emits NOTHING —
+            // the dispatch wrapper maps this to {ok:false, reason:"vetoed"}
+            // (U6, §6.4).
+            if (!instances.has(instance.cid)) {
+              if (ctx) ctx.stale = true;
+              return undefined;
+            }
+
+            if (ctx) ctx.ranTerminal = true;
+
             const rebuilt = T.actionStruct({
               name: T.atom(name),
               params: RT.JsInterop.boxActionParam(snakeKeysDeep(currentParams)),
@@ -138,21 +162,70 @@ function patchExecuteAction() {
               delay: Maps["get/3"](T.atom("delay"), action, T.integer(0)),
             });
 
-            return runOriginal(original, rebuilt);
+            openCommit(instance, name);
+
+            try {
+              return runOriginal(original, rebuilt);
+            } catch (error) {
+              consumeCommit(instance);
+              throw error; // outer stage try classifies (ctx) / warns (internal)
+            }
           }
 
+          // Overrides reach downstream stages projected to camelCase (§6.4
+          // params flow); snakeKeysDeep at the terminal re-normalizes for
+          // Elixir. camelKeysDeep is idempotent on already-camel keys.
           const next = (replacement) =>
-            runFrom(index + 1, replacement === undefined ? currentParams : replacement);
+            runFrom(
+              index + 1,
+              replacement === undefined ? currentParams : camelKeysDeep(replacement),
+            );
 
-          return chain[index](currentParams, next);
+          try {
+            return chain[index](currentParams, next);
+          } catch (error) {
+            if (ctx) throw error; // dispatch wrapper classifies + shapes + emits
+            // Internal invocation: a stage that throws surfaces as
+            // tsr-action-error and skips downstream (§6.4), never escapes.
+            emitActionError(instance, normalizeActionName(name), error);
+            return undefined;
+          }
         };
 
         return runFrom(0, params);
       }
     }
 
-    return runOriginal(original, action);
+    // No chain — the stock interpreter runs the action. Register the terminal
+    // for the dispatch wrapper (a no-hook dispatch is a commit when it runs).
+    if (ctx) ctx.ranTerminal = true;
+    if (instance) openCommit(instance, Maps["get/2"](T.atom("name"), action).value);
+
+    try {
+      return runOriginal(original, action);
+    } catch (error) {
+      if (instance) consumeCommit(instance);
+      if (ctx) throw error; // dispatch wrapper classifies (unknown-action vs error)
+      if (instance) emitActionError(instance, Maps["get/2"](T.atom("name"), action).value, error);
+      return undefined;
+    }
   };
+}
+
+// §6.2 Tier-2 commit context — opened exactly when the TERMINAL action runs
+// (a veto or a pre-terminal throw never reaches it). The render that follows
+// the action carries the snake-canonical action name into the
+// `tsr-state-change` detail AND turns a zero-change commit into its exactly
+// one `keys: []` event (X-06 "a transition that changed nothing still
+// fires"); renders without an open commit only fire on a real key change,
+// so prop-update renders stay silent like they are on Tier 1. A throw
+// CONSUMES the context so a failed action can never label a later render.
+function openCommit(instance, name) {
+  instance.__commit = {action: normalizeActionName(String(name)), fired: false};
+}
+
+function consumeCommit(instance) {
+  if (instance.__commit && !instance.__commit.fired) instance.__commit = null;
 }
 
 function runOriginal(original, action) {
@@ -259,7 +332,15 @@ export function mountComponent(shadowRoot, moduleName, props = {}, options = {})
     element: options.element || null,
     patch: null,
     vnode: null,
-    hooks: new Map(),
+    // Element-owned hook map when mounting through TesseraHoloElement —
+    // registrations survive disconnect/reconnect and work pre-mount
+    // (EXTENSION-CONTRACT §6.4). Fallback Map for bare mountComponent users.
+    hooks: options.hooks || new Map(),
+    // tsr-state-change baseline: null until the FIRST render seeds it —
+    // mounting is not a transition, so it must never fire an event.
+    lastSnapshot: null,
+    // Active DispatchResult context (set only by dispatchComponentAction).
+    __dispatch: null,
   };
 
   instances.set(cid, instance);
@@ -358,6 +439,8 @@ function renderInstance(instance) {
   // matching the hostDiv selector so patch updates it in place.
   const vnode = Array.isArray(content) ? h("div", {}, content) : content;
 
+  const prevState = instance.lastSnapshot;
+
   if (!instance.patch) {
     instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
     instance.vnode = instance.patch(toVNode(instance.hostDiv), vnode);
@@ -366,6 +449,62 @@ function renderInstance(instance) {
       instance.vnode = instance.patch(instance.vnode, vnode);
     });
   }
+
+  // tsr-state-change commit point (EXTENSION-CONTRACT §6.2, Tier-2 spike
+  // resolution): fired AFTER the re-render, once per transition, with the
+  // camelCase keys the transition changed and the post-transition snapshot.
+  // An OPEN commit context (a dispatched/template action just ran its
+  // terminal) fires even when nothing changed — exactly one event, keys: [],
+  // detail.action = the snake-canonical name; renders without one fire only
+  // on a real change (prop updates are not transitions). The first render
+  // only seeds the baseline (mount is not a transition); disconnected
+  // instances never fire it. Not bridge traffic — it is a direct element
+  // event and MUST NOT be routed through data-tsr-on.
+  const snap = stateSnapshot(instance);
+
+  if (snap) {
+    instance.lastSnapshot = snap;
+
+    if (prevState) {
+      const keys = changedKeys(prevState, snap);
+      const commit = instance.__commit && !instance.__commit.fired ? instance.__commit : null;
+
+      if ((keys.length > 0 || commit) && instance.element && instance.element.isConnected) {
+        if (commit) {
+          commit.fired = true;
+          instance.__commit = null;
+        }
+
+        const detail = {keys, state: snap};
+
+        if (commit) detail.action = commit.action;
+
+        instance.element.dispatchEvent(
+          new CustomEvent("tsr-state-change", {
+            bubbles: true,
+            composed: true,
+            detail,
+          }),
+        );
+      }
+    }
+  }
+}
+
+// Top-level keys whose value changed (added / removed / !==). Snapshot keys
+// are canonical camelCase (§6.2), so `keys` is camelCase by construction.
+function changedKeys(prev, next) {
+  const keys = [];
+
+  for (const k of Object.keys(next)) {
+    if (!(k in prev) || prev[k] !== next[k]) keys.push(k);
+  }
+
+  for (const k of Object.keys(prev)) {
+    if (!(k in next)) keys.push(k);
+  }
+
+  return keys;
 }
 
 function withFocusPreservation(instance, patchFn) {
@@ -428,18 +567,163 @@ function destroyInstance(instance) {
 function dispatchComponentAction(instance, actionName, params) {
   const T = RT.Type;
 
-  // EXTENSION-CONTRACT v0.1: names + param keys accepted in either case;
-  // every action is dispatchable (no allowlist).
+  // EXTENSION-CONTRACT v0.1 §6.3: names + param keys accepted in either case;
+  // every declared action is dispatchable (D2 — no allowlist). Only UNKNOWN
+  // names are rejected, synchronously-shaped: {ok:false, reason}.
   const snakeName = normalizeActionName(actionName);
+
+  const clean = sanitizeDispatchParams(params || {});
+
+  if (clean.rejected) {
+    // Function-valued params are rejected before the pipeline runs (§6.3) —
+    // a dev warn AND the §6.4 error surface (tsr-action-error), identical to
+    // Tier 1's normalizeParams rejection path (X-20).
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[tessera-holo] dispatchAction('${snakeName}'): function-valued params are rejected`,
+    );
+
+    emitActionError(instance, snakeName, new Error(
+      "tessera: action params must be data-only (function values are rejected)",
+    ));
+
+    return {ok: false, reason: "error"};
+  }
 
   const action = T.actionStruct({
     name: T.atom(snakeName),
-    params: RT.JsInterop.boxActionParam(snakeKeysDeep(params || {})),
+    params: RT.JsInterop.boxActionParam(snakeKeysDeep(clean.value)),
     target: T.bitstring(instance.cid),
     delay: T.integer(0),
   });
 
-  return RT.Hologram.executeAction(action);
+  const ctx = {ranTerminal: false, stale: false};
+  instance.__dispatch = ctx;
+
+  const fail = (error) => {
+    instance.__dispatch = null;
+
+    if (isUnknownActionError(error)) {
+      // §6.3/D2: unknown name — dev-mode warn, no state change, NO event,
+      // no throw. (Pinned for this runtime by the Tier-2 e2e "unknown action"
+      // case + conformance X-07.)
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[tessera-holo] dispatchAction: unknown action '${snakeName}' on ${instance.moduleName}`,
+      );
+
+      return {ok: false, reason: "unknown-action"};
+    }
+
+    emitActionError(instance, snakeName, error);
+
+    return {ok: false, reason: "error"};
+  };
+
+  const settle = (terminalReturn) => {
+    instance.__dispatch = null;
+
+    // Stale-resolution drop: an async stage that applied nothing after
+    // disconnect reports as vetoed (U6 — no new enum value), NO value.
+    if (ctx.stale) return {ok: false, reason: "vetoed"};
+
+    // VETO (§6.4, U1): a stage returned without calling next — the vetoing
+    // stage's return value becomes the DispatchResult value. terminalReturn
+    // is the stage's return (sync) or the chain's resolution (async).
+    if (!ctx.ranTerminal) return {ok: false, reason: "vetoed", value: terminalReturn};
+
+    // U1: value = the post-transition snapshot (fresh per §6.2).
+    return {ok: true, value: stateSnapshot(instance) || EMPTY_SNAPSHOT};
+  };
+
+  let result;
+
+  try {
+    result = RT.Hologram.executeAction(action);
+  } catch (error) {
+    return fail(error);
+  }
+
+  if (result && typeof result.then === "function") {
+    // Any async stage ⇒ Promise<DispatchResult> (§6.3) — callers must treat
+    // both shapes. (Limitation mirrors the stock runtime: an Elixir action
+    // returning a Promise is processed by Hologram's own .then, which the
+    // runtime does not expose; sync actions complete before this resolves.)
+    return result.then(settle, fail);
+  }
+
+  return settle(result);
+}
+
+// Params are untrusted (§6.3, tsr-props reserved-key guard applied to
+// dispatch params): `_`-prefixed keys are stripped with a warn, function
+// values reject the whole dispatch. Returned value keeps input casing —
+// snakeKeysDeep at the pipeline boundary normalizes for Elixir.
+function sanitizeDispatchParams(params) {
+  let rejected = false;
+
+  const walk = (value) => {
+    if (typeof value === "function") {
+      rejected = true;
+      return undefined;
+    }
+
+    if (Array.isArray(value)) return value.map(walk);
+
+    if (value && typeof value === "object" && isPlainObject(value)) {
+      const out = {};
+
+      for (const [k, v] of Object.entries(value)) {
+        if (k.startsWith("_")) {
+          // eslint-disable-next-line no-console
+          console.warn(`[tessera-holo] dispatchAction: reserved param key "${k}" stripped`);
+          continue;
+        }
+
+        out[k] = walk(v);
+
+        if (rejected) return undefined;
+      }
+
+      return out;
+    }
+
+    return value;
+  };
+
+  const value = walk(params);
+
+  return rejected ? {rejected: true} : {rejected: false, value};
+}
+
+// Unknown-action detection: Hologram runs the compiled `action/3` clauses;
+// a name with no matching clause raises a boxed %FunctionClauseError{}
+// (Type.errorStruct: `__struct__` = atom Elixir.FunctionClauseError; the
+// message names the MODULE-QUALIFIED mfa — "no function clause matching in
+// Elixir.HoloKit.Components.StateProbe.action/3:") thrown as
+// HologramBoxedError. Pinned against Hologram 0.10.1 (the clause-error shape)
+// by the Tier-2 e2e unknown-action case + conformance X-07 — do not loosen
+// without re-pinning.
+function isUnknownActionError(error) {
+  try {
+    const Maps = globalThis.Erlang_Maps;
+    const T = RT.Type;
+    const boxed = error && error.value;
+
+    if (!boxed || !T.isMap(boxed)) return false;
+
+    const structAlias = Maps["get/2"](T.atom("__struct__"), boxed);
+
+    if (!structAlias || !String(structAlias.value).endsWith("FunctionClauseError")) {
+      return false;
+    }
+
+    const message = bitstringText(Maps["get/2"](T.atom("message"), boxed));
+
+    return /\baction\/3\b/.test(String(message));
+  } catch (_error) {
+    return false;
+  }
 }
 
 function stateSnapshot(instance) {
@@ -449,30 +733,97 @@ function stateSnapshot(instance) {
 
   const state = globalThis.Erlang_Maps["get/2"](RT.Type.atom("state"), struct);
 
-  // Primary keys are camelCase (CONTRACT.md §1 wire shapes); snake_case
-  // reads also work as aliases (EXTENSION-CONTRACT v0.1) — both are
-  // materialized, the whole snapshot deep-frozen.
-  return deepFreeze(withSnakeAliases(toJs(state)));
+  return makeSnapshot(state);
 }
 
-function withSnakeAliases(value) {
-  if (Array.isArray(value)) return value.map(withSnakeAliases);
+// EXTENSION-CONTRACT §6.2 (mirrors brief 2a's makeSnapshot): fresh frozen
+// snapshot per access. Canonical keys are camelCase (CONTRACT §1 transform of
+// the Elixir state keys); snake_case reads are NON-ENUMERABLE own aliases —
+// Object.keys / JSON.stringify / spread expose camelCase only. Top-level
+// freeze ONLY: nested values are shared references (never deep-frozen — a
+// deep freeze here diverged from Tier 1). `_`-prefixed keys are tessera
+// internals (§6.8, e.g. the __tessera_host__ bridge slot) and never surface.
+//
+// The top-level boxed map is walked term-by-term (not rebuilt through toJs):
+// an action merge creates a NEW map whose untouched values still reference
+// the SAME boxed terms, so nested plain objects are rebuilt once per term
+// and cached in a WeakMap — X-05's `s2.meta === s1.meta` and X-06's
+// zero-change `keys: []` both depend on that reference identity (Tier 1
+// gets it for free from Lit property values).
+const nestedPlainCache = new WeakMap();
 
-  if (value && typeof value === "object") {
-    const out = {};
+function snapshotValue(boxed) {
+  if (boxed === null || boxed === undefined || typeof boxed !== "object") return toJs(boxed);
 
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = withSnakeAliases(v);
+  const type = boxed.type;
 
-      const snakeKey = camelToSnake(k);
+  if (type === "map" || type === "list" || type === "tuple") {
+    let cached = nestedPlainCache.get(boxed);
 
-      if (snakeKey !== k && !(snakeKey in out)) out[snakeKey] = out[k];
+    if (cached === undefined) {
+      cached = toJs(boxed);
+      nestedPlainCache.set(boxed, cached);
     }
 
-    return out;
+    return cached;
   }
 
-  return value;
+  return toJs(boxed);
+}
+
+function makeSnapshot(boxedState) {
+  const snap = {};
+
+  if (boxedState && boxedState.type === "map") {
+    for (const [, [k, v]] of Object.entries(boxedState.data || {})) {
+      const name = camel(keyText(k));
+      if (name.startsWith("_")) continue;
+      snap[name] = snapshotValue(v);
+    }
+  } else {
+    const plain = toJs(boxedState); // already camelCases map keys — don't double-convert
+
+    if (plain && typeof plain === "object") {
+      for (const [k, v] of Object.entries(plain)) {
+        if (k.startsWith("_")) continue;
+        snap[k] = v;
+      }
+    }
+  }
+
+  for (const k of Object.keys(snap)) {
+    const snake = camelToSnake(k);
+
+    if (snake !== k && !(snake in snap)) {
+      Object.defineProperty(snap, snake, {
+        value: snap[k],
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return Object.freeze(snap);
+}
+
+// tsr-action-error — composed + bubbling on the element (§6.4):
+// detail: {action, message, error?}. Never fires for a dropped stale
+// resolution or an unknown-action reject.
+function emitActionError(instance, name, error) {
+  const el = instance && (instance.element || null);
+  if (!el || !el.isConnected) return;
+
+  const message =
+    (error && typeof error.message === "string" && error.message) || String(error);
+
+  el.dispatchEvent(
+    new CustomEvent("tsr-action-error", {
+      bubbles: true,
+      composed: true,
+      detail: {action: name, message, error},
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -538,12 +889,28 @@ export function normalizeActionName(name) {
   return camelToSnake(kebabToSnake(String(name)));
 }
 
+// Realm-neutral plain-object test. A host page's JS and this bundle usually
+// share a realm, but test harnesses (Cypress's spec frame driving the AUT)
+// hand over objects from ANOTHER realm — `Object.getPrototypeOf(x) ===
+// Object.prototype` is then false and params would opaque-box as
+// Hologram.JS.NativeValue instead of maps. The prototype chain of a plain
+// object ends after ONE hop (proto === null || proto's proto === null);
+// class/Date/Map instances take >= 2 hops. JSON-safe param values pass;
+// functions/arrays are handled by callers.
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object") return false;
+
+  const proto = Object.getPrototypeOf(value);
+
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
 // Plain JS object (camelCase keys) -> plain JS object (snake_case keys),
 // recursively. Arrays preserved.
 export function snakeKeysDeep(value) {
   if (Array.isArray(value)) return value.map(snakeKeysDeep);
 
-  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+  if (value && typeof value === "object" && isPlainObject(value)) {
     const out = {};
 
     for (const [k, v] of Object.entries(value)) {
@@ -560,7 +927,7 @@ export function snakeKeysDeep(value) {
 export function camelKeysDeep(value) {
   if (Array.isArray(value)) return value.map(camelKeysDeep);
 
-  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+  if (value && typeof value === "object" && isPlainObject(value)) {
     const out = {};
 
     for (const [k, v] of Object.entries(value)) {
@@ -573,11 +940,3 @@ export function camelKeysDeep(value) {
   return value;
 }
 
-function deepFreeze(value) {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    Object.values(value).forEach(deepFreeze);
-  }
-
-  return value;
-}

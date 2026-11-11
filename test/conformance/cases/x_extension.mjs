@@ -1,11 +1,21 @@
 // Family X — Extension contract (EXTENSION-CONTRACT.md §9, X-01…X-21).
 //
 // One spec, two engines: these pin the extension surface both tiers MUST
-// implement identically. The scaffold implements the representatives whose
-// behavior is on develop today (X-01 registration identity, X-04 bridge
-// snake_case params, X-18 tsr-props key guards). The rest land with the
-// extension briefs (2a–2f Tier 1, 3d/3f Tier 2) and are pending — never green
-// for an unimplemented feature. X-21 is explicitly [PENDING TIER-1] in §9.
+// implement identically (§9 runtime equivalence — "a surface test that
+// cannot pass identically on both tiers is a bug in this document"). The
+// state/action family (X-05…X-11, X-20) runs ONE tier-agnostic body set on
+// BOTH adapters: bodies use only the mount-handle contract (`el.state`,
+// `settle()`, `waitFor`, `nextEvent`) and NEVER a tier-specific affordance
+// (no `el.updateComplete`, no Lit class-field reads like `el.count`, no
+// declaration-order assumptions on snapshot keys — §6.2 does not mandate
+// key order, so key arrays are compared sorted). Both tiers mount the same
+// LOGICAL fixture "pipeline" (Tier 1 `<tsr-conf-pipeline>`, Tier 2 the
+// HoloKit mirror `<tsr-holo-pipeline-probe>` — same state keys, same action
+// semantics, same `internal:` annotation). X-01/X-04/X-18 pin scaffold
+// representatives; X-15 is Tier-1-only by nature (generated manifest maps).
+// Everything else lands with the extension briefs (2a–2f Tier 1, 3f Tier 2)
+// and is pending — never green for an unimplemented feature. X-21 is
+// explicitly [PENDING TIER-1] in §9.
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy} from "../support/dom.mjs";
@@ -74,8 +84,10 @@ export const cases = [
       // Compiled-DSL "pipeline" fixture: state count / selected_id / meta.
       const h = await mount({fixture: "pipeline"});
       const s1 = h.el.state;
-      // canonical camel keys, enumerable, in declaration order
-      expect(Object.keys(s1)).to.deep.equal(["count", "selectedId", "meta"]);
+      // canonical camel keys, enumerable (§6.2 does NOT mandate key ORDER —
+      // Tier-1 inserts in declaration order, Tier-2 in Hologram term order,
+      // so compare sorted; aliases never surface in Object.keys)
+      expect(Object.keys(s1).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
       expect(s1.selectedId).to.equal("none");
       // frozen top level — NOT deep (nested meta is shared by reference)
       expect(Object.isFrozen(s1)).to.equal(true);
@@ -85,7 +97,7 @@ export const cases = [
       expect(Object.getOwnPropertyDescriptor(s1, "selected_id").enumerable).to.equal(false);
       // JSON / spread see camelCase only (D3)
       expect(JSON.parse(JSON.stringify(s1)).selected_id).to.equal(undefined);
-      expect(Object.keys({...s1})).to.deep.equal(["count", "selectedId", "meta"]);
+      expect(Object.keys({...s1}).slice().sort()).to.deep.equal(["count", "meta", "selectedId"]);
       // fresh object per access; nested values shared
       const s2 = h.el.state;
       expect(s2).to.not.equal(s1);
@@ -107,20 +119,26 @@ export const cases = [
       try {
         const r = await h.el.dispatchAction("selectItem", {itemName: "alpha"});
         expect(r.ok).to.equal(true);
-        // event already scheduled at commit — updateComplete must see the NEW DOM
-        await h.el.updateComplete;
+        // event already scheduled at commit — settle() (mount-contract helper:
+        // Tier 1 awaits el.updateComplete, Tier 2 is a tick — render is
+        // synchronous at the Tier-2 commit point) sees the NEW DOM
+        await h.settle();
         expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-selected]").textContent).to.equal("alpha");
         expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("1");
-        // one transition changing TWO keys ⇒ exactly ONE event
+        // one transition changing TWO keys ⇒ exactly ONE event (keys sorted —
+        // §6.2 does not mandate key order)
         expect(seen.length).to.equal(1);
         const d = seen[0];
-        expect(d.keys).to.deep.equal(["count", "selectedId"]);
+        expect(d.keys.slice().sort()).to.deep.equal(["count", "selectedId"]);
         expect(d.state.selectedId).to.equal("alpha");
         expect(d.state.count).to.equal(1);
+        // the dispatched action's snake-canonical name rides along (§6.2)
+        expect(d.action).to.equal("select_item");
         // an action that changes nothing still fires one transition event, keys []
-        h.el.dispatchAction("seedCache");
+        expect((await h.el.dispatchAction("seedCache")).ok).to.equal(true);
         expect(seen.length).to.equal(2);
         expect(seen[1].keys).to.deep.equal([]);
+        expect(seen[1].action).to.equal("seed_cache");
       } finally {
         h.win.document.removeEventListener("tsr-state-change", listener);
       }
@@ -229,7 +247,7 @@ export const cases = [
         expect(r.value).to.equal(vetoReturn); // veto carries the stage's return (U1)
         expect(h.el.state.count).to.equal(0);
         expect(events.length).to.equal(0);
-        await h.el.updateComplete;
+        await h.settle();
         expect(h.shadowRoot.querySelector("[data-cy=conf-pipeline-count]").textContent).to.equal("0");
         // unsubscribe restores the direct path
         off();
@@ -249,6 +267,7 @@ export const cases = [
     title: "async pipeline — post-disconnect resolution applies nothing",
     async run(mount, expect) {
       const h = await mount({fixture: "pipeline"});
+      const preCount = h.el.state.count;
       const events = [];
       const listener = (ev) => events.push(ev);
       h.win.document.addEventListener("tsr-state-change", listener);
@@ -265,10 +284,14 @@ export const cases = [
         h.el.remove(); // disconnect WHILE the pipeline is still running
         release();
         const r = await pending;
-        // U6 stale-drop: applies nothing, reports the veto convention
+        // U6 stale-drop: applies nothing, reports the veto convention, NO value
         expect(r.ok).to.equal(false);
         expect(r.reason).to.equal("vetoed");
-        expect(h.el.count).to.equal(0);
+        expect(r.value).to.equal(undefined);
+        // Tier-2's post-destroy snapshot is the §6.2 frozen-EMPTY object (the
+        // mount is gone), so the count read degrades to "unchanged" there;
+        // Tier 1 still reads the pre-disconnect 0.
+        expect(h.el.state.count ?? preCount).to.equal(preCount);
         expect(events.length).to.equal(0);
       } finally {
         h.win.document.removeEventListener("tsr-state-change", listener);

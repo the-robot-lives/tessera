@@ -690,11 +690,30 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         []
       end
 
-    %{
+    base = %{
       "module" => Atom.to_string(component),
       "element" => element_name_for(component),
       "props" => props
     }
+
+    # §6.1 statics + §6.4 internal-action warn-once on Tier 2: a HoloKit
+    # fixture MAY declare `__tsr_actions__/0` (every action name, snake
+    # atoms, declaration order — the OPEN surface) and
+    # `__tsr_internal_actions__/0` (the `internal: true` subset). Absent ⇒
+    # the keys stay out and the runtime defaults hold (empty actions list,
+    # no warn) — same shape brief 3f codegen will emit for every component.
+    base =
+      if function_exported?(component, :__tsr_actions__, 0) do
+        Map.put(base, "actions", Enum.map(component.__tsr_actions__(), &Atom.to_string/1))
+      else
+        base
+      end
+
+    if function_exported?(component, :__tsr_internal_actions__, 0) do
+      Map.put(base, "internalActions", Enum.map(component.__tsr_internal_actions__(), &Atom.to_string/1))
+    else
+      base
+    end
   end
 
   defp element_name_for(component) do

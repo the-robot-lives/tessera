@@ -594,10 +594,15 @@ surface.
   payload — consumers MUST ignore unknown detail keys); one event per
   transition (an action changing three keys fires one event, not three).
   A transition exists only when the action produced a next-state object —
-  a handler that returns `null`/`undefined` applied nothing and fires nothing.
+  a handler that returns `null`/`undefined` applied nothing and fires nothing;
+  a next-state object that changes nothing fires exactly one event with
+  `keys: []`.
   Timing: after the transition is applied and rendering scheduled —
-  Lit: subscribers awaiting `el.updateComplete` see the new DOM; Tier 2:
-  `[PENDING TIER-2 SPIKE]` for the commit point. The event fires on the
+  Lit: subscribers awaiting `el.updateComplete` see the new DOM; Tier 2: the
+  commit point is after Hologram's synchronous re-render — `#processActionResult`
+  calls `Hologram.render()` before scheduling follow-up actions, so
+  `tsr-state-change` dispatches right after the shim's render patch returns
+  (contract emits land on the later `scheduleAction` macrotask). The event fires on the
   element; it is not bridge traffic and MUST NOT appear in `data-tsr-on`.
 - Transitions rejected by the pipeline (§6.4 veto/error) or dropped after
   disconnect MUST NOT fire the event.
@@ -1017,14 +1022,25 @@ stock Hologram components; no wrapper runtime or notes yet):
 
 - T2-1 — the custom element wrapper: how the Hologram runtime mounts inside
   it; Declarative Shadow DOM emission/hydration (parity roadmap Phase 3).
-- T2-2 — state projection: how Hologram component state surfaces as
-  `el.state` (camelCase canonical + snake aliases) and fires
-  `tsr-state-change`; the commit point after a re-render.
-- T2-3 — action pipeline: where `dispatchAction`/`onAction` intercept relative
-  to the `Emit` seam's synthetic `<cid>$h` bridge and Hologram's dispatcher.
-- T2-4 — event emission parity: `Emit.emit/3` snake→kebab + camelCase detail
-  vs the CONTRACT §1 emit boundary; whether the seam becomes contract or is
-  replaced by the wrapper.
+- T2-2 — state projection — RESOLVED (brief 3d, `priv/tessera_holo/src/tessera_holo.mjs`):
+  `el.state` is a fresh frozen camelCase snapshot per access with
+  non-ENUMERABLE snake_case read aliases (top-level freeze; `_`-prefixed
+  bridge slots filtered); `tsr-state-change` fires once per committed
+  transition AFTER the synchronous `Hologram.render()` inside
+  `#processActionResult` (the commit point), detail `{keys: camelCase changed,
+  state: post snapshot}`; never on veto/error/stale-drop. X-05/X-06.
+- T2-3 — action pipeline — RESOLVED (brief 3d): the shim wraps
+  `Hologram.executeAction`, so `dispatchAction`/`onAction` intercept runs
+  BEFORE the element-owned `Emit` seam's synthetic `<cid>$h` bridge — the
+  onion (first-registered outermost, camelCase params to stages) composes the
+  terminal call as a snake-param `{ok,value}` `DispatchResult`, and unknown
+  actions classify Hologram's boxed `%FunctionClauseError{}` on `action/3`
+  into `{ok:false, reason:"unknown-action"}` + dev warn. X-07…X-11, X-20.
+- T2-4 — event emission parity — RESOLVED (brief 3d, spike-owned): the `Emit`
+  seam IS the contract path on Tier 2 — `HoloKit.Emit.emit/3` dispatches
+  snake→kebab composed+bubbling CustomEvents with camelCase detail through
+  the same `<cid>$h` bridge the wrapper hosts, matching §6.1's wire shape —
+  verified identical to Tier 1 by the shared X-03 case body.
 - T2-5 — template/region semantics under Hologram's own template engine;
   whether the `{%super%}` chain marker translates.
 - T2-6 — cross-runtime derivation (§5.10): supported or `CompileError`.
