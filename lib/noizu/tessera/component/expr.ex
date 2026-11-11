@@ -20,6 +20,10 @@ defmodule Noizu.Tessera.Component.Expr do
     * `if cond do .. else .. end` (expression form)
     * `emit(event, detail)` for declared events (detail atom keys are
       camelCased at this boundary — the JS wire convention, CONTRACT.md §1)
+    * the high-value Lit directives (lit-parity 1d): `class_map(map)`,
+      `style_map(map)`, `if_defined(expr)` and the bare `nothing` sentinel —
+      lowered to `classMap`/`styleMap`/`ifDefined`/`nothing` (the element
+      codegen adds the matching `lit` / `lit/directives/*` imports)
     * allowlisted `Kernel` / `String` / `Enum` calls (see the maps below)
       plus `|>` into any of them
     * single-clause single-argument anonymous `fn` — only as the callback of
@@ -199,6 +203,25 @@ defmodule Noizu.Tessera.Component.Expr do
         nil,
         "tuple {#{snippet(a)}, #{snippet(b)}} is outside the tessera element subset"
       )
+
+  # -- Lit directives (lit-parity 1d) ----------------------------------------
+  # class_map/style_map take a MAP LITERAL (atom keys → JS object keys via
+  # js_object_key; style_map keeps camelCase keys as written — the map-literal
+  # clause does not camelCase). if_defined takes any subset expression. The
+  # bare `nothing` identifier is the Lit sentinel (NOT nil — nil lowers to
+  # null, which __t maps to undefined; nothing must pass through untouched).
+  # These emit the directive NAME only; lit_codegen adds the imports.
+  # Placed before the variables clause so bare `nothing` is not read as a var.
+  defp translate_expr({:class_map, meta, [arg]}, ctx),
+    do: "classMap(" <> directive_map!(arg, meta, ctx, "class_map") <> ")"
+
+  defp translate_expr({:style_map, meta, [arg]}, ctx),
+    do: "styleMap(" <> directive_map!(arg, meta, ctx, "style_map") <> ")"
+
+  defp translate_expr({:if_defined, _meta, [arg]}, ctx),
+    do: "ifDefined(" <> translate_expr(arg, ctx) <> ")"
+
+  defp translate_expr({:nothing, _meta, atom_ctx}, _ctx) when is_atom(atom_ctx), do: "nothing"
 
   # variables
   defp translate_expr({name, _meta, var_ctx}, _ctx)
@@ -414,7 +437,8 @@ defmodule Noizu.Tessera.Component.Expr do
           ctx,
           meta,
           "local call #{fun}/#{length(args)} is outside the tessera element subset — only " <>
-            "allowlisted Kernel/String/Enum functions and emit/2 are in the subset"
+            "allowlisted Kernel/String/Enum functions, emit/2 and the directive forms " <>
+            "(class_map/1, style_map/1, if_defined/1, nothing) are in the subset"
         )
     end
   end
@@ -626,6 +650,21 @@ defmodule Noizu.Tessera.Component.Expr do
       _ ->
         error!(ctx, meta, "pipe into #{snippet(right)} is outside the tessera element subset")
     end
+  end
+
+  # class_map/style_map argument: a map LITERAL only. A map update
+  # (%{base | …}) or any non-map expression is rejected by name — the
+  # directives take a plain object of keys, not a spread.
+  defp directive_map!({:%{}, _m, [{:|, _, _}]}, meta, ctx, name) do
+    error!(ctx, meta, "#{name}/1 requires a map literal, not a map update (%{... | ...})")
+  end
+
+  defp directive_map!({:%{}, _m, pairs}, _meta, ctx, _name) when is_list(pairs) do
+    translate_expr({:%{}, [], pairs}, ctx)
+  end
+
+  defp directive_map!(other, meta, ctx, name) do
+    error!(ctx, meta, "#{name}/1 requires a map literal argument — got: #{snippet(other)}")
   end
 
   defp translate_kv({k, v}, ctx) do

@@ -18,15 +18,13 @@ const baseStyles = css`
 `;
 
 class TsrConfSlots extends TesseraElement(LitElement, contract) {
-  static properties = {
-      label: { type: String },
-    };
+  static properties = {};
 
   static styles = [baseStyles];
 
   constructor() {
     super();
-        this.label = "slots";
+
   }
 
   connectedCallback() {
@@ -59,7 +57,6 @@ class TsrConfSlots extends TesseraElement(LitElement, contract) {
 
   render() {
     return html`<div data-cy="conf-slots-root">
-  <span data-cy="conf-slots-label">${__t(this.label)}</span>
   <div data-cy="conf-slots-default"><slot></slot></div>
   <div data-cy="conf-slots-named"><slot name="header"></slot></div>
   <div data-cy="conf-slots-fallback"><slot name="fb">fallback-content</slot></div>

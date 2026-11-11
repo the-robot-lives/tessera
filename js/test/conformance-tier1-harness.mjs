@@ -29,6 +29,7 @@ import {tag as STATE_TAG, TsrConfState} from "./fixtures/conformance/tsr-conf-st
 import {tag as TEMPLATE_TAG, TsrConfTemplate} from "./fixtures/conformance/tsr-conf-template.element.generated.mjs";
 import {tag as STYLES_TAG, TsrConfStyles} from "./fixtures/conformance/tsr-conf-styles.element.generated.mjs";
 import {tag as SLOTS_TAG, TsrConfSlots} from "./fixtures/conformance/tsr-conf-slots.element.generated.mjs";
+import {tag as DIRECTIVES_TAG, TsrConfDirectives} from "./fixtures/conformance/tsr-conf-directives.element.generated.mjs";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -118,6 +119,7 @@ const FIXTURES = {
   template: {tag: TEMPLATE_TAG, ctor: TsrConfTemplate},
   styles: {tag: STYLES_TAG, ctor: TsrConfStyles},
   slots: {tag: SLOTS_TAG, ctor: TsrConfSlots},
+  directives: {tag: DIRECTIVES_TAG, ctor: TsrConfDirectives},
 };
 
 let defined = false;
@@ -199,7 +201,8 @@ export function cleanup() {
 // set is adapter-pending on Tier 1 (its fixture lands with a feature brief).
 const SUPPORTED = new Set([
   "C-01", "C-03", "C-04", "C-05", "C-06", "C-07", "C-10",
-  "T-01", "T-02", "T-04", "T-05", "T-07", "T-08", "T-09",
+  "T-01", "T-02", "T-04", "T-05", "T-06", "T-07", "T-08", "T-09",
+  "D-01", "D-02", "D-06",
   "S-01", "S-02", "S-03", "S-04", "S-05", "S-06",
   "SD-01", "SD-02", "SD-03",
   "E-01", "E-02", "E-03",

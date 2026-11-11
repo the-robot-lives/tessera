@@ -3,7 +3,8 @@
 // T-01 (child expression) runs against the shared "counter" fixture on both
 // tiers. T-02/T-04/T-05/T-07/T-08/T-09 run against the compiled-DSL "template"
 // fixture (Tier 1; brief 4b case-fill — the template DSL landed via D-T1).
-// T-03 (?attr) and T-06 (nothing) remain pending on briefs 1c / 1d.
+// T-06 (nothing) runs against the compiled "directives" fixture (brief 1d).
+// T-03 (?attr) remains pending on brief 1c/3c's case-fill.
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy, textCy} from "../support/dom.mjs";
@@ -73,7 +74,26 @@ export const cases = [
     },
   }),
 
-  pendingCase({id: "T-06", family: "T", fast: true, title: "nothing sentinel renders no nodes", reason: "nothing directive lands with brief 1d"}),
+  defineCase({
+    id: "T-06",
+    family: "T",
+    fast: true,
+    title: "nothing sentinel renders no nodes",
+    async run(mount, expect) {
+      const h = await mount({fixture: "directives"});
+      // Child position: ${nothing} renders no content nodes — no text, no
+      // elements. lit-html keeps a comment marker for the child part itself
+      // (scaffolding present for ANY child expression), so assert on rendered
+      // content, not the raw childNodes count.
+      const child = h.shadowRoot.querySelector("[data-cy=conf-dir-nothing-child]");
+      expect(child.textContent).to.equal("");
+      expect(child.children.length).to.equal(0);
+      expect([...child.childNodes].every((n) => n.nodeType === 8)).to.equal(true);
+      // Attribute position: title={nothing} removes the attribute.
+      const attr = h.shadowRoot.querySelector("[data-cy=conf-dir-nothing-attr]");
+      expect(attr.hasAttribute("title")).to.equal(false);
+    },
+  }),
 
   defineCase({
     id: "T-07",
