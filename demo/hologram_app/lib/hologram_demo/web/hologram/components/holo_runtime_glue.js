@@ -51,6 +51,41 @@ export function loadHoloRuntime() {
     // Tier-2 mirror of the Tier-1 `tsr-conf-pipeline` fixture — the shared
     // tier-agnostic X-05…X-11/X-20 bodies mount this tag.
     rt.defineElement("tsr-holo-pipeline-probe", "HoloKit.Components.PipelineProbe");
+    // Tier-2 lifecycle recording fixture (brief 3c; LC-01…LC-04 + C-13/C-14
+    // mount tag `tsr-holo-lifecycle`). Same Counter module, mounted through a
+    // recording subclass of the runtime base class: every projected hook
+    // appends {hook, changed, domText} to el.tesseraLifecycleLog, domText read
+    // at hook time from [data-cy="holo-counter-count"] — the evidence that
+    // willUpdate observes the PRE-patch DOM and firstUpdated/updated the
+    // POST-patch DOM (test/conformance/cases/lc_lifecycle.mjs pins the shape).
+    // ES6-safe on purpose (no class fields — the runtime's own bundler targets
+    // es2021 and this file must mirror that discipline).
+    class LifecycleProbeElement extends rt.TesseraHoloElement {
+      recordLifecycle(hook, changed) {
+        if (!this.tesseraLifecycleLog) this.tesseraLifecycleLog = [];
+        const node = this.shadowRoot
+          ? this.shadowRoot.querySelector('[data-cy="holo-counter-count"]')
+          : null;
+        this.tesseraLifecycleLog.push({
+          hook,
+          changed: {...(changed || {})},
+          domText: node ? node.textContent.trim() : "",
+        });
+      }
+      willUpdate(changed) {
+        this.recordLifecycle("willUpdate", changed);
+        super.willUpdate(changed);
+      }
+      firstUpdated(changed) {
+        this.recordLifecycle("firstUpdated", changed);
+        super.firstUpdated(changed);
+      }
+      updated(changed) {
+        this.recordLifecycle("updated", changed);
+        super.updated(changed);
+      }
+    }
+    rt.defineElement("tsr-holo-lifecycle", "HoloKit.Components.Counter", LifecycleProbeElement);
     // takeover first: markup elements upgrade against the layered module
     rt.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
     // the untouched vendor element stays mountable under an explicit alias

@@ -29,6 +29,12 @@
 //     class X extends customElements.get("...") { transformProps(p) {...} }
 //       — documented overridable hooks: `transformProps(props)` (last
 //       chance to alter props before mount/update) and `onActionError(name, error)`.
+//     Brief 3c adds the LIFECYCLE projection (client-side only — Hologram
+//     init/3 never replays in the browser): `willUpdate(changed)` before the
+//     patch, `firstUpdated(changed)` once after the element's first render,
+//     `updated(changed)` after every render — `changed` a plain object of
+//     OLD values (camelCase props+state); plus the render fences
+//     `el.updateComplete` (awaitable) and `el.hasUpdated` (boolean).
 
 import {
   isRuntimeReady,
@@ -64,6 +70,12 @@ export class TesseraHoloElement extends HTMLElement {
     // disconnect/reconnect and can be made pre-mount. mountComponent mounts
     // this same Map into its instance, so live mounts see it immediately.
     this.__tesseraHooks = new Map();
+
+    // brief 3c: element-lifetime render latch (lit-parity §2.1 rows #10/#18).
+    // Set by the shim after the element's FIRST committed render — survives
+    // disconnect/reconnect so firstUpdated fires exactly once per element
+    // lifetime (Lit parity) and hasUpdated keeps its value across remounts.
+    this.__tesseraEverRendered = false;
   }
 
   // Documented overridable hook: alter props before every mount/update.
@@ -75,6 +87,41 @@ export class TesseraHoloElement extends HTMLElement {
   onActionError(name, error) {
     // eslint-disable-next-line no-console
     console.error(`[tessera-holo] action '${name}' failed`, error);
+  }
+
+  // --- brief 3c: lifecycle projection hooks (lit-parity §2.1 rows #7/#10/
+  // #11/#34). The shim calls these from renderInstance — Hologram's JS.call
+  // in init/3 is a SERVER-side pass-through and never replays client-side,
+  // so the lifecycle lives entirely client-side in the shim's render loop,
+  // NOT in Elixir init. `changed` is a PLAIN object of OLD values (camelCase
+  // props+state keys, STATE wins on collision) — never a live Map; the FIRST
+  // render's willUpdate sees props only (the state struct is registered by
+  // renderDom itself — honest runtime limitation, documented row #7). Hook
+  // errors are caught+warned and never abort the shared render loop (Tier-2
+  // divergence from Lit, which propagates). SHOULD call super.
+  willUpdate(_changed) {} // eslint-disable-line no-unused-vars
+
+  firstUpdated(_changed) {} // eslint-disable-line no-unused-vars
+
+  updated(_changed) {} // eslint-disable-line no-unused-vars
+
+  // Awaitable render fence (lit-parity §2.1 rows #12/#220; the getter
+  // override is also the subclass seam that replaces Lit's protected
+  // getUpdateComplete — row #13). Resolves when the render cycle observed
+  // at access time commits: reentrant access (inside a hook / during a
+  // render) queues behind that render; access at idle resolves on the next
+  // microtask — Tier-2 commits render SYNCHRONOUSLY inside dispatchAction/
+  // setProps, so the DOM is already current by then. For an async-stage
+  // dispatch, await the dispatchAction Promise FIRST. Pre-mount: resolves
+  // immediately — there is nothing to fence.
+  get updateComplete() {
+    return this.__mount ? this.__mount.updateComplete() : Promise.resolve();
+  }
+
+  // True after the element's first committed render (lit-parity row #18).
+  // Element-persistent: stays true across disconnect/reconnect.
+  get hasUpdated() {
+    return this.__tesseraEverRendered === true;
   }
 
   connectedCallback() {

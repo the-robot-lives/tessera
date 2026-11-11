@@ -3,8 +3,9 @@
 // Implemented representatives run against the adapter's "counter" and "props"
 // fixtures (see README.md). The "props" fixture is Tier-1-only today (a
 // contract-driven TesseraElement); Tier-2 reports those cases adapter-pending
-// until its props fixture lands. Reflection / internal-state reactivity /
-// lifecycle-hook cases are pending on the feature briefs (1c / 3c).
+// until its props fixture lands. Lifecycle C-13/C-14 ride the "lifecycle"
+// fixture (Tier 2: tsr-holo-lifecycle, brief 3c); reflection / same-value
+// cases stay pending on brief 1c.
 
 import {defineCase, pendingCase} from "../support/case.mjs";
 import {clickCy, textCy} from "../support/dom.mjs";
@@ -146,20 +147,50 @@ export const cases = [
     reason: "needs a lifecycle-observable fixture (behaviors cleanup probe); owed by 1c/3c harness",
   }),
 
-  pendingCase({
+  defineCase({
     id: "C-13",
     family: "C",
     fast: true,
     title: "firstUpdated fires once after first render",
-    reason: "firstUpdated lifecycle hook lands with brief 1c (Tier 1) / 3c (Tier 2)",
+    async run(mount, expect) {
+      // Lifecycle fixture records {hook, changed, domText} per render (see
+      // lc_lifecycle.mjs for the shared recording surface).
+      const h = await mount({fixture: "lifecycle"});
+      await h.waitFor(() => (h.el.tesseraLifecycleLog ?? []).some((e) => e.hook === "firstUpdated"));
+      // A second interaction must NOT fire firstUpdated again.
+      clickCy(h, "holo-counter-inc");
+      await h.el.updateComplete;
+      await h.settle();
+      const log = h.el.tesseraLifecycleLog;
+      const firsts = log.filter((e) => e.hook === "firstUpdated");
+      expect(firsts.length, "firstUpdated fires exactly once").to.equal(1);
+      const wills = log.map((e) => e.hook).indexOf("willUpdate");
+      const firstIdx = log.map((e) => e.hook).indexOf("firstUpdated");
+      expect(firstIdx, "willUpdate precedes firstUpdated").to.be.above(wills);
+      expect(h.shadowRoot.querySelector('[data-cy="holo-counter-root"]'), "first render committed").to.exist;
+      expect(firsts[0].domText, "firstUpdated sees the patched first-render DOM").to.equal("0");
+    },
   }),
 
-  pendingCase({
+  defineCase({
     id: "C-14",
     family: "C",
     fast: true,
     title: "updateComplete resolves after the DOM updates",
-    reason: "Tier-2 updateComplete lands with brief 3c; Tier-1 Lit updateComplete via compiled fixtures",
+    async run(mount, expect) {
+      // The #220 Lit-test pattern: mutate, await el.updateComplete, assert DOM —
+      // no waitFor polling. Tier 2 (3c): updateComplete is the render-commit
+      // fence; async-stage renders need `await dispatchAction(...)` first.
+      const h = await mount({fixture: "lifecycle"});
+      await h.settle();
+      expect(textCy(h, "holo-counter-count")).to.equal("0");
+      clickCy(h, "holo-counter-inc");
+      await h.el.updateComplete;
+      expect(textCy(h, "holo-counter-count"), "count after awaited update").to.equal("1");
+      h.el.setProps({label: "Renamed"});
+      await h.el.updateComplete;
+      expect(textCy(h, "holo-counter-label"), "label after awaited setProps").to.equal("Renamed");
+    },
   }),
 
   pendingCase({

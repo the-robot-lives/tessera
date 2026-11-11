@@ -10,11 +10,12 @@
 //   * @fast — behavior-defining core cases (`npm run test:fast`, grepTags=@fast)
 //   * @slow — exhaustive matrices / redundant coverage (nightly only)
 //
-// HONESTY: the counter fixture (C/T/E core) and the state probe fixture
-// (extension-contract state/action family, brief 3d) are wired on Tier 2
-// (SUPPORTED below). Implemented cases whose Tier-2 fixture is not yet wired
-// are adapter-pending; registry-pending cases (unimplemented features) are
-// pending. Neither is ever green. The remaining cases land with the feature
+// HONESTY: the counter fixture (C/T/E core), the state probe fixture
+// (extension-contract state/action family, brief 3d), and the lifecycle probe
+// fixture (tsr-holo-lifecycle — brief 3c: LC-01…04 + C-13/C-14) are wired on
+// Tier 2 (SUPPORTED below). Implemented cases whose Tier-2 fixture is not yet
+// wired are adapter-pending; registry-pending cases (unimplemented features)
+// are pending. Neither is ever green. The remaining cases land with the feature
 // briefs (2a–2f / 3f).
 //
 // Requires the Hologram demo on :5586 (CI boots it; see .github/workflows/ci.yml).
@@ -26,9 +27,12 @@ import {visitTier2Host, mount, cleanup} from "../support/tessera/conformance";
 
 // Cases whose behavior + Tier-2 fixture are wired today: the shared counter
 // (C-01/T-01/E) + the state/action family on the probe (X-03, X-05…X-11,
-// X-20 — brief 3d; §9 runtime equivalence vs Tier 1).
+// X-20 — brief 3d; §9 runtime equivalence vs Tier 1) + the lifecycle family
+// on the recording probe (LC-01…LC-04, C-13/C-14 — brief 3c: willUpdate /
+// firstUpdated / updated / changed snapshots / updateComplete fence).
 const SUPPORTED = new Set<string>([
-  "C-01", "T-01", "E-01", "E-02", "E-03",
+  "C-01", "C-13", "C-14", "T-01", "E-01", "E-02", "E-03",
+  "LC-01", "LC-02", "LC-03", "LC-04",
   "X-03", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10", "X-11", "X-20",
 ]);
 
