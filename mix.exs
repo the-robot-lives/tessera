@@ -30,17 +30,28 @@ defmodule NoizuTessera.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
+    # Canary override (TESSERA_HOLOGRAM=git, see .github/workflows/canary.yml):
+    # compile against noizu-forks/hologram branch `dev` instead of the hex pin
+    # so upstream Hologram drift surfaces in the scheduled canary. PR CI never
+    # sets the flag and keeps the pin (mix.lock unchanged).
+    hologram_dep =
+      if System.get_env("TESSERA_HOLOGRAM") == "git" do
+        {:hologram, github: "noizu-forks/hologram", branch: "dev", runtime: false, optional: true}
+      else
+        # Isomorphic UI. `runtime: false` — a component library, not a Hologram
+        # app. In a release (no Mix), Hologram.Reflection.otp_app/0 takes THE one
+        # loaded application whose .app `applications` lists :hologram and
+        # badmatches when there are two (the host crash-looped at boot with
+        # `{badmatch, [:tobor_kit_hologram, host]}` — see tobor-kit hologram
+        # mix.exs). Keeping :hologram out of this library's `applications` leaves
+        # the host as the only candidate. The code dependency is unchanged (our
+        # adapter compiles against Hologram.Component); the host depends on
+        # :hologram itself, which puts it in the release and starts it.
+        {:hologram, "~> 0.10.0", runtime: false, optional: true}
+      end
+
     [
-      # Isomorphic UI. `runtime: false` — a component library, not a Hologram
-      # app. In a release (no Mix), Hologram.Reflection.otp_app/0 takes THE one
-      # loaded application whose .app `applications` lists :hologram and
-      # badmatches when there are two (the host crash-looped at boot with
-      # `{badmatch, [:tobor_kit_hologram, host]}` — see tobor-kit hologram
-      # mix.exs). Keeping :hologram out of this library's `applications` leaves
-      # the host as the only candidate. The code dependency is unchanged (our
-      # adapter compiles against Hologram.Component); the host depends on
-      # :hologram itself, which puts it in the release and starts it.
-      {:hologram, "~> 0.10.0", runtime: false, optional: true},
+      hologram_dep,
       # Unrestricted on purpose — contract/manifest codegen and tsr-props
       # encoding use Jason at compile and render time, including in :prod.
       {:jason, "~> 1.4"},

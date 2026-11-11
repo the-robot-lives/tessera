@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-11
+
+- CI gate: e2e split into a BLOCKING `e2e-smoke` job (plain_html, hologram_nav, hologram_main leg (b) — the Linux-green legs; the hard gate behind the shadow-event core claim) and a NON-BLOCKING `e2e-full` job (hologram_main legs a/c/d, `continue-on-error` + `TODO(tessera-e2e-linux)`; leg (b) extracted into `demo/e2e/src/e2e/hologram_main_smoke.cy.ts`). New weekly + manual `canary` workflow compiles/tests against `noizu-forks/hologram@dev` via `TESSERA_HOLOGRAM=git` mix override (scheduled + workflow_dispatch only — never on PRs). No job depends on another, so skip-propagation through `needs` cannot silently skip a gate (posture recorded in the workflow header).
+
 ## 2026-11-10
 
 - Repo created: README with planned architecture and naming. Hex package is `noizu_tessera` with namespace `Noizu.Tessera` because bare `tessera` is taken on hex.pm. Phase 0 bridge spike is running in the `hologram-start-app` branch `spike/tessera-bridge`.

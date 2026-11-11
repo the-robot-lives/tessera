@@ -1,4 +1,8 @@
-// Main-page integration scenarios (a)–(d) of the tessera Phase 1c brief.
+// Main-page integration scenarios (a), (c), (d) of the tessera Phase 1c brief.
+// Leg (b) lives in hologram_main_smoke.cy.ts (CI BLOCKING smoke job); these
+// three legs are the known-red-on-Linux component-own-shadow-render cases and
+// run in the NON-BLOCKING e2e-full job — see docs/notes/e2e-linux-ci.md
+// (`TODO(tessera-e2e-linux)`).
 // BDD: each block is a Given/When/Then narrative kept as comments
 // (CONVENTIONS §7 — no .feature files).
 
@@ -30,27 +34,6 @@ describe("tessera hologram demo — main page", () => {
     // … and the card's shadow internals (private counter) survived the
     // Hologram page re-render in between.
     asserts.cardInternalText('[data-cy="panel-a"]', "internal:2");
-
-    asserts.noConsoleErrors();
-  });
-
-  it("(b) cid-targeted card → card action, NOT the page action", () => {
-    // Given panel a has already routed a click to the page
-    steps.clickPanelACardButton();
-    asserts.mainSelected("Ada Lovelace");
-    asserts.mainClickCount("1");
-
-    // When the visitor clicks the STATEFUL card (cid="p1") in panel b
-    steps.clickPanelBCardButton();
-
-    // Then the card's own action ran (proof: the chained :cid_confirmed
-    // action targeted at the page arrived) …
-    asserts.mainCidConfirmed("Grace Hopper");
-    // … but the PAGE :chose handler did NOT fire (targeting worked — no
-    // bleed into panel a's state).
-    asserts.mainSelected("Ada Lovelace");
-    asserts.mainClickCount("1");
-    asserts.cardInternalText('[data-cy="panel-b-inner"]', "internal:1");
 
     asserts.noConsoleErrors();
   });
