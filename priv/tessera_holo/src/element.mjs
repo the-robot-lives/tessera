@@ -49,7 +49,97 @@ import {
 
 const RESERVED_ATTRS = new Set(["tsr-props", "module", "class", "id", "style", "slot"]);
 
+// tag (UPPER) -> mount module resolved by the §5.9 chain (see defineElement).
 const tagModules = new Map();
+
+// Tags whose element class THIS wrapper already registered with
+// customElements. Past this point JS mixins can no longer compose (the
+// platform forbids redefining a class); module layers still can — the mount
+// module is resolved per-connect from tagModules.
+const definedTags = new Set();
+
+// brief 3f — §5.9 takeover registry (Tier-2 mirror of priv/js/src/extend.mjs).
+// Lives on globalThis under a Symbol.for key so duplicate bundle copies share
+// ONE queue and ONE sequence counter (same trick as the internal-action warn
+// set below). Entries are chain coordinates + either a JS mixin
+// (extendElement) or a module layer (a repeated defineElement call).
+const REGISTRY_KEY = Symbol.for("tessera.holo.extensions");
+const EXTEND_WARNED_KEY = Symbol.for("tessera.holo.extend.warned");
+
+function extensionRegistry() {
+  let reg = globalThis[REGISTRY_KEY];
+
+  if (!reg || !(reg.extensions instanceof Map)) {
+    reg = {extensions: new Map(), extendSeq: 0};
+    globalThis[REGISTRY_KEY] = reg;
+  }
+
+  return reg;
+}
+
+function extendWarnedTags() {
+  let set = globalThis[EXTEND_WARNED_KEY];
+
+  if (!(set instanceof Set)) {
+    set = new Set();
+    globalThis[EXTEND_WARNED_KEY] = set;
+  }
+
+  return set;
+}
+
+// Registration-order fallback (§6.4 onion rule): first-registered OUTERMOST,
+// so a later registration sorts closer to the base on a perfect tie.
+function nextExtendSeq(reg) {
+  reg.extendSeq = (reg.extendSeq ?? 0) + 1;
+  return reg.extendSeq;
+}
+
+// §5.9 chain comparator, innermost → outermost. Mirror of
+// `Noizu.Tessera.Component.Extension.chain_order/1` (and of the Tier-1
+// extend.mjs comparator): dependency depth ASC, priority ASC, module name
+// ASC, then first-registered outermost (seq DESC) on a perfect tie.
+function compareLayers(a, b) {
+  if (a.depth !== b.depth) return a.depth - b.depth;
+  if (a.priority !== b.priority) return a.priority - b.priority;
+  if (a.module !== b.module) return a.module < b.module ? -1 : 1;
+  return b.seq - a.seq;
+}
+
+// Queue a MODULE layer: a compiled takeover module whose behaviour lives in
+// its own bundle. Module layers carry no JS mixin — they compete (by chain
+// coordinates) for which module the composed element MOUNTS: the outermost
+// module layer's compiled chain already contains every inner layer (the
+// macro-injected base_action/3 dispatcher), so mounting it runs the whole
+// chain, markers included.
+function queueModuleLayer(tag, moduleName, opts) {
+  const reg = extensionRegistry();
+  const queue = reg.extensions.get(tag) ?? [];
+  const entry = {
+    mixin: null,
+    depth: Number.isInteger(opts?.depth) ? opts.depth : 0,
+    priority: Number.isInteger(opts?.priority) ? opts.priority : 0,
+    module: moduleName,
+    seq: nextExtendSeq(reg),
+  };
+
+  // Duplicate copies of one generated layer re-register the SAME module
+  // string — keep the first (extend.mjs dedupe analogue).
+  if (queue.some((e) => e.module === moduleName)) return;
+  queue.push(entry);
+  reg.extensions.set(tag, queue);
+}
+
+// Outermost entry WITH a module string — the mount module for the chain.
+function outermostModule(entries, fallback) {
+  const sorted = entries.slice().sort(compareLayers);
+
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (typeof sorted[i].module === "string" && sorted[i].module !== "") return sorted[i].module;
+  }
+
+  return fallback;
+}
 
 // internal: registration warn-once (EXTENSION-CONTRACT §6.4, D2/§10) — the
 // SAME global set as the Tier-1 mixin (`Symbol.for`), so both tiers dedupe
@@ -380,54 +470,107 @@ function castAttr(value, type) {
   }
 }
 
-export function defineElement(tagName, moduleName, elementClass = TesseraHoloElement) {
-  const key = tagName.toUpperCase();
-
-  if (tagModules.has(key) && tagModules.get(key) !== moduleName) {
-    // Same-tag layering (EXTENSION-CONTRACT v0.1): a derived component may
-    // take over the vendor's tag as an EXTENSION, never a substitute — the
-    // derived module must keep the vendor behaviour reachable (compile-time
-    // layering via the macro-injected base_action/3 dispatcher).
-    //
-    // The custom element CLASS cannot be redefined once registered (platform
-    // spec) — so the tag→module map is repointed instead: elements that
-    // CONNECT from now on resolve the derived module. Already-connected
-    // instances keep the module they mounted with; layering new behaviour
-    // onto those happens through the onAction interceptor chain.
-    // eslint-disable-next-line no-console
-    console.debug(
-      `[tessera-holo] tag <${tagName.toLowerCase()}> layering: ` +
-        `${tagModules.get(key)} -> ${moduleName}`,
-    );
+// brief 3f — §5.9 takeover registry, JS-mixin lane (Tier-2 mirror of the
+// Tier-1 extendElement). Queues `(Base) => class extends Base {…}` beside
+// defineElement; the queue composes into the SINGLE class defineElement
+// registers at the tag's FIRST definition — duplicate bundle copies never
+// double-wrap (module-string dedupe; hand-written mixins without a module
+// string never dedupe). Ordering is the §5.9 chain via compareLayers.
+//
+// Registering for an ALREADY-DEFINED tag cannot layer onto the class
+// anymore: warn-once, return false, and point at the sanctioned post-define
+// paths — onAction interceptors (§6.4). Module layers (compiled takeover
+// bundles) keep layering past define via repeated defineElement calls —
+// the mount module is resolved per-connect, not per-class.
+//
+// @param {string} tag
+// @param {(base: CustomElementConstructor) => CustomElementConstructor} mixin
+// @param {{depth?: number, priority?: number, module?: string}} [opts]
+//   §5.9 chain coordinates: `depth` = layers above the vendor base,
+//   `priority` = the `use …, priority: n` option, `module` = declaring
+//   module string (also the duplicate-copy dedupe key).
+// @returns {boolean} true when queued (or deduped); false post-define.
+export function extendElement(tag, mixin, opts = {}) {
+  if (typeof mixin !== "function") {
+    throw new TypeError(`[tessera-holo] extendElement("${tag}") requires a mixin function (Base) => class`);
   }
 
-  tagModules.set(key, moduleName);
+  const key = tag.toUpperCase();
 
-  if (!customElements.get(tagName)) {
+  if (customElements.get(tag) || definedTags.has(key)) {
+    const warned = extendWarnedTags();
+
+    if (!warned.has(tag)) {
+      warned.add(tag);
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[tessera-holo] <${tag}> is already defined; extendElement cannot layer onto an existing class — ` +
+          "use onAction for pipeline wrapping (§6.4), or a compiled takeover module via defineElement (§5.9).",
+      );
+    }
+
+    return false;
+  }
+
+  const reg = extensionRegistry();
+  const queue = reg.extensions.get(key) ?? [];
+  const module = typeof opts.module === "string" ? opts.module : "";
+
+  if (module !== "" && queue.some((entry) => entry.module === module)) return true;
+
+  queue.push({
+    mixin,
+    depth: Number.isInteger(opts.depth) ? opts.depth : 0,
+    priority: Number.isInteger(opts.priority) ? opts.priority : 0,
+    module,
+    seq: nextExtendSeq(reg),
+  });
+  reg.extensions.set(key, queue);
+
+  return true;
+}
+
+export function defineElement(tagName, moduleName, elementClass = TesseraHoloElement, opts = {}) {
+  const key = tagName.toUpperCase();
+  const reg = extensionRegistry();
+
+  if (!definedTags.has(key) && !customElements.get(tagName)) {
+    // FIRST definition (EXTENSION-CONTRACT §5.9): this call's module joins
+    // the chain as the vendor base (depth 0 unless the caller passes
+    // coordinates — import order must not decide the chain), then the whole
+    // queue composes: JS mixins reduce-wrap the element class (outermost
+    // mixin applied last), and the OUTERMOST module layer names the module
+    // the composed class mounts — its compiled base_action/3 chain already
+    // contains every inner layer.
+    queueModuleLayer(key, moduleName, opts);
+
+    const entries = reg.extensions.get(key) ?? [];
+    const sorted = entries.slice().sort(compareLayers);
+    const mountModule = outermostModule(entries, moduleName);
+
+    const composed = sorted.reduce((Base, entry) => (entry.mixin ? entry.mixin(Base) : Base), elementClass);
+
     // elementClass lets host JS register a SUBCLASS (extension item B:
     // `class X extends customElements.get(tag)` overriding a documented
     // hook) under a new tag of its own. Each tag gets its own anonymous
     // subclass regardless — the registry REJECTS a constructor that was
     // already used for another tag (NotSupportedError).
-    const Base = elementClass;
-    const TagClass = class extends Base {};
+    const TagClass = class extends composed {};
 
-    // §6.1 static surface, read off the component manifest. manifest.actions
-    // / manifest.extension_api populate from the compiled spec with brief 3f;
-    // until then the documented fallbacks stand (open-surface list [] —
-    // dispatch stays name-driven, D2).
-    const manifest = getDescriptor(moduleName);
+    // §6.1 static surface, read off the component manifest (the composed
+    // class's own statics — a JS mixin seam — also count, additive only).
+    const manifest = getDescriptor(mountModule);
 
     // brief 3e (§6.7, #144): formAssociated is decided HERE, before define —
     // it is read by customElements.define off the constructor, and the
     // constructor's gated attachInternals reads it off new.target per
-    // instance. Two admissible sources, both additive: the compiled manifest
-    // declares it (standalone.ex emits "formAssociated" from the fixture's
-    // __tsr_form_associated__/0, brief 3f will drive it from the spec) or the
-    // host-provided base class declares `static formAssociated = true`
-    // (subclass seam). NEVER unsettable once a base has it — inherited
-    // surface cannot be narrowed (§5.9 final rule).
-    if ((manifest && manifest.formAssociated) === true || Base.formAssociated === true) {
+    // instance. Sources, all additive: the compiled manifest of the mount
+    // module (standalone.ex emits it spec-first — `__tessera_spec__().
+    // form_associated` — with the brief 3e fixture hook as fallback), the
+    // host-provided element class's `static formAssociated = true`
+    // (subclass seam), or a JS mixin's static. NEVER unsettable once a base
+    // has it — inherited surface cannot be narrowed (§5.9 final rule).
+    if ((manifest && manifest.formAssociated) === true || composed.formAssociated === true) {
       TagClass.formAssociated = true;
     }
 
@@ -436,6 +579,34 @@ export function defineElement(tagName, moduleName, elementClass = TesseraHoloEle
     TagClass.tesseraExtensionApi = (manifest && manifest.extension_api) || "1.0.0";
     TagClass.tesseraActions = Object.freeze([...((manifest && manifest.actions) || [])]);
 
+    tagModules.set(key, mountModule);
+    definedTags.add(key);
+
     customElements.define(tagName, TagClass);
+
+    // consume the queue — past-define registrations cannot compose (see
+    // extendElement) and stale entries must not re-wrap a later caller.
+    reg.extensions.delete(key);
+  } else {
+    // ALREADY-DEFINED tag: compiled takeover layers still compose — the
+    // class is fixed, but the MOUNT MODULE is resolved per-connect from
+    // tagModules, so re-pointing it to the chain-outermost module layers
+    // new behaviour onto every element that connects from now on
+    // (already-connected instances keep the module they mounted with; live
+    // layering onto those happens through the onAction interceptor chain).
+    queueModuleLayer(key, moduleName, opts);
+
+    const entries = reg.extensions.get(key) ?? [];
+    const mountModule = outermostModule(entries, tagModules.get(key));
+
+    if (mountModule !== tagModules.get(key)) {
+      // eslint-disable-next-line no-console
+      console.debug(
+        `[tessera-holo] tag <${tagName.toLowerCase()}> chain layering: ` +
+          `${tagModules.get(key)} -> ${mountModule}`,
+      );
+
+      tagModules.set(key, mountModule);
+    }
   }
 }

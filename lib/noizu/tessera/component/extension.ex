@@ -388,7 +388,10 @@ defmodule Noizu.Tessera.Component.Extension do
       priority: spec.priority || 0,
       actions:
         spec.actions
-        |> Enum.reject(& &1[:inherited])
+        # an inherited entry the author's action/3 clauses override
+        # (`overrides:` opt — Tier-2's counterpart of the Tier-1 DSL override
+        # delta) counts as this layer's contested surface (§5.7)
+        |> Enum.filter(&(!&1[:inherited] or &1[:override]))
         |> Enum.map(&Atom.to_string(&1.name))
         |> MapSet.new(),
       regions: spec.region_overrides |> Enum.map(&Atom.to_string(&1)) |> MapSet.new()
@@ -1134,20 +1137,7 @@ defmodule Noizu.Tessera.Component.Extension do
       end
     end)
 
-    props =
-      opts
-      |> Keyword.get(:props, [])
-      |> Enum.map(fn {name, defn} ->
-        defn = defn || []
-
-        %{
-          name: name,
-          type: Keyword.get(defn, :type, :any),
-          default: Keyword.get(defn, :default),
-          json: Keyword.get(defn, :json, false),
-          line: caller.line
-        }
-      end)
+    props = parse_tier2_props!(opts, caller)
 
     # §6.7 (brief 2f parity): declared via `use …, form_associated: true`.
     form_associated = Keyword.get(opts, :form_associated) == true
@@ -1342,9 +1332,62 @@ defmodule Noizu.Tessera.Component.Extension do
     Module.put_attribute(caller.module, :tessera_tier2_derived_from, base)
     Module.put_attribute(caller.module, :tessera_tier2_tag, tag)
 
-    deltas = %{actions: Enum.map(author_actions, &%{name: &1, line: caller.line})}
+    deltas = %{
+      actions: Enum.map(author_actions, &%{name: &1, line: caller.line}),
+      # §5.5 on Tier 2 (brief 3f/T2-7): `props:` on a derive adds or
+      # overrides-by-name through the SAME merge layer — a retype of a key
+      # the base reads trips the shared type-change guard (assert_type_change!)
+      # inside merge_spec!/3.
+      props: parse_tier2_props!(opts, caller)
+    }
 
     merged = merge_spec!(vendor_spec, deltas, caller)
+
+    # §5.7 on Tier 2: the author's takeover `def action(:name, …)` clauses are
+    # invisible to the merge (raw BEAM clauses, not spec deltas — Tier-1 sees
+    # its DSL overrides as delta entries). `overrides:` is the explicit
+    # declaration that feeds the chain-conflict warning AND stays on the
+    # merged entry so the takeover registry counts it.
+    overrides = Keyword.get(opts, :overrides, [])
+
+    Enum.each(overrides, fn name ->
+      unless is_atom(name) do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `overrides:` must list snake atoms (the action names this " <>
+              "module's action/3 clauses override), got: #{inspect(name)}"
+      end
+
+      merged_names = Enum.map(merged.actions, & &1.name)
+
+      unless name in merged_names do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `overrides:` names #{inspect(name)}, which the vendor does " <>
+              "not declare — only inherited actions can be overridden (§5.7)"
+      end
+    end)
+
+    merged =
+      if overrides == [] do
+        merged
+      else
+        override_set = MapSet.new(overrides)
+
+        Map.update!(merged, :actions, fn entries ->
+          Enum.map(entries, fn entry ->
+            if entry.name in override_set and entry[:inherited] do
+              Map.put(entry, :override, true)
+            else
+              entry
+            end
+          end)
+        end)
+      end
 
     # merge_spec!/3 returns a plain map (list_kinds rebuild) — re-wrap into a
     # real %Spec{} so the §5.9 chain helpers (takeover?/1, chain_depth/1,
@@ -1408,7 +1451,7 @@ defmodule Noizu.Tessera.Component.Extension do
 
       # Inherited Hologram props re-emitted as prop declarations (the
       # extender is a full component: same props, fresh module).
-      unquote_splicing(tier2_prop_asts(vendor_spec))
+      unquote_splicing(tier2_prop_asts(merged_spec))
 
       # Init down-chain (§5.3): the injected delegates reach the vendor's
       # `__tessera_init__/2,3` through `base_init/2,3` (T1-2 names); an
@@ -1545,8 +1588,8 @@ defmodule Noizu.Tessera.Component.Extension do
     :ok
   end
 
-  defp tier2_prop_asts(%Spec{} = vendor_spec) do
-    Enum.map(vendor_spec.props, fn p ->
+  defp tier2_prop_asts(%Spec{} = spec) do
+    Enum.map(spec.props, fn p ->
       default = p[:default]
       type = p.type || :any
 
@@ -1559,6 +1602,25 @@ defmodule Noizu.Tessera.Component.Extension do
           prop unquote(p.name), unquote(type), default: unquote(default)
         end
       end
+    end)
+  end
+
+  # `props:` opt shape shared by the vendor path and derive deltas (T2-7):
+  # `prop_name: [type: :, default: :, json: :]` — the contract entries the
+  # merge layer and the Hologram @__props__ accumulator both consume.
+  defp parse_tier2_props!(opts, %Macro.Env{} = caller) do
+    opts
+    |> Keyword.get(:props, [])
+    |> Enum.map(fn {name, defn} ->
+      defn = defn || []
+
+      %{
+        name: name,
+        type: Keyword.get(defn, :type, :any),
+        default: Keyword.get(defn, :default),
+        json: Keyword.get(defn, :json, false),
+        line: caller.line
+      }
     end)
   end
 

@@ -238,7 +238,48 @@ export const cases = [
       // the JS lane pin check lands with the bridge briefs (2f/3f).
     },
   }),
-  pendingCase({id: "X-16", family: "X", fast: true, title: "Elixir derivation end-to-end — derived tag registers, base untouched", reason: "derivation macro lands with brief 2c / 3f"}),
+  defineCase({
+    id: "X-16",
+    family: "X",
+    fast: true,
+    title: "Elixir derivation end-to-end — derived tag registers, merged surface, base untouched",
+    async run(mount, expect) {
+      // §5.10 (brief 3f): `use Vendor, tag: "own-tag"` derives a NEW element
+      // on its own tag with the MERGED surface — the vendor's inherited
+      // actions + the derive-declared additions — while the vendor base
+      // stays untouched under its own tag. Tier-agnostic: bodies use only
+      // the mount-handle contract; the literal tags live in each adapter's
+      // fixture map. (Tier 2 wired: `tsr-holo-takeover-derived`; Tier 1
+      // adapter-pending until its generated derived fixture lands.)
+      const d = await mount({fixture: "derived"});
+
+      // 1. the fresh tag registers and exactly one class owns it
+      const ctor = d.win.customElements.get(d.tag);
+      expect(ctor).to.be.a("function");
+      expect(d.el.constructor).to.equal(ctor);
+
+      // 2. inherited surface: the derived init delegates to the vendor's —
+      //    the same state shape as the pipeline mirror (no new keys)
+      expect(Object.keys(d.el.state).sort()).to.deep.equal(["count", "meta", "selectedId"]);
+
+      // 3. an inherited action runs through the merged surface
+      expect((await d.el.dispatchAction("bump")).ok).to.equal(true);
+      expect(d.el.state.count).to.equal(1);
+
+      // 4. the derive-declared NEW action works
+      expect((await d.el.dispatchAction("reset")).ok).to.equal(true);
+      expect(d.el.state.count).to.equal(0);
+
+      // 5. the vendor base is untouched: no derived-only action on it, and
+      //    its own surface still dispatches
+      const base = await mount({fixture: "pipeline"});
+      const reset = await base.el.dispatchAction("reset");
+      expect(reset.ok).to.equal(false);
+      expect(reset.reason).to.equal("unknown-action");
+      expect((await base.el.dispatchAction("bump")).ok).to.equal(true);
+      expect(base.el.state.count).to.equal(1);
+    },
+  }),
   defineCase({
     id: "X-17",
     family: "X",
@@ -303,7 +344,10 @@ export const cases = [
       // import (they define NO element of their own) and the base module's
       // defineOnce composed the whole chain at the tag's first definition.
       const h = await mount({fixture: "takeover"});
-      expect(h.tag).to.equal("tsr-conf-takeover");
+      // Identity (§5.9): the COMPOSED class owns the base tag — whatever
+      // tag the tier's fixture map names ("tsr-conf-takeover" on Tier 1,
+      // "tsr-holo-takeover-probe" on Tier 2); the literal is adapter
+      // knowledge, the identity is the contract.
       const ctor = h.win.customElements.get(h.tag);
       expect(ctor).to.be.a("function");
       expect(h.el.constructor).to.equal(ctor);

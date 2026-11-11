@@ -11,17 +11,22 @@ defmodule HoloKit.Components.TakeoverProbe do
   MUST still pass on the taken-over element", which it proves by replaying
   the pipeline case bodies VERBATIM against a mount pinned to this fixture.
 
-  Three `tag: :inherit` layers take it over (in `takeover_ext/` (the §5.8 clobber guard keeps layers out of the vendor's own directory)):
+  Three `tag: :inherit` layers take it over (in `takeover_ext/` (the §5.8 clobber guard keeps layers out of the vendor's own directory)). TIER-2 SHAPE: Hologram's IR has no `super` — a layer's compiled `base_action/3` chain is its `derived_from` spine — so the chain is LINEAR (each layer extends the previous); the Tier-1 fixture composes sibling layers through real ES `super`, the wrapper-side counterpart of the same §5.9 order.
 
     * `TakeoverProbeExtAaa` — depth 1, overrides `bump` with a pass-through +
       marker event `conf-ext-aaa`;
-    * `TakeoverProbeExtBbb` — depth 1 but `priority: 10` (sits OUTSIDE Aaa),
-      overrides `select_item` (+ `conf-ext-bbb`);
-    * `TakeoverProbeExtCcc` — depth 2 (`use TakeoverProbeExtBbb, tag: :inherit`),
-      overrides `bump` again (+ `conf-ext-ccc`).
+    * `TakeoverProbeExtBbb` — depth 2 (`use TakeoverProbeExtAaa, tag: :inherit`,
+      `priority: 10` declared — depth decides on a linear spine), overrides
+      `select_item` (+ `conf-ext-bbb`);
+    * `TakeoverProbeExtCcc` — depth 3 (`use TakeoverProbeExtBbb, tag: :inherit`),
+      overrides `bump` again (+ `conf-ext-ccc`). The WRAPPER mounts Ccc for the
+      taken-over tag: its spine contains every layer.
 
-  Chain (innermost → outermost): base, Aaa (d1 p0), Bbb (d1 p10), Ccc (d2).
+  Chain (innermost → outermost): base, Aaa (d1), Bbb (d2 p10), Ccc (d3).
   Layers add NO state keys, so the snapshot pinned by X-05 survives replay.
+  Layer markers fire synchronously via `HoloKit.Emit.js_emit/2` —
+  `put_action/2` holds a single `next_action`, so one dispatch's multiple
+  markers would overwrite each other through the bridge.
 
   NO catch-all `action/3` clause: an unknown name raises the boxed
   `%FunctionClauseError{}` the Tier-2 shim classifies into the §6.3

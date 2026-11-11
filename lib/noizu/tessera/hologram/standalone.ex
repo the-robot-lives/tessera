@@ -273,6 +273,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       export const ensureRuntime = TesseraHolo.ensureRuntime;
       export const mountComponent = TesseraHolo.mountComponent;
       export const defineElement = TesseraHolo.defineElement;
+      export const extendElement = TesseraHolo.extendElement;
       export const TesseraHoloElement = TesseraHolo.TesseraHoloElement;
       export const setBus = TesseraHolo.setBus;
       export default TesseraHolo;
@@ -384,6 +385,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       export const ensureRuntime = TesseraHolo.ensureRuntime;
       export const mountComponent = TesseraHolo.mountComponent;
       export const defineElement = TesseraHolo.defineElement;
+      export const extendElement = TesseraHolo.extendElement;
       export const TesseraHoloElement = TesseraHolo.TesseraHoloElement;
       export const setBus = TesseraHolo.setBus;
       export default TesseraHolo;
@@ -677,6 +679,18 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   defp component_manifest(component) do
     Code.ensure_loaded!(component)
 
+    # Brief 3f spec-first: a canonical-macro component carries its §6.1
+    # surface on `__tessera_spec__/0` (actions + `internal:` flags +
+    # §6.7 `form_associated`) — the fixture-level hooks below are the
+    # fallback for stock HoloKit fixtures (PipelineProbe/FormProbe/…) that
+    # predate the macro and have no spec.
+    spec =
+      if function_exported?(component, :__tessera_spec__, 0) do
+        component.__tessera_spec__()
+      else
+        nil
+      end
+
     props =
       if function_exported?(component, :__props__, 0) do
         Enum.map(component.__props__(), fn {name, type, opts} ->
@@ -696,51 +710,73 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       "props" => props
     }
 
-    # §6.1 statics + §6.4 internal-action warn-once on Tier 2: a HoloKit
-    # fixture MAY declare `__tsr_actions__/0` (every action name, snake
-    # atoms, declaration order — the OPEN surface) and
-    # `__tsr_internal_actions__/0` (the `internal: true` subset). Absent ⇒
-    # the keys stay out and the runtime defaults hold (empty actions list,
-    # no warn) — same shape brief 3f codegen will emit for every component.
+    # §6.1 OPEN surface + §6.4 internal-action warn-once. Spec-first: the
+    # spec's action entries (declaration order) and their `internal: true`
+    # flags; hook fallback (`__tsr_actions__`/`__tsr_internal_actions__`)
+    # for spec-less stock fixtures.
     base =
-      if function_exported?(component, :__tsr_actions__, 0) do
-        Map.put(base, "actions", Enum.map(component.__tsr_actions__(), &Atom.to_string/1))
+      if spec do
+        base = Map.put(base, "actions", Enum.map(spec.actions, &Atom.to_string(&1.name)))
+
+        internal = Enum.filter(spec.actions, & &1[:internal])
+
+        if internal == [] do
+          base
+        else
+          Map.put(base, "internalActions", Enum.map(internal, &Atom.to_string(&1.name)))
+        end
       else
-        base
+        base =
+          if function_exported?(component, :__tsr_actions__, 0) do
+            Map.put(base, "actions", Enum.map(component.__tsr_actions__(), &Atom.to_string/1))
+          else
+            base
+          end
+
+        if function_exported?(component, :__tsr_internal_actions__, 0) do
+          Map.put(base, "internalActions", Enum.map(component.__tsr_internal_actions__(), &Atom.to_string/1))
+        else
+          base
+        end
       end
 
-    if function_exported?(component, :__tsr_internal_actions__, 0) do
-      Map.put(base, "internalActions", Enum.map(component.__tsr_internal_actions__(), &Atom.to_string/1))
-    else
-      base
-    end
-    |> maybe_form_associated(component)
+    maybe_form_associated(base, component, spec)
   end
 
-  # brief 3e §6.7 — form participation opt-in: a fixture MAY declare
-  # `__tsr_form_associated__/0` returning `true`; the compiled manifest then
-  # carries `"formAssociated" => true` and the runtime emits
-  # `static formAssociated = true` + attaches ElementInternals (priv/
-  # tessera_holo/src/element.mjs, defineElement). Absent/false ⇒ the key
-  # stays out and the wrapper NEVER attaches internals (§6.7 MUST NOT).
-  # Brief 3f replaces this fixture-level hook with the spec-driven
-  # `form_associated` from `__tessera_spec__`, same key on the wire.
-  defp maybe_form_associated(base, component) do
-    if function_exported?(component, :__tsr_form_associated__, 0) and
-         component.__tsr_form_associated__() == true do
-      Map.put(base, "formAssociated", true)
-    else
-      base
+  # §6.7 form participation. Spec-first (`__tessera_spec__().form_associated`
+  # — brief 2f's spec-level field, additive-derived on Tier 2); the brief 3e
+  # fixture-level `__tsr_form_associated__/0` hook stays as the fallback for
+  # spec-less stock fixtures (FormProbe). Absent/false ⇒ the key stays out
+  # and the wrapper NEVER attaches internals (§6.7 MUST NOT).
+  defp maybe_form_associated(base, component, spec) do
+    cond do
+      spec && spec.form_associated == true ->
+        Map.put(base, "formAssociated", true)
+
+      spec ->
+        base
+
+      function_exported?(component, :__tsr_form_associated__, 0) and
+          component.__tsr_form_associated__() == true ->
+        Map.put(base, "formAssociated", true)
+
+      true ->
+        base
     end
   end
 
   defp element_name_for(component) do
     Code.ensure_loaded!(component)
 
-    if function_exported?(component, :__tessera_tag__, 0) do
-      component.__tessera_tag__()
-    else
-      "tsr-holo-" <> String.replace(component_base(component), "_", "-")
+    cond do
+      function_exported?(component, :__tessera_spec__, 0) ->
+        component.__tessera_spec__().tag
+
+      function_exported?(component, :__tessera_tag__, 0) ->
+        component.__tessera_tag__()
+
+      true ->
+        "tsr-holo-" <> String.replace(component_base(component), "_", "-")
     end
   end
 
