@@ -10,6 +10,9 @@
 //
 // BDD: each block is a Given/When/Then narrative kept as comments
 // (CONVENTIONS §7 — no .feature files).
+//
+// @slow: exhaustive per-host spike matrix (Hologram / plain / React) — nightly /
+// full lane only, not the fast per-change gate (docs/notes/test-tiering.md).
 
 /// <reference types="cypress" />
 import { tesseraSteps as steps } from "../support/tessera/steps";
@@ -30,7 +33,7 @@ function clickChipRow(scope: string, index = 0) {
     .click();
 }
 
-describe("spike/elixir-to-lit — Hologram host (element DSL → generated element)", () => {
+describe("spike/elixir-to-lit — Hologram host (element DSL → generated element)", { tags: "@slow" }, () => {
   beforeEach(() => {
     // Given the /spike page is served and both generated elements are defined
     cy.visit(`${HOLOGRAM}/spike`);
@@ -83,7 +86,7 @@ describe("spike/elixir-to-lit — Hologram host (element DSL → generated eleme
   });
 });
 
-describe("spike/elixir-to-lit — plain HTML host (UMD + vanilla listeners)", () => {
+describe("spike/elixir-to-lit — plain HTML host (UMD + vanilla listeners)", { tags: "@slow" }, () => {
   beforeEach(() => {
     cy.visit(`${PLAIN}/spike.html`);
     steps.waitDefined("spike-counter");
@@ -125,7 +128,7 @@ describe("spike/elixir-to-lit — plain HTML host (UMD + vanilla listeners)", ()
   });
 });
 
-describe("spike/elixir-to-lit — React host (CDN React + shared-runtime ESM variant)", () => {
+describe("spike/elixir-to-lit — React host (CDN React + shared-runtime ESM variant)", { tags: "@slow" }, () => {
   beforeEach(() => {
     cy.visit(`${PLAIN}/react.html`);
     steps.waitDefined("spike-counter");
