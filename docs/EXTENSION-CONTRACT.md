@@ -8,18 +8,22 @@ product.** Everything here MUST behave identically whether the element runs on
 Tier 1 (Elixir compiled to Lit) or Tier 2 (the Hologram runtime hosted inside
 the element).
 
-Status: **draft v0.1** — items marked `[PENDING TIER-1]` / `[PENDING TIER-2
-SPIKE]` are not yet verified against an implementation; nothing here asserts an
-unverified runtime capability. Where the code already provides a mechanism
-(behaviors, `defineOnce`, `emit`, the bridge) the text cites it. v0.1 applies
-the three decisions in the log below to draft v0; nothing has shipped against
-v0, so the changes are in-place, not deprecations.
+Status: **draft v0.1 — user-confirmed 2026-11-11** — items marked `[PENDING
+TIER-1]` / `[PENDING TIER-2 SPIKE]` are not yet verified against an
+implementation; nothing here asserts an unverified runtime capability. Where
+the code already provides a mechanism (behaviors, `defineOnce`, `emit`, the
+bridge) the text cites it. v0.1 applies the decisions in the log below to
+draft v0; nothing has shipped against v0, so the changes are in-place, not
+deprecations. The decision expansions (§5.3's canonical macro, §5.9's layered
+extension) are user-confirmed; the pending markers are implementation debts,
+not open decisions.
 
 ## Decisions log
 
 | # | Date | Source | Decision |
 |---|---|---|---|
-| **D1** | 2026-11-11 | user, 2026-11-11 | **Tag takeover** — "replace but extend not replace." A derived element MAY register under the base's original tag (`use Base, tag: :inherit`) and doing so is always an *extension*: inherited behaviour keeps working — overrides layer on top (Elixir: the `base_action/3` dispatch chain, §5.3; JS: real ES `super`) — the base-tag conformance suite MUST still pass on the extended element, and several extenders of one tag COMPOSE in a deterministic chain instead of last-wins. Mint-a-new-tag derivation stays available and stays the default whenever `tag:` is given a literal. The detailed composition semantics are the coordinator's interpretation of the terse answer — see the interpretation note atop §5.9 and confirm via Q4. |
+| **D1** | 2026-11-11 | user, 2026-11-11 | **Tag takeover** — "replace but extend not replace." A derived element MAY register under the base's original tag (`use Base, tag: :inherit`) and doing so is always an *extension*: inherited behaviour keeps working — overrides layer on top (Elixir: the `base_action/3` dispatch chain, §5.3; JS: real ES `super`) — the base-tag conformance suite MUST still pass on the extended element, and several extenders of one tag COMPOSE in a deterministic chain instead of last-wins. Mint-a-new-tag derivation stays available and stays the default whenever `tag:` is given a literal. The detailed composition semantics (chain order, conflicts, base-suite gate) were the coordinator's expansion of the terse answer and were **confirmed by the user the same day** — §5.9 is final as written (Q4 resolved). |
+| **D4** | 2026-11-11 | user, 2026-11-11 | **Canonical extension macro.** `use Vendor.Element` — the base module's generated `__using__` — is the REQUIRED extension mechanism on Tier 2, expanding to the injected `base_action/3` dispatcher, `defoverridable` declarations, `tag:`/`:inherit`/`priority:` handling and the chain-conflict warnings (§5.3). Hand-rolled scaffolding stays possible but carries no contract standing unless the result passes X-19. |
 | **D2** | 2026-11-11 | user, 2026-11-11 | **All actions open.** The `public: true` gate and the `not-public` DispatchResult reason are removed; any action can be dispatched by name and intercepted. Statics: `tesseraActions` (every action name) replaces `tesseraPublicActions`. §10 states the trade-off honestly; an advisory `internal:` annotation (docs + dev-mode warn, never access) is added. |
 | **D3** | 2026-11-11 | user, 2026-11-11 | **camelCase state, snake aliases, onion interceptors.** `el.state` canonical keys are camelCase (`selectedId`) per CONTRACT §1, and MUST also accept snake_case reads as aliases of the same values (enumeration/JSON yield camelCase only). `tsr-state-change` `keys` are camelCase. `dispatchAction`/`onAction` accept action names and param keys in either casing, normalized before dispatch; Elixir receives snake_case per the bridge rule. Interceptors receive camelCase params. Interceptor order unchanged: first-registered outermost (onion). |
 
@@ -163,11 +167,20 @@ would produce an element violating its own inherited spec.
 
 ### 5.3 Overridable hooks: `init` and actions
 
-**Elixir shape — `base_action/3` dispatch, NOT `super`.** Hologram's IR has
-no `super` (Tier-2 spike finding, verified 2026-11-11), so Elixir-side
-inheritance MUST NOT promise Elixir-level super dispatch. The compiler
-instead injects a `base_action/3` dispatcher alongside `defoverridable` heads:
-a derived module overrides with plain clauses, and reaches the next layer
+**Elixir shape — the `use Vendor.Element` macro (canonical; REQUIRED on Tier 2).**
+Hologram's IR has no `super` (Tier-2 spike finding, verified 2026-11-11), so
+Elixir-side inheritance MUST NOT promise Elixir-level super dispatch.
+Extension instead goes through the base module's generated `__using__` macro —
+written `use Vendor.Element` (the vendor's element module in the `use`
+position; §5.1's `use Base, tag: …` IS this macro). The expansion is
+user-confirmed (D4). The macro expands to the full scaffolding:
+
+- the injected `base_action/3` dispatcher;
+- `defoverridable` declarations for every inherited action and init hook;
+- `tag:` / `:inherit` / `priority:` option handling (§5.9);
+- the chain-conflict warnings (§5.7).
+
+A derived module overrides with plain clauses and reaches the next layer
 down — ultimately the vendor implementation — by calling the dispatcher:
 
 ```elixir
@@ -185,7 +198,13 @@ inherited nor newly declared is a `CompileError`. Under a tag takeover (§5.9)
 the same injected chain carries multiple extension layers in §5.9's chain
 order — a dispatch order through the injected chain, not language-level
 `super`: each layer's `base_action/3` call reaches the next module down, and
-the innermost dispatch falls through to the vendor base.
+the innermost dispatch falls through to the vendor base. The same macro drives
+Tier 1's lowering (below). **Hand-rolled scaffolding** — writing the
+`defoverridable` + dispatcher plumbing without the macro — stays possible but
+has no contract standing unless the result passes the base tag's conformance
+gate (X-19); on Tier 2 the macro is the required mechanism.
+[PENDING TIER-2 SPIKE: implement the macro — T2-9; the expansion list above
+is the spec.]
 
 **Tier 1 shape (compiled to Lit) — action redeclaration.** Tier 1 actions are
 `action :name, fn state, params -> … end`; a derived module redeclares the
@@ -207,12 +226,12 @@ is identical across tiers, so an extender never tiers their overrides.
 path yet.]
 
 **Init hooks** target `__tessera_init__/2` / `__tessera_init__/3` — never
-the generated `init` pair (`docs/AUTHORING.md`). The derived body SHOULD
-dispatch down to the inherited hook through the injected dispatcher (same
-pattern as `base_action/3`; exact init dispatcher names/arities —
+the generated `init` pair (`docs/AUTHORING.md`). The `use Vendor.Element`
+macro generates their dispatchers too; the derived body SHOULD dispatch down
+to the inherited hook through the injected dispatcher (same pattern as
+`base_action/3`; exact init dispatcher names/arities —
 [PENDING TIER-1, T1-2]), and MUST when base actions read state the hook
-seeds. Whether the scaffolding should be wrapped in a canonical macro so
-extenders never hand-roll `base_action/3` plumbing is open question Q6.
+seeds.
 
 **The `internal:` annotation is advisory (D2).** An action MAY declare
 `internal: true`:
@@ -367,19 +386,20 @@ extended element (X-19).
 
 ### 5.9 Tag naming rules and tag takeover
 
-> **Interpretation note (coordinator, 2026-11-11).** D1 records the user's
-> answer — *"replace but extend not replace."* Applied here: a derivation MAY
+> **Decision note (user-confirmed 2026-11-11).** D1 — the user's answer,
+> *"replace but extend not replace"* — is applied here as: a derivation MAY
 > register under the base module's original tag, and doing so is ALWAYS an
 > **extension** of the vendor element — it inherits everything and layers its
 > overrides on top (JS: real ES `super`; Elixir: the `base_action/3` dispatch
 > chain, §5.3); it is never a wholesale substitute. Vendor
 > behaviour that isn't overridden keeps working, and the base tag's conformance
 > suite MUST still pass on the extended element. The composition semantics
-> below (chain order, conflict resolution, the `priority:` option) are the
-> coordinator's interpretation of that answer and are put to the user as open
-> question **Q4** (§12). The syntax chosen is **`tag: :inherit`**; the
-> alternative `extend_tag: true` was considered and dropped as a second knob
-> on the same decision.
+> below — chain order (dependency depth → `priority:` → module name),
+> outermost-wins conflict resolution, the base-suite gate — were the
+> coordinator's expansion of the terse answer and are **user-confirmed**;
+> this section is final as written (Q4 resolved). The syntax is
+> **`tag: :inherit`**; the alternative `extend_tag: true` was considered and
+> dropped as a second knob on the same decision.
 
 **Fresh-tag derivation (default).**
 
@@ -464,8 +484,8 @@ order, never a hidden last-wins.
 - *JS, post-define.* behaviors (§6.5) and `onAction` interceptors (§6.4)
   remain the sanctioned post-define layering: they cannot replace the class,
   they wrap the pipeline and attach per-connection behaviour.
-- `[PENDING TIER-2 SPIKE: the equivalent of extendElement and of compile-time
-  chain composition on the Hologram wrapper (T2-9).]`
+- `[PENDING TIER-2 SPIKE: the `use Vendor.Element` macro (T2-9) and the
+  wrapper-side `extendElement` equivalent.]`
 
 **Takeover is not the host swap.** The host-app `element:` swap
 (`docs/EXTENDING.md` §3, Phase 2) remains the runtime-level replacement path —
@@ -761,7 +781,7 @@ attach internals to an element that did not. [PENDING TIER-1] and
 | Axis | Versions | Where | Today |
 |---|---|---|---|
 | **Wire contract** (`contract.version`) | attrs/props/events/slots naming, contract-module shape, DOM shape, bridge | CONTRACT §2 `version`, `tesseraContractVersion` | 1 |
-| **Extension API** (`extension_api`) | §3's surface: derivation shape + tag extension, action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | none yet; first stable value `1.0.0` |
+| **Extension API** (`extension_api`) | §3's surface: derivation shape + the `use Vendor.Element` macro expansion (§5.3, §5.9), action pipeline over ALL actions, state snapshot + events, behaviors signature, subclass hooks, theming, forms | manifest + CEM + `tesseraExtensionApi` | none yet; first stable value `1.0.0` |
 
 The axes move independently. This document itself is versioned separately
 (draft v0.1 → 1.0.0 at first stable release).
@@ -949,9 +969,8 @@ rides `extension_api` 2.0.0, not this document.
   dispatcher (name/arity confirmation — the working mechanism on Tier 2 per
   the 2026-11-11 spike finding, since Hologram's IR has no `super`);
   generated dispatcher equivalents for fn-based actions; init-hook
-  dispatchers; and whether a canonical macro (`use Vendor.Element` expanding
-  to the dispatcher scaffolding) should wrap it all so extenders never
-  hand-roll the plumbing (Q6).
+  dispatchers. The canonical `use Vendor.Element` macro generates all of it
+  (D4, §5.3) — remaining work is the exact names/arities only.
 - T1-3 — event-rename rewrite pass over compiled emission points; binding-prop
   regeneration.
 - T1-4 — type-change reference-graph pass over compiled template/action ASTs.
@@ -988,8 +1007,10 @@ stock Hologram components; no wrapper runtime or notes yet):
 - T2-6 — cross-runtime derivation (§5.10): supported or `CompileError`.
 - T2-7 — the static type-change guard for Hologram-translated bodies.
 - T2-8 — whether any guarded `render()` override is exposed on Tier 2.
-- T2-9 — JS tag extension on the Hologram wrapper (D1): the `extendElement`
-  equivalent, and how compile-time extension chains (Elixir modules) compose
+- T2-9 — implement the `use Vendor.Element` macro (§5.3, D4): the
+  `base_action/3` dispatcher + `defoverridable` expansion, `tag:`/`:inherit`/
+  `priority:` handling, chain-conflict warnings; plus the wrapper-side
+  `extendElement` equivalent and how compile-time extension chains compose
   when the base and extensions all target Tier 2 (§5.9).
 
 **Unresolved design questions for review:**
@@ -1003,17 +1024,15 @@ stock Hologram components; no wrapper runtime or notes yet):
 - Q3 — Tier 1 actions return next state internally and expose nothing today;
   confirm `DispatchResult.value` semantics before stabilizing
   `extension_api` 1.0.0.
-- Q4 — **D1 composition semantics, for user confirmation** (§5.9): the chain
-  order (dependency depth → descending `priority:` outermost → module name
-  ascending, base innermost); outermost-wins conflict resolution; the
-  `tag: :inherit` syntax (over `extend_tag: true`); and base-tag conformance
-  passing as the takeover gate.
+- Q4 — ~~D1 composition semantics~~ **RESOLVED by user (2026-11-11): the
+  §5.9 layered-extension semantics are confirmed as written** — chain order
+  (dependency depth → `priority:` → module name, base innermost),
+  outermost-wins conflicts, the `tag: :inherit` syntax, and base-tag
+  conformance passing as the takeover gate (X-19).
 - Q5 — **D3 alias mechanism, for user confirmation** (§6.2): frozen snapshot
   with non-enumerable snake_case aliases (chosen) vs a read Proxy; confirms
   enumeration/JSON/spread yielding camelCase only.
-- Q6 — **canonical extension macro** (§5.3): should the contract name a
-  canonical macro (e.g. `use Vendor.Element`) that expands to the
-  `base_action/3` dispatcher + `defoverridable` scaffolding, so extenders
-  never hand-roll dispatcher plumbing? Without it, every extender writes the
-  plumbing by hand; with it, the macro becomes part of the extension surface
-  (§8 semver).
+- Q6 — ~~canonical extension macro~~ **RESOLVED by user (2026-11-11, D4): the
+  macro is chosen, not deferred** — `use Vendor.Element` is the required
+  Tier-2 extension mechanism (§5.3); hand-rolled scaffolding must still pass
+  X-19. The macro is part of the extension surface (§8.1).
