@@ -203,8 +203,19 @@ Tier 1's lowering (below). **Hand-rolled scaffolding** — writing the
 `defoverridable` + dispatcher plumbing without the macro — stays possible but
 has no contract standing unless the result passes the base tag's conformance
 gate (X-19); on Tier 2 the macro is the required mechanism.
-[PENDING TIER-2 SPIKE: implement the macro — T2-9; the expansion list above
-is the spec.]
+RESOLVED (brief 3f, T2-9): Tier 2 rides the SAME canonical macro — a Tier-2
+vendor declares `use Noizu.Tessera.Component.Extension, tag: …, actions: …,
+props: …, template: …` over `use Hologram.Component`, and extenders `use
+Vendor, tag: :inherit …` — one shared extension layer (`merge_spec!`, the
+§5.5 merge rules + type-change guard, §5.9 chain machinery, §8 pin check),
+with only the lowering differing: the injected `base_action/3` dispatcher +
+clause ordering replaces `super`, and `overrides: [names]` is the Tier-2
+author's declaration of which inherited actions its `action/3` clauses
+override (Tier-1 redeclaration is visible in the fn-AST deltas; Tier-2
+bodies are compiled clauses the merge cannot see, so the override set is
+explicit — it feeds the §5.9 chain-conflict warning and the takeover
+layer registry). The hand-rolled mirror is gone: the HoloKit EditableList
+dispatcher migrated onto the macro and passes the conformance gate.
 
 **Tier 1 shape (compiled to Lit) — action redeclaration.** Tier 1 actions are
 `action :name, fn state, params -> … end`; a derived module redeclares the
@@ -503,8 +514,22 @@ order, never a hidden last-wins.
 - *JS, post-define.* behaviors (§6.5) and `onAction` interceptors (§6.4)
   remain the sanctioned post-define layering: they cannot replace the class,
   they wrap the pipeline and attach per-connection behaviour.
-- `[PENDING TIER-2 SPIKE: the `use Vendor.Element` macro (T2-9) and the
-  wrapper-side `extendElement` equivalent.]`
+- RESOLVED (brief 3f): the wrapper-side `extendElement(tag, mixin, opts)`
+  exists on Tier 2 (priv/tessera_holo runtime, same registry semantics:
+  first-registered outermost, Symbol.for-shared across duplicate bundle
+  copies, post-define warn-once pointing at onAction/defineElement).
+  Compile-time Elixir layers on Tier 2 compose differently from Tier 1 and
+  the difference is contractual: Hologram's IR has no `super`, so a layer's
+  compiled `base_action/3` chain contains ONLY its own spine — sibling
+  layers outside the outermost module's spine never run. Tier-2 takeover
+  chains are therefore LINEAR (each layer `use`s the previous layer, chain
+  coordinates depth/priority carried on the `use` for warning order), and
+  the wrapper's `defineElement(tag, module, opts)` re-points the tag's
+  mount module to the chain-OUTERMOST layer as layers register (depth ASC →
+  priority ASC → module ASC → first-registered outermost on tie); the
+  outermost layer's spine contains every layer, so one mount runs the whole
+  chain. Tier 1 keeps true sibling+priority composition via real ES
+  `super`. Either shape MUST satisfy X-19 on its tier's harness.
 
 **Takeover is not the host swap.** The host-app `element:` swap
 (`docs/EXTENDING.md` §3, Phase 2) remains the runtime-level replacement path —
@@ -519,10 +544,12 @@ pin the vendor element underneath.
 A derived element inherits the base's `runtime:`. Same-runtime derivation is
 fully supported on both tiers: the merged spec compiles under the inherited
 runtime. Cross-runtime derivation (`:lit` base derived as `:hologram` or the
-reverse) — `[PENDING TIER-2 SPIKE]`; this contract does not assert it. If
-confirmed, every §5.7 check MUST apply identically; if not, it is a
-`CompileError`. `runtime:` never appears in the JS extension surface — JS
-extenders (§6) are runtime-blind by construction.
+reverse) is a `CompileError` (brief 3f, T2-6, decision U4 — pointed over
+silent: never assert unverified capability). `derive_tier2!`/`derive_tier1!`
+raise `tessera cross-runtime derivation is not supported (T2-6) …` naming
+both modules; support arrives, if ever, as a verified capability with its
+own conformance evidence. `runtime:` never appears in the JS extension
+surface — JS extenders (§6) are runtime-blind by construction.
 
 ---
 
@@ -754,7 +781,7 @@ which exists because Hologram's IR has no `super`.
 | `attributeChangedCallback(n, o, v)` | MUST call super | contract coercion + tsr-props live here |
 | `firstUpdated()` / `updated()` | SHOULD call super | Lit-backed runtimes only |
 | `shouldUpdate()` | MAY override; MUST NOT unconditionally return `false` | would freeze contract behavior |
-| `render()` | Tier 1: overridable, MUST return a lit template. Tier 2: **not portable** — replacing it bypasses the hosted Hologram mount. `[PENDING TIER-2 SPIKE]` | |
+| `render()` | Tier 1: overridable, MUST return a lit template. Tier 2: reserved and UNEXPOSED (brief 3f, T2-8, decision U5) — the render path is the hosted Hologram mount itself; no guarded `render()` override is offered, and replacing it would bypass the mount (the §6.8 reserved set applies; revisit only with a verified design) | |
 
 Everything else is reserved: `__tessera*` / `__action_*` members,
 `__tesseraState/SetState/RunAction`, `static properties`/`static styles`
@@ -944,7 +971,7 @@ is confined to the runtime layer. Two rules make that checkable:
 | X-18 | tsr-props reserved-key and method-key skip warnings (existing behavior, pinned) |
 | X-19 | tag-extension chain (D1): a `tag: :inherit` extension registers under the base tag; chain order (dependency → `priority:` → module name) is deterministic; the down-chain dispatch (`base_action/3` on Elixir, ES `super` in JS) falls through every layer to the vendor base; the BASE tag's conformance suite passes on the extended element; two same-depth overrides of one action or region emit the chain-conflict warning |
 | X-20 | case normalization end-to-end (D3): `dispatchAction`/`onAction` accept camel and snake action names and param keys; Elixir receives snake_case; interceptors receive camelCase; a non-round-tripping state key fails compilation |
-| X-21 | JS tag extension: `extendElement(tag, mixin)` composes pre-define mixins first-registered outermost into the single definition; post-define registration warns and points at behaviors/onAction — landed Tier 1 (brief 2e); the wrapper-side equivalent is `[PENDING TIER-2 SPIKE]` |
+| X-21 | JS tag extension: `extendElement(tag, mixin)` composes pre-define mixins first-registered outermost into the single definition; post-define registration warns and points at behaviors/onAction — landed Tier 1 (brief 2e); the wrapper-side `extendElement` exists on Tier 2 (brief 3f, priv/tessera_holo, same registry semantics) — its conformance case is ADAPTER-PENDING on the Tier-2 harness (the runtime API is shipped and exercised indirectly via the §5.9 defineElement layering) |
 
 Tier 1 runs the suite against compiled elements (WTR, as the spike does);
 Tier 2 runs it in the Hologram-in-element harness with its init wait. A
@@ -1115,14 +1142,22 @@ stock Hologram components; no wrapper runtime or notes yet):
   verified identical to Tier 1 by the shared X-03 case body.
 - T2-5 — template/region semantics under Hologram's own template engine;
   whether the `{%super%}` chain marker translates.
-- T2-6 — cross-runtime derivation (§5.10): supported or `CompileError`.
-- T2-7 — the static type-change guard for Hologram-translated bodies.
-- T2-8 — whether any guarded `render()` override is exposed on Tier 2.
-- T2-9 — implement the `use Vendor.Element` macro (§5.3, D4): the
-  `base_action/3` dispatcher + `defoverridable` expansion, `tag:`/`:inherit`/
-  `priority:` handling, chain-conflict warnings; plus the wrapper-side
-  `extendElement` equivalent and how compile-time extension chains compose
-  when the base and extensions all target Tier 2 (§5.9).
+- T2-6 — RESOLVED (brief 3f, U4): cross-runtime derivation is a
+  `CompileError` (§5.10) — pointed over silent; never assert unverified
+  capability.
+- T2-7 — RESOLVED (brief 3f): the §5.5 reference-graph type-change guard
+  rides the shared merge on Tier 2 — the compiled TEMPLATE tree is
+  tier-agnostic, so retyping a template-referenced prop trips the guard at
+  compile time; the action-body half of the walk stays Tier-1-only (Tier-2
+  actions are compiled `def` clauses, not fn ASTs the graph can read).
+- T2-8 — RESOLVED (brief 3f, U5): no `render()` override is exposed on
+  Tier 2 — reserved and unexposed (§6.6).
+- T2-9 — RESOLVED (brief 3f): Tier 2 rides the SAME canonical macro (§5.3,
+  D4) — shared extension layer, `overrides:` as the explicit Tier-2
+  counterpart of Tier-1's override delta, injected `base_action/3` spine,
+  wrapper-side `extendElement` + `defineElement` module-layer re-pointing
+  with LINEAR chains (§5.9). X-16 + X-19 green on the Tier-2 conformance
+  harness over shared tier-agnostic bodies.
 
 **Unresolved design questions for review:**
 

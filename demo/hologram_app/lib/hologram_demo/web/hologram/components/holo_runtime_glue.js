@@ -45,6 +45,13 @@ export function loadHoloRuntime() {
     await import(BASE + "editable_list.esm.js");
     await import(BASE + "fancy_list.esm.js");
     await import(BASE + "tidy_list.esm.js");
+    // brief 3f X-19: the §5.9 takeover chain — vendor + three tag: :inherit
+    // layers, each a compiled bundle of its own.
+    await import(BASE + "takeover_probe.esm.js");
+    await import(BASE + "takeover_probe_ext_aaa.esm.js");
+    await import(BASE + "takeover_probe_ext_bbb.esm.js");
+    await import(BASE + "takeover_probe_ext_ccc.esm.js");
+    await import(BASE + "takeover_probe_derived.esm.js");
 
     rt.defineElement("tsr-holo-counter", "HoloKit.Components.Counter");
     // Tier-2 conformance fixture for the extension-contract state/action
@@ -135,6 +142,21 @@ export function loadHoloRuntime() {
     // the untouched vendor element stays mountable under an explicit alias
     rt.defineElement("plain-list", "HoloKit.Components.EditableList");
     rt.defineElement("fancy-list", "ThirdParty.FancyList");
+    // brief 3f (X-19): §5.9 tag-takeover chain. The vendor's defineElement
+    // call DEFINES the tag; each `tag: :inherit` layer then joins as a
+    // MODULE layer with its §5.9 chain coordinates (mirroring the Elixir
+    // specs — a linear spine ccc → bbb → aaa → vendor, since Hologram's IR
+    // has no `super`). The wrapper re-points the mount module to the
+    // chain-OUTERMOST layer (Ccc): its compiled base_action/3 spine contains
+    // every layer, so the mounted component runs the whole chain — marker
+    // events included (layers js_emit synchronously).
+    rt.defineElement("tsr-holo-takeover-probe", "HoloKit.Components.TakeoverProbe");
+    rt.defineElement("tsr-holo-takeover-probe", "HoloKit.Components.TakeoverProbeExtAaa", undefined, {depth: 1});
+    rt.defineElement("tsr-holo-takeover-probe", "HoloKit.Components.TakeoverProbeExtBbb", undefined, {depth: 2, priority: 10});
+    rt.defineElement("tsr-holo-takeover-probe", "HoloKit.Components.TakeoverProbeExtCcc", undefined, {depth: 3});
+    // brief 3f (X-16): §5.10 derivation — the vendor derived onto its OWN
+    // tag (fresh surface: inherited actions + a new :reset), base untouched.
+    rt.defineElement("tsr-holo-takeover-derived", "HoloKit.Components.TakeoverProbeDerived");
 
     registerEvents(["count-changed", "item-saved", "item-archived"]);
   })().catch((error) => {

@@ -53,6 +53,14 @@ const FIXTURES: Record<string, string> = {
   // reset_value on formResetCallback, signals in el.tesseraFormSignals).
   slots: "tsr-holo-slot-probe",
   form: "tsr-holo-form-probe",
+  // brief 3f: the §5.9 takeover chain mounts the chain-OUTERMOST layer
+  // (glue registered vendor + three tag: :inherit module layers; the
+  // wrapper re-pointed the mount module to TakeoverProbeExtCcc whose
+  // compiled base_action/3 spine contains every layer). "derived" is the
+  // §5.10 derivation fixture — the vendor derived onto its OWN tag with a
+  // new :reset action (X-16).
+  takeover: "tsr-holo-takeover-probe",
+  derived: "tsr-holo-takeover-derived",
 };
 
 let ctx: {win: Window} | null = null;

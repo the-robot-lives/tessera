@@ -26,6 +26,11 @@ defmodule HoloKit.Emit do
 
   @host_suffix "$h"
 
+  # dispatch_event is a macro — fully-qualified macro calls need require
+  # (the expansion is the plain dispatch_event/5 function the Hologram
+  # client runtime implements; BEAM builds hit the server pass-through).
+  require Hologram.JS
+
   @doc """
   Call from `init/2` as `component |> HoloKit.Emit.mount(props)`. Stores the
   synthetic host-bridge cid derived from the component's `cid` prop under
@@ -50,6 +55,33 @@ defmodule HoloKit.Emit do
       name: event,
       params: params,
       target: host
+    )
+  end
+
+  @doc """
+  Brief 3f (X-19): emits `event` DIRECTLY via client-side JS interop —
+  `document.dispatchEvent(new CustomEvent(name, {bubbles, composed, detail}))`
+  executed synchronously inside the action handler.
+
+  Why not `emit/3` for takeover layers: `put_action/2` fills the component's
+  SINGLE `next_action` slot, so two emits inside one action invocation
+  overwrite each other — only the last would fire. A `tag: :inherit` chain
+  where several layers mark one dispatch needs N synchronous events, which
+  only direct JS interop delivers (Hologram's JS interop executes client-side
+  exactly inside action handlers; on the BEAM it is a pass-through returning
+  `:ok`, so BEAM-level probes stay green without firing events).
+  """
+  def js_emit(event, params \\ %{}) when is_atom(event) do
+    # snake → kebab: the tessera event convention (`:item_saved` fires
+    # "item-saved" — naming.ex "kebab, verbatim"), matching Tier-1's
+    # emit("conf-ext-aaa", …) marker names so the shared X-19 body traces
+    # both tiers identically.
+    name = String.replace(Atom.to_string(event), "_", "-")
+
+    Hologram.JS.dispatch_event(:document, :CustomEvent, name,
+      bubbles: true,
+      composed: true,
+      detail: params
     )
   end
 end

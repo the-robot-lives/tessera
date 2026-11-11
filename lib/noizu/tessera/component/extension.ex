@@ -388,7 +388,10 @@ defmodule Noizu.Tessera.Component.Extension do
       priority: spec.priority || 0,
       actions:
         spec.actions
-        |> Enum.reject(& &1[:inherited])
+        # an inherited entry the author's action/3 clauses override
+        # (`overrides:` opt — Tier-2's counterpart of the Tier-1 DSL override
+        # delta) counts as this layer's contested surface (§5.7)
+        |> Enum.filter(&(!&1[:inherited] or &1[:override]))
         |> Enum.map(&Atom.to_string(&1.name))
         |> MapSet.new(),
       regions: spec.region_overrides |> Enum.map(&Atom.to_string(&1)) |> MapSet.new()
@@ -1036,20 +1039,618 @@ defmodule Noizu.Tessera.Component.Extension do
   """
   @spec action_dispatcher_asts(module(), [atom()]) :: [Macro.t()]
   def action_dispatcher_asts(base_module, action_names) do
-    if function_exported?(base_module, :__tessera_action__, 3) do
-      clauses =
-        Enum.map(action_names, fn name ->
-          quote do
-            def base_action(unquote(name), params, component),
-              do: unquote(base_module).__tessera_action__(unquote(name), params, component)
-          end
-        end)
+    cond do
+      # The §5.3 contract entry point (preferred): a Tier-2 component that
+      # declares the per-action literal `__tessera_action__/3` clauses.
+      function_exported?(base_module, :__tessera_action__, 3) ->
+        dispatch_clauses(base_module, :__tessera_action__, action_names)
 
-      [quote(do: (unquote_splicing(clauses)))]
-    else
-      []
+      # Tier-2 fallback (brief 3f): a Hologram-runtime component exports its
+      # real `action/3` callback — dispatch straight to it with the literal
+      # name (static remote call, transpilable; the base's own clauses + any
+      # parent chaining inside the base still apply).
+      function_exported?(base_module, :action, 3) ->
+        dispatch_clauses(base_module, :action, action_names)
+
+      # Tier-1 fn-actions never compile to the BEAM — their down-call is real
+      # ES `super` in the lowered JS, not a BEAM dispatcher.
+      true ->
+        []
     end
   end
+
+  defp dispatch_clauses(base_module, entry, action_names) do
+    clauses =
+      Enum.map(action_names, fn name ->
+        quote do
+          def base_action(unquote(name), params, component),
+            do: unquote(base_module).unquote(entry)(unquote(name), params, component)
+        end
+      end)
+
+    [quote(do: (unquote_splicing(clauses)))]
+  end
+
+  # -- Tier-2 lowering (brief 3f, EXTENSION-CONTRACT.md §5.3/D4, T2-9) ---------
+
+  @doc """
+  The canonical Tier-2 element macro, invoked by a vendor module as
+  `use Noizu.Tessera.Component.Extension, …` (D4: the vendor module IS the
+  macro — the `__using__` its extenders consume is generated here, not
+  hand-rolled). Options (compile-time literals):
+
+    * `tag:` (required) — the vendor's element tag;
+    * `actions:` — snake atoms in declaration order, the §6.1 OPEN surface
+      (the runtime bodies are the vendor's own `def action/3` clauses —
+      Hologram-transpilable Elixir, never fn-AST DSL bodies);
+    * `props:` — `name: [type: :, default: :]` triples mirroring the
+      vendor's Hologram `prop/2,3` declarations (re-emitted into extenders);
+    * `regions:` — atoms naming the arity-1 template helper functions the
+      markup calls (e.g. `[:row_label]`) — extenders get delegating
+      `def name(arg), do: Vendor.name(arg)` + `defoverridable`;
+    * `template:` — the markup string (the same markup the vendor's own
+      `def template` renders) — rides `spec.template.raw` so extenders
+      re-emit it and the T1-4/T2-7 reference-graph guard can walk it;
+    * `extension_api:` — the §8 semver declaration (defaults to 1.0.0).
+
+  The expansion splices the CONTRACT scaffold onto the vendor:
+  `__tessera_spec__/0` + `__tessera_manifest__/0` (the minimal Tier-2 spec —
+  the interface extenders merge against), the per-action literal
+  `__tessera_action__/3` entry clauses (static calls into the vendor's own
+  `action/3`; unknown names raise the boxed FunctionClauseError the §6.3
+  unknown-action classification expects), and the generated `__using__/1`
+  that drives `derive_tier2!/3` for every extender.
+  """
+  defmacro __using__(opts) do
+    tier2_vendor!(opts, __CALLER__)
+  end
+
+  # Vendor-side expansion: minimal spec + contract entry + generated __using__.
+  defp tier2_vendor!(opts, %Macro.Env{} = caller) do
+    opts = eval_opts!(opts, caller)
+    tag = Keyword.get(opts, :tag)
+    Spec.validate!(:tag, tag, %{}, caller.file, caller.line)
+
+    action_names = Keyword.get(opts, :actions, [])
+    region_names = Keyword.get(opts, :regions, [])
+    extension_api = Keyword.get(opts, :extension_api) || @default_extension_api
+    markup = Keyword.get(opts, :template)
+
+    unless is_binary(markup) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera Tier-2 `template:` must be the markup string the component renders " <>
+            "(the same markup its bundle serves) — it rides spec.template.raw so extenders " <>
+            "re-emit it (EXTENSION-CONTRACT.md §5.5)"
+    end
+
+    Enum.each(action_names, fn name ->
+      unless is_atom(name) do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `actions:` must be snake atoms in declaration order, got: " <>
+              inspect(name)
+      end
+    end)
+
+    props = parse_tier2_props!(opts, caller)
+
+    # §6.7 (brief 2f parity): declared via `use …, form_associated: true`.
+    form_associated = Keyword.get(opts, :form_associated) == true
+
+    unless is_boolean(Keyword.get(opts, :form_associated, false)) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera Tier-2 `form_associated:` must be a boolean (§6.7), got: " <>
+            inspect(Keyword.get(opts, :form_associated))
+    end
+
+    # D2/§10 internal annotation (advisory warn-once only): a subset of the
+    # declared actions is `internal: true` on the spec entries.
+    internal_actions = Keyword.get(opts, :internal_actions, [])
+
+    Enum.each(internal_actions, fn name ->
+      unless name in action_names do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `internal_actions:` must be a subset of `actions:` — " <>
+              inspect(name) <> " is not declared (D2/§10)"
+      end
+    end)
+
+    spec = %Spec{
+      version: 1,
+      tag: tag,
+      module: caller.module,
+      file: caller.file,
+      actions:
+        Enum.map(action_names, fn name ->
+          if name in internal_actions do
+            %{name: name, line: caller.line, internal: true}
+          else
+            %{name: name, line: caller.line}
+          end
+        end),
+      props: props,
+      template: %{raw: markup, lexer: :hologram, line: caller.line},
+      extension_api: extension_api,
+      form_associated: form_associated
+    }
+
+    entry_asts = tier2_entry_asts(caller.module, action_names)
+    region_asts = tier2_regions_decl_asts(region_names)
+
+    template_ast =
+      quote do
+        @doc """
+        The tessera template: generated from the `use Extension` `template:`
+        markup (single source — the extender scaffold re-emits the same
+        string from the merged spec). Generated — do not override.
+        """
+        def template do
+          Hologram.Template.sigil_HOLO(unquote(markup), [])
+        end
+      end
+
+    quote do
+      @doc "Template helper functions this Tier-2 component's markup calls, with arities (§5.4)."
+      unquote_splicing(region_asts)
+
+      unquote_splicing(List.wrap(template_ast))
+
+      @doc "The compiled `Noizu.Tessera.Spec` struct for this Tier-2 component."
+      @spec __tessera_spec__() :: Noizu.Tessera.Spec.t()
+      def __tessera_spec__, do: unquote(Macro.escape(spec))
+
+      @doc "The tessera manifest entry (plain map) for this Tier-2 component."
+      @spec __tessera_manifest__() :: map()
+      def __tessera_manifest__, do: unquote(Macro.escape(Spec.to_manifest_map(spec)))
+
+      unquote_splicing(entry_asts)
+
+      # The canonical extension macro (§5.3/D4): `use ThisModule, tag: …`
+      # expands through the shared derivation layer below.
+      @doc false
+      defmacro __using__(opts) do
+        Noizu.Tessera.Component.Extension.derive_tier2!(
+          unquote(caller.module),
+          opts,
+          __CALLER__
+        )
+      end
+    end
+  end
+
+  # Regions ride the vendor as `__tessera_regions__/0` (keyword name → arity;
+  # spec.ex carries no regions-of-this-shape field and the Tier-2 standalone
+  # path needs the arities to generate delegating defs). Read at extender
+  # expansion time — the vendor module is compiled and loaded by then.
+  defp tier2_regions_decl_asts(regions) do
+    normalized = Enum.map(regions, fn {name, arity} -> {Atom.to_string(name), arity} end)
+
+    [
+      quote do
+        @doc false
+        def __tessera_regions__, do: unquote(normalized)
+      end
+    ]
+  end
+
+  # The per-action literal `__tessera_action__/3` entry clauses — static calls
+  # into the module's own `action/3`, transpilable by Hologram (dynamic
+  # function application is not in its IR). NO catch-all: an unknown name
+  # raises the boxed %FunctionClauseError{} the §6.3 unknown-action path
+  # classifies (the StateProbe convention).
+  defp tier2_entry_asts(_module, []), do: []
+
+  defp tier2_entry_asts(_module, action_names) do
+    clauses =
+      Enum.map(action_names, fn name ->
+        quote do
+          def __tessera_action__(unquote(name), params, component),
+            do: action(unquote(name), params, component)
+        end
+      end)
+
+    [quote(do: (unquote_splicing(clauses)))]
+  end
+
+  @doc """
+  The expansion of a Tier-2 vendor's generated `__using__/1`
+  (`use Vendor, tag: …` — §5.3, D4). Runs the SAME shared layer Tier 1 uses —
+  option guards, the §5.9 chain machinery, `merge_spec!/3` (hence the §5.5
+  merge rules + the T1-4/T2-7 reference-graph type-change guard) and the §8
+  pin check — then splices the Tier-2 lowering: a Hologram component whose
+  inherited surface is reachable through the injected `base_action/3`
+  dispatcher + `defoverridable` (Hologram's IR has no `super`; D4 forbids
+  promising Elixir-level super).
+
+  Multi-level chaining (T2-9 gap fix): the scaffold records the PARENT
+  (the module the extender `use`d) and links through it — per-action
+  `base_action/3` clauses dispatch to the parent's `__tessera_action__/3`
+  entry, and the dynamic-name fallback dispatches the parent's `action/3`
+  (whose clauses/catch-all continue down-chain), so A→B→C never re-includes
+  the whole stack.
+  """
+  @spec derive_tier2!(module(), keyword(), Macro.Env.t()) :: Macro.t()
+  def derive_tier2!(vendor_module, opts, %Macro.Env{} = caller) when is_atom(vendor_module) do
+    vendor_spec = vendor_module.__tessera_spec__()
+
+    opts = eval_opts!(opts, caller)
+
+    guard_tier2_double_use!(caller)
+
+    base = vendor_spec.module
+
+    # Cycle guard walks the derived_from spine (a takeover layer deriving
+    # from a takeover layer must not revisit the deriving module).
+    spine =
+      vendor_spec
+      |> Stream.iterate(fn s -> s.derived_from && s.derived_from.__tessera_spec__() end)
+      |> Enum.take_while(& &1)
+      |> Enum.map(& &1.module)
+
+    if caller.module in spine do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera derivation cycle: #{inspect(caller.module)} already appears in the " <>
+            "extension chain of #{inspect(vendor_spec.module)} (EXTENSION-CONTRACT.md §5.9)"
+    end
+
+    guard_cross_runtime!(vendor_spec, caller)
+
+    {tag, _inherit?} = resolve_tag!(Keyword.get(opts, :tag), vendor_spec, caller)
+    priority = resolve_priority!(Keyword.get(opts, :priority, 0), caller)
+    pin = Keyword.get(opts, :extension_api)
+    base_api = vendor_spec.extension_api || @default_extension_api
+    check_pin!(base_api, pin, caller)
+    extension_api = pin || base_api
+
+    author_actions = Keyword.get(opts, :actions, [])
+
+    Enum.each(author_actions, fn name ->
+      unless is_atom(name) do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 derivation `actions:` must be snake atoms (the NEW action " <>
+              "names this module adds), got: #{inspect(name)}"
+      end
+    end)
+
+    Module.put_attribute(caller.module, :tessera_tier2_derived_from, base)
+    Module.put_attribute(caller.module, :tessera_tier2_tag, tag)
+
+    deltas = %{
+      actions: Enum.map(author_actions, &%{name: &1, line: caller.line}),
+      # §5.5 on Tier 2 (brief 3f/T2-7): `props:` on a derive adds or
+      # overrides-by-name through the SAME merge layer — a retype of a key
+      # the base reads trips the shared type-change guard (assert_type_change!)
+      # inside merge_spec!/3.
+      props: parse_tier2_props!(opts, caller)
+    }
+
+    merged = merge_spec!(vendor_spec, deltas, caller)
+
+    # §5.7 on Tier 2: the author's takeover `def action(:name, …)` clauses are
+    # invisible to the merge (raw BEAM clauses, not spec deltas — Tier-1 sees
+    # its DSL overrides as delta entries). `overrides:` is the explicit
+    # declaration that feeds the chain-conflict warning AND stays on the
+    # merged entry so the takeover registry counts it.
+    overrides = Keyword.get(opts, :overrides, [])
+
+    Enum.each(overrides, fn name ->
+      unless is_atom(name) do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `overrides:` must list snake atoms (the action names this " <>
+              "module's action/3 clauses override), got: #{inspect(name)}"
+      end
+
+      merged_names = Enum.map(merged.actions, & &1.name)
+
+      unless name in merged_names do
+        raise CompileError,
+          file: caller.file,
+          line: caller.line,
+          description:
+            "tessera Tier-2 `overrides:` names #{inspect(name)}, which the vendor does " <>
+              "not declare — only inherited actions can be overridden (§5.7)"
+      end
+    end)
+
+    merged =
+      if overrides == [] do
+        merged
+      else
+        override_set = MapSet.new(overrides)
+
+        Map.update!(merged, :actions, fn entries ->
+          Enum.map(entries, fn entry ->
+            if entry.name in override_set and entry[:inherited] do
+              Map.put(entry, :override, true)
+            else
+              entry
+            end
+          end)
+        end)
+      end
+
+    # merge_spec!/3 returns a plain map (list_kinds rebuild) — re-wrap into a
+    # real %Spec{} so the §5.9 chain helpers (takeover?/1, chain_depth/1,
+    # record_takeover_layer!/2, __tessera_spec__/0 consumers) match.
+    merged_spec =
+      %Spec{
+        version: vendor_spec.version,
+        tag: tag,
+        module: caller.module,
+        file: caller.file,
+        cy: merged.cy,
+        attrs: merged.attrs,
+        props: merged.props,
+        events: merged.events,
+        slots: merged.slots,
+        css_properties: merged.css_properties,
+        parts: merged.parts,
+        state: merged.state,
+        actions: merged.actions,
+        # merge_spec!/3 reshapes template to its internal `%{line, markup}`
+        # merge shape; the SPEC carries the contract template_entry shape —
+        # restore raw + the base's lexer so to_manifest_map/1 stays uniform.
+        template:
+          merged.template &&
+            %{
+              raw: merged.template.markup,
+              lexer: (vendor_spec.template && vendor_spec.template[:lexer]) || :hologram,
+              line: merged.template.line
+            },
+        styles: merged.styles,
+        lifecycle: merged.lifecycle,
+        derived_from: base,
+        priority: priority,
+        extension_api: extension_api,
+        # §6.7 additive inheritance: the layer participates if it declares
+        # `form_associated: true` or its base already does.
+        form_associated:
+          Keyword.get(opts, :form_associated) == true or vendor_spec.form_associated == true
+      }
+
+    # §5.7 chain-conflict warning for a `tag: :inherit` layer (same sibling
+    # registry the Tier-1 compiler feeds — compile order never hides it).
+    if takeover?(merged_spec) do
+      record_takeover_layer!(merged_spec, caller)
+    end
+
+    inherited_names = Enum.map(merged_spec.actions, & &1.name)
+
+    regions =
+      if function_exported?(vendor_spec.module, :__tessera_regions__, 0) do
+        Enum.map(vendor_spec.module.__tessera_regions__(), fn {name, arity} ->
+          {String.to_existing_atom(name), arity}
+        end)
+      else
+        []
+      end
+
+    quote do
+      use Hologram.Component
+      use Hologram.JS
+
+      # Inherited Hologram props re-emitted as prop declarations (the
+      # extender is a full component: same props, fresh module).
+      unquote_splicing(tier2_prop_asts(merged_spec))
+
+      # Init down-chain (§5.3): the injected delegates reach the vendor's
+      # `__tessera_init__/2,3` through `base_init/2,3` (T1-2 names); an
+      # author override replaces the delegates wholesale (defoverridable).
+      def init(props, component), do: __tessera_init__(props, component)
+
+      def init(props, component, server), do: __tessera_init__(props, component, server)
+
+      def __tessera_init__(props, component), do: base_init(props, component)
+
+      def __tessera_init__(props, component, server), do: base_init(props, component, server)
+
+      defoverridable init: 2, init: 3, __tessera_init__: 2, __tessera_init__: 3
+
+      unquote_splicing(init_dispatcher_asts(vendor_spec.module))
+
+      # Action down-chain (§5.3/T2-9): per-action `base_action/3` clauses
+      # make STATIC literal remote calls into the parent's contract entry —
+      # Hologram's IR has no dynamic function application, so the fallback
+      # dispatch rides clause MATCHING on a local variable-name call instead
+      # of a dynamic remote call. The author's override clauses come AFTER
+      # this `use` and are just plain `action/3` clauses; the total chain
+      # fallback is appended at `__before_compile__` (see
+      # `__before_compile__/1`) so it can never shadow them.
+      #
+      # `__tessera_action__/3` entries follow for every merged action, so a
+      # chained extender is itself a valid chain parent.
+      unquote_splicing(action_dispatcher_asts(vendor_spec.module, inherited_names))
+
+      unquote_splicing(tier2_entry_asts(caller.module, inherited_names))
+
+      # NOTE: FUNCTION form — on Elixir 1.20.1 the tuple form
+      # ({Module, :fun}) runs the hook but DISCARDS its returned quote.
+      @before_compile Noizu.Tessera.Component.Extension
+
+      # Named template regions (§5.4 Tier-2 analogue): delegating defs so an
+      # unoverridden extender renders the vendor default and an override
+      # replaces it (defoverridable); the re-emitted template calls resolve
+      # to THIS module's definitions.
+      unquote_splicing(tier2_region_asts(vendor_spec.module, regions))
+
+      # The merged template markup (§5.5 — the spec is the interface between
+      # definition and runtime): re-emitted verbatim, so region/helper calls
+      # resolve locally and inherited `{@key}` reads keep their merged names.
+      def template do
+        Hologram.Template.sigil_HOLO(unquote(template_markup(merged_spec)), [])
+      end
+
+      @doc "The compiled `Noizu.Tessera.Spec` struct for this derived component."
+      @spec __tessera_spec__() :: Noizu.Tessera.Spec.t()
+      def __tessera_spec__, do: unquote(Macro.escape(merged_spec))
+
+      @doc "The tessera manifest entry (plain map) for this derived component."
+      @spec __tessera_manifest__() :: map()
+      def __tessera_manifest__, do: unquote(Macro.escape(Spec.to_manifest_map(merged_spec)))
+
+      # A chained extender is itself a vendor (§5.9 dependency order): the
+      # next layer `use`s THIS module and rides the same derivation.
+      @doc false
+      defmacro __using__(opts) do
+        Noizu.Tessera.Component.Extension.derive_tier2!(__MODULE__, opts, __CALLER__)
+      end
+    end
+  end
+
+  # Runs at the END of every Tier-2 extender's body (registered by the
+  # derive_tier2! scaffold). Appends the TOTAL chain fallback `action/3`
+  # clause AFTER the author's own clauses: clause order then gives the
+  # §6.4 dispatch semantics — author overrides match first, every other
+  # name falls through to the injected `base_action/3` chain (whose
+  # per-action clauses are static; a name outside the merged surface finds
+  # no clause and raises the boxed FunctionClauseError the §6.3
+  # unknown-action classification expects). Appending here — not at `use` —
+  # is what lets a Tier-2 author mirror the Tier-1 style and define ONLY
+  # the clauses they override.
+  defmacro __before_compile__(_env) do
+    quote do
+      def action(name, params, component), do: base_action(name, params, component)
+    end
+  end
+
+  # T2-6 (§5.10, decision U4): cross-runtime derivation is a CompileError.
+  # Same-runtime derivation is fully supported on both tiers. A base's
+  # runtime is read off its compiled artifacts, never asserted:
+  #   * a Hologram-runtime base exports `action/3` or `__tessera_action__/3`;
+  #   * a Lit-lowered (Tier-1) base carries fn-AST actions with NO BEAM
+  #     action entry — its bodies exist only as compiled Lit JS, which a
+  #     Hologram host cannot reach, and vice versa.
+  defp guard_cross_runtime!(%Spec{} = base_spec, caller) do
+    host_tier2? = Noizu.Tessera.Hologram.Adapter.available?()
+    base_tier2? = tier2_runtime?(base_spec)
+
+    if host_tier2? != base_tier2? and cross_runtime_risk?(base_spec) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera cross-runtime derivation is not supported (T2-6): #{inspect(base_spec.module)} " <>
+            "compiles for the #{if host_tier2?, do: "Lit", else: "Hologram"} runtime, but " <>
+            "#{inspect(caller.module)} compiles under " <>
+            "#{if host_tier2?, do: "Hologram", else: "Lit"} — derive within the same runtime " <>
+            "(EXTENSION-CONTRACT.md §5.10); the base's action bodies are unreachable across runtimes"
+    end
+
+    :ok
+  end
+
+  defp tier2_runtime?(%Spec{module: mod}) do
+    function_exported?(mod, :__tessera_action__, 3) or function_exported?(mod, :action, 3)
+  end
+
+  # Only a base whose action bodies would actually be stranded across the
+  # runtime boundary trips the guard: fn-AST actions (Tier-1 bodies) with no
+  # BEAM entry in a Hologram host, or Hologram action/3 bodies in a Lit host.
+  # A base with no actions at all derives surface-only and passes either way.
+  defp cross_runtime_risk?(%Spec{actions: actions, module: mod}) do
+    has_beam_entry? =
+      function_exported?(mod, :__tessera_action__, 3) or function_exported?(mod, :action, 3)
+
+    Enum.any?(actions, & &1[:fn_ast]) or has_beam_entry? or actions == []
+  end
+
+  defp guard_tier2_double_use!(caller) do
+    if Module.get_attribute(caller.module, :tessera_tier2_derived_from) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera double use: #{inspect(caller.module)} already derived from " <>
+            "#{inspect(Module.get_attribute(caller.module, :tessera_tier2_derived_from))} — " <>
+            "`use Vendor, tag: …` once per module (EXTENSION-CONTRACT.md §5.1)"
+    end
+
+    :ok
+  end
+
+  defp tier2_prop_asts(%Spec{} = spec) do
+    Enum.map(spec.props, fn p ->
+      default = p[:default]
+      type = p.type || :any
+
+      if default == nil do
+        quote do
+          prop unquote(p.name), unquote(type)
+        end
+      else
+        quote do
+          prop unquote(p.name), unquote(type), default: unquote(default)
+        end
+      end
+    end)
+  end
+
+  # `props:` opt shape shared by the vendor path and derive deltas (T2-7):
+  # `prop_name: [type: :, default: :, json: :]` — the contract entries the
+  # merge layer and the Hologram @__props__ accumulator both consume.
+  defp parse_tier2_props!(opts, %Macro.Env{} = caller) do
+    opts
+    |> Keyword.get(:props, [])
+    |> Enum.map(fn {name, defn} ->
+      defn = defn || []
+
+      %{
+        name: name,
+        type: Keyword.get(defn, :type, :any),
+        default: Keyword.get(defn, :default),
+        json: Keyword.get(defn, :json, false),
+        line: caller.line
+      }
+    end)
+  end
+
+  defp tier2_region_asts(_vendor_module, []), do: []
+
+  defp tier2_region_asts(vendor_module, regions) do
+    Enum.map(regions, fn {name, arity} ->
+      args = Enum.map(1..arity, &Macro.var(:"arg#{&1}", nil))
+
+      delegate =
+        quote do
+          def unquote(name)(unquote_splicing(args)),
+            do: unquote(vendor_module).unquote(name)(unquote_splicing(args))
+        end
+
+      overridable =
+        quote do
+          defoverridable [{unquote(name), unquote(arity)}]
+        end
+
+      [delegate, overridable]
+    end)
+    |> List.flatten()
+  end
+
+  # The merged template markup rides the struct in the contract shape
+  # (`raw:` — restored from merge_spec!/3's internal `%{line, markup}` at
+  # the %Spec re-wrap).
+  defp template_markup(%Spec{template: %{raw: raw}}) when is_binary(raw), do: raw
+  defp template_markup(%Spec{}), do: ""
 
   # -- option evaluation -------------------------------------------------------
 
