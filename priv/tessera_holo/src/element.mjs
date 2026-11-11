@@ -76,6 +76,18 @@ export class TesseraHoloElement extends HTMLElement {
     // disconnect/reconnect so firstUpdated fires exactly once per element
     // lifetime (Lit parity) and hasUpdated keeps its value across remounts.
     this.__tesseraEverRendered = false;
+
+    // brief 3e: form association (lit-parity §2.10 rows #144-#149;
+    // EXTENSION-CONTRACT §6.7). `static formAssociated` is decided at
+    // customElements.define by defineElement — from the compiled manifest
+    // (manifest.formAssociated === true, which brief 3f will drive from the
+    // spec's form_associated; today a fixture opts in via
+    // __tsr_form_associated__/0) or from the base class's own static (the
+    // documented subclass seam). attachInternals() THROWS NotSupportedError
+    // on a non-form-associated element, so it is gated on new.target — the
+    // actually-constructed class, statics and all — and a non-declared
+    // element NEVER gets internals attached (§6.7 MUST NOT).
+    this.__tesseraInternals = new.target.formAssociated === true ? this.attachInternals() : null;
   }
 
   // Documented overridable hook: alter props before every mount/update.
@@ -123,6 +135,29 @@ export class TesseraHoloElement extends HTMLElement {
   get hasUpdated() {
     return this.__tesseraEverRendered === true;
   }
+
+  // --- brief 3e: form participation surface (EXTENSION-CONTRACT §6.7;
+  // lit-parity §2.10 rows #144-#149) ------------------------------------------
+  // ElementInternals for a DECLARED form-associated tag (#145) — the handle
+  // authors push values through setFormValue (#147) and validation states
+  // through setValidity (#146). `null` for every non-declared element: the
+  // internals is NEVER attached otherwise (§6.7 MUST NOT), and reading it
+  // never throws — authors branch on `el.internals !== null`.
+  get internals() {
+    return this.__tesseraInternals;
+  }
+
+  // Form lifecycle seams (#148/#149). The browser invokes these ONLY on a
+  // form-associated custom element, so defining them is harmless on a
+  // declared-false tag. The defaults are NO-OPS: the wrapper never guesses a
+  // reset/-disable policy — a fixture or host subclass overrides them (and
+  // SHOULD call super). Wiring a reset to an action, or a value to
+  // setFormValue, is the author's contract (see the holo_kit FormProbe
+  // fixture + the glue recording subclass for the documented pattern).
+  formResetCallback() {}
+
+  // eslint-disable-next-line no-unused-vars
+  formDisabledCallback(_disabled) {}
 
   connectedCallback() {
     if (this.__mount) return;
@@ -382,6 +417,19 @@ export function defineElement(tagName, moduleName, elementClass = TesseraHoloEle
     // until then the documented fallbacks stand (open-surface list [] —
     // dispatch stays name-driven, D2).
     const manifest = getDescriptor(moduleName);
+
+    // brief 3e (§6.7, #144): formAssociated is decided HERE, before define —
+    // it is read by customElements.define off the constructor, and the
+    // constructor's gated attachInternals reads it off new.target per
+    // instance. Two admissible sources, both additive: the compiled manifest
+    // declares it (standalone.ex emits "formAssociated" from the fixture's
+    // __tsr_form_associated__/0, brief 3f will drive it from the spec) or the
+    // host-provided base class declares `static formAssociated = true`
+    // (subclass seam). NEVER unsettable once a base has it — inherited
+    // surface cannot be narrowed (§5.9 final rule).
+    if ((manifest && manifest.formAssociated) === true || Base.formAssociated === true) {
+      TagClass.formAssociated = true;
+    }
 
     TagClass.tesseraTag = tagName.toLowerCase();
     TagClass.tesseraContractVersion = 1;
