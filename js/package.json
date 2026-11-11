@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs --group default",
     "test:fast": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs --group fast",
+    "test:conformance": "wtr --config web-test-runner.config.mjs --group conformance",
     "test:watch": "wtr --config web-test-runner.config.mjs --group default --watch"
   },
   "devDependencies": {
