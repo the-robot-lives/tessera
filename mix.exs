@@ -12,8 +12,12 @@ defmodule NoizuTessera.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       name: "Noizu.Tessera",
       description:
-        "Shippable web components with Hologram hooks — spec DSL, codegen and the Hologram adapter.",
+        "Write a web component once as an Elixir spec: it compiles to a custom element whose " <>
+          "events arrive in your Hologram actions as plain params, with no glue code. Includes " <>
+          "compile-time contract and Custom Elements Manifest codegen and the @noizu/tessera-core " <>
+          "JS runtime.",
       source_url: "https://github.com/the-robot-lives/tessera",
+      homepage_url: "https://tessera.noizu.com",
       deps: deps(),
       package: package(),
       docs: docs()
@@ -63,17 +67,30 @@ defmodule NoizuTessera.MixProject do
     [
       name: "noizu_tessera",
       licenses: ["MIT"],
+      maintainers: ["Noizu Labs"],
+      links: %{
+        "GitHub" => "https://github.com/the-robot-lives/tessera",
+        "Website" => "https://tessera.noizu.com",
+        "Changelog" => "https://github.com/the-robot-lives/tessera/blob/main/CHANGELOG.md"
+      },
       files: ~w(lib priv mix.exs README.md CHANGELOG.md docs LICENSE),
       # priv/js ships the @noizu/tessera-core npm package dir; node_modules is
-      # a local install artifact and must never enter the hex tarball.
-      exclude_patterns: ["node_modules", "*.contract.generated.mjs"]
+      # a local install artifact and must never enter the hex tarball. `dist`
+      # is likewise a build artifact — the npm package's entry points all
+      # resolve to src/*.mjs, so it is never needed at runtime.
+      exclude_patterns: ["node_modules", "dist", "*.contract.generated.mjs"]
     ]
   end
 
   defp docs do
     [
-      main: "Noizu.Tessera",
+      main: "readme",
       source_ref: "v#{@version}",
+      extras: ["README.md" | Path.wildcard("docs/*.md")],
+      groups_for_extras: [
+        Guides: ~w(docs/AUTHORING.md docs/CONSUMING.md docs/EXTENDING.md),
+        Reference: ~w(docs/CONTRACT.md)
+      ],
       groups_for_docs: []
     ]
   end

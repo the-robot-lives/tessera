@@ -1,8 +1,12 @@
 # tessera
 
+[![hex.pm](https://img.shields.io/hexpm/v/noizu_tessera)](https://hex.pm/packages/noizu_tessera)
+[![Docs](https://img.shields.io/badge/hex.pm%20docs-noizu__tessera-blue)](https://hexdocs.pm/noizu_tessera)
+
 Framework-agnostic web components with first-class [Hologram](https://hologram.page) integration, shipped as hex packages.
 
-- **Hex package:** `noizu_tessera` (bare `tessera` is taken on hex.pm, and that package owns the root module `Tessera`)
+- **Hex package:** [`noizu_tessera`](https://hex.pm/packages/noizu_tessera) (bare `tessera` is taken on hex.pm, and that package owns the root module `Tessera`)
+- **HexDocs:** <https://hexdocs.pm/noizu_tessera>
 - **Elixir namespace:** `Noizu.Tessera.*`
 - **JS core:** `@noizu/tessera-core` (private registry `npm.noizu.com`)
 
@@ -16,9 +20,11 @@ All three layers are live and integration-tested end to end: the Elixir spec DSL
 
 ## Quick start — consuming (Hologram app)
 
+Add the hex package and run the installer:
+
 ```elixir
 # mix.exs
-{:noizu_tessera, "~> 0.1"},
+{:noizu_tessera, "~> 0.1.0"},
 {:your_kit, path: "..." }   # or any hex package with `use Noizu.Tessera.Package` components
 ```
 
@@ -90,3 +96,5 @@ cd demo/e2e && npm ci && npx cypress run --spec "src/e2e/*.cy.ts"
 | `docs/CONSUMING.md` | consuming from Hologram / plain HTML |
 | `docs/EXTENDING.md` | behaviors registry, bus seam, packages |
 | `CHANGELOG.md` | work log |
+
+All of the above ship on [HexDocs](https://hexdocs.pm/noizu_tessera) with every release.
