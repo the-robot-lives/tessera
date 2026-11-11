@@ -83,6 +83,7 @@ Rows ❌ in exactly one tier are excluded from the ballot; each is already answe
 | #12 updateComplete, #18 hasUpdated, Tier-2 #7/#10/#11/#12/#34/#220 lifecycle | **3c** (Tier 2) | C-13/C-14, LC-02/LC-03/LC-04 Cypress |
 | #99/#100/#101/#107/#108/#109/#142 slots | **3e** (Tier 2) | SD-01…SD-04 Cypress |
 | #144–#149 forms — **Tier 2 side** | **3e** (Tier 2) | FM-01…FM-03 Cypress |
+| #144–#149 forms — **Tier 1 side** | **2f** (Tier 1) | FM-01…FM-03 WTR (shared bodies) + X-12/§8.4 pin gate; ExUnit DSL/codegen; goldens byte-stable |
 | #194 CEM | **D-GAL** (Phase-1 column) | `Codegen.cem/1`, `mix tessera.cem` / `mix tessera.gen.gallery` |
 | #1/#2/#21/#29/#37/#49/#50/#53/#55/#197 P0 core | pre-existing spike goldens | matrix §2 |
 
@@ -90,7 +91,6 @@ Rows ❌ in exactly one tier are excluded from the ballot; each is already answe
 
 | Rows | Waiting on | Current state |
 |---|---|---|
-| **#144 formAssociated, #145 ElementInternals, #146 setValidity, #147 setFormValue, #148 formResetCallback, #149 formDisabledCallback** (Tier-1 side) | **brief 2f (in flight)** | Tier 2 ✅ since 3e (manifest-declared, gated attach, subclass seams — FM-01…03). Tier 1 ❌/🔌: no `form_associated` DSL, no `static formAssociated` emission, no internals accessor. 2f flips #144/#145/#148/#149 per its acceptance criteria (internals accessor also covers #146/#147). **Mark pending-final, not accepted.** |
 | **#144 Tier-2 declaration path** | **brief 3f (in flight)** | 3e ships the manifest/fixture hook `__tsr_form_associated__`; 3f moves it to the spec DSL (`form_associated`) — row already ✅, mechanism finalization only. |
 | **#154–#163, #165 SSR family** (+ #164 ❓) | **brief 4c (GATED by U8, not started)** | Tier 1 uniformly 🔌-unproven; Tier 2 ❌ except #161 isServer ✅. Per brief 4c: **prove → flip + add conformance cases; unproven in time-box → accept as documented gap (then move into §1/§2 of this doc)**. Never a release blocker. |
 | Tag-takeover / canonical-macro surfaces (#139/#140 mixins, contract X-19/X-21/X-16) | **2e + 3f (in flight)** | Not matrix ❌ rows (🔌 subclassing today) — listed so the ballot doesn't over-claim extension parity before those land. |

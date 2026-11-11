@@ -27,11 +27,11 @@ test/conformance/
     t_template.mjs           T-01…T-09   templates
     d_directive.mjs          D-01…D-07   built-in directives
     s_style.mjs              S-01…S-06   styles
-    sd_slot.mjs              SD-01…SD-03 shadow-DOM slots
+    sd_slot.mjs              SD-01…SD-04 shadow-DOM slots
     e_event.mjs              E-01…E-03   events
     ct_context.mjs           CT-01…CT-02 context (accepted-with-hatch)
     lc_lifecycle.mjs         LC-01…LC-04 lifecycle hooks (placeholder, 1c/3c)
-    fm_form.mjs              FM-01…FM-03 forms (placeholder, 2f/3e; provisional ids)
+    fm_form.mjs              FM-01…FM-03 forms (3e Tier 2 / 2f Tier 1 — shared bodies, both green)
     rc_controller.mjs        RC-01…RC-03 reactive controllers (accepted-with-hatch)
     ssr_dsd.mjs              SSR-01…SSR-03 DSD/hydration (proven-or-accepted, 4c)
     x_extension.mjs          X-01…X-21   extension contract (EXTENSION-CONTRACT §9)
@@ -76,6 +76,10 @@ Handle = {
   waitFor(fn, timeout?),              // poll until fn() is truthy
   nextEvent(name, node?, timeout?),   // resolve the next event's detail
   settle(),                           // await the committed re-render
+  behaviors,   // the §6.5 registry singleton this tier's elements consult at
+               // connect (add/remove/get; add returns an unsubscribe fn).
+               // Tier 1 ships priv/js/src/behaviors.mjs; Tier 2's adapter
+               // owes the same key from its runtime copy (X-12, brief 2f).
 }
 ```
 
@@ -92,8 +96,28 @@ Fixtures: `counter` (both tiers — Tier-1 `tsr-conf-counter`, Tier-2
 `props` and `events` (Tier-1 only today). Tier-2 `props`/`events` fixtures land
 with the feature briefs.
 
-**Compiled-DSL fixtures (Tier-1 only, brief 4b case-fill):** `state`,
-`template`, `styles`, `slots`, `pipeline` — REAL Lit elements generated from the Elixir
+**Forms fixture (both tiers, briefs 3e/2f):** Tier-2
+`tsr-holo-form-probe` (`HoloKit.Components.FormProbe`) and Tier-1 `form` — the
+compiled `<tsr-conf-form>` (`Tessera.TestFixtures.Conformance.Form`, spec
+`form_associated: true` → `static formAssociated = true` → constructor-gated
+`el.internals`). FM bodies need the documented push-per-render seam
+(`setFormValue` every render, `formResetCallback` dispatching the fixture's
+reset action, `formDisabledCallback` recorded into `el.tesseraFormSignals`), so
+the WTR harness mounts it through `ConfFormRecording`, a subclass of the
+generated class — the SAME seam shape as the Tier-2 host glue, keeping the
+`fm_form.mjs` bodies byte-identical across engines. Registration note: the
+generated fixture modules auto-register their bare class on ESM import; the
+harness seeds `globalThis.__tesseraNoAutoRegister` (first import:
+`wtr-no-auto-register.mjs`) so `tsr-conf-form` is registered as the recording
+subclass instead — otherwise the bare class wins the registry race and the
+seam silently vanishes (this was the FM-02/03 FormData bug).
+
+**Compiled-DSL fixtures (Tier-1; briefs 4b case-fill + 2d/2e/2f):** `state`,
+`template`, `styles`, `slots` (incl. the `$slotchange` state/action wiring
+behind SD-04), `pipeline`, `region`+`regionVendor` (X-17 derived pair),
+`takeover` (X-19 D1 chain, auto-composed at import), `form` (FM-01…03 — the
+only fixture mounted through a harness subclass, see above) — REAL Lit
+elements generated from the Elixir
 element DSL (`test/support/conformance/*.ex` → `LitCodegen`), committed under
 `js/test/fixtures/conformance/`. They exercise the landed Tier-1 surface
 (reactive state, template expressions, the styles DSL, shadow slots, the §6
@@ -101,7 +125,7 @@ action pipeline). `pipeline` ALSO has a Tier-2 mount: `HoloKit.Components.
 PipelineProbe` (`<tsr-holo-pipeline-probe>`, examples/holo_kit) is the
 behavioral mirror — same state keys, same `bump`/`select_item`/`seed_cache
 (internal: true)` semantics — so the shared X-05…X-11/X-20 bodies run on both
-engines (§9). The other four stay Tier-1-only until their Tier-2 fixtures land.
+engines (§9). The others stay Tier-1-only until their Tier-2 fixtures land.
 Regenerate after a DSL/codegen change, then review the diff:
 
 ```bash

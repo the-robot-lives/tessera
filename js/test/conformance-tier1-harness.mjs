@@ -17,10 +17,16 @@
 // define it returns false and warns, which is exactly what X-21 asserts.
 
 import {expect} from "@open-wc/testing";
+// MUST stay ahead of the generated-fixture imports below (ESM evaluates
+// imports in order): seeds __tesseraNoAutoRegister so the generated
+// <tsr-conf-form> module does not claim the tag before ConfFormRecording
+// can own it (see wtr-no-auto-register.mjs).
+import "./fixtures/conformance/wtr-no-auto-register.mjs";
 import {TesseraElement} from "../../priv/js/src/element.mjs";
 import {defineOnce} from "../../priv/js/src/define.mjs";
 import {extendElement} from "../../priv/js/src/extend.mjs";
 import {emit} from "../../priv/js/src/events.mjs";
+import {behaviors} from "../../priv/js/src/behaviors.mjs";
 import {CASES, tally} from "../../test/conformance/support/registry.mjs";
 
 // Compiled-DSL fixtures (brief 4b case-fill): REAL Lit elements generated from
@@ -50,6 +56,10 @@ import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_aaa.element.gener
 import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_bbb.element.generated.mjs";
 import "./fixtures/conformance/tsr-conf-takeover__takeover_ext_ccc.element.generated.mjs";
 import {tag as TAKEOVER_TAG} from "./fixtures/conformance/tsr-conf-takeover.element.generated.mjs";
+// FM-01…FM-03 (brief 2f): the Tier-1 form fixture — `form_associated: true`
+// spec ⇒ generated element declares `static formAssociated = true` and the
+// TesseraElement constructor attaches ElementInternals.
+import {tag as FORM_TAG, TsrConfForm} from "./fixtures/conformance/tsr-conf-form.element.generated.mjs";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -98,7 +108,9 @@ class ConfCounter extends TesseraElement(HTMLElement, counterContract) {
   connectedCallback() {
     super.connectedCallback();
     this.__count = 0;
-    const root = this.attachShadow({mode: "open"});
+    // Reconnect-safe (X-12 drives remove/append cycles): the shadow root
+    // survives a disconnect, so only create it on first connect.
+    const root = this.shadowRoot ?? this.attachShadow({mode: "open"});
     root.innerHTML =
       `<div data-cy="holo-counter-root">` +
       `<button type="button" data-cy="holo-counter-inc">+</button>` +
@@ -128,6 +140,34 @@ class ConfEvents extends TesseraElement(HTMLElement, eventsContract) {
 
 // <tsr-conf-props> — contract-driven attr coercion + tsr-props (no template).
 class ConfProps extends TesseraElement(HTMLElement, propsContract) {}
+
+// FM recording subclass (brief 2f) — the DOCUMENTED §6.7 push-per-render
+// pattern, mirroring the Tier-2 host glue (holo_runtime_glue.js) so the SHARED
+// fm_form.mjs bodies run unmodified on both engines: every render pushes
+// state.value through internals.setFormValue (#147), formResetCallback (#148)
+// dispatches the fixture's reset_value action, formDisabledCallback (#149)
+// records enabled/disabled transitions into el.tesseraFormSignals. The base
+// generated class stays pattern-free — the seams are subclass-overridable.
+class ConfFormRecording extends TsrConfForm {
+  constructor() {
+    super();
+    this.tesseraFormSignals = [];
+  }
+
+  updated(changedProperties) {
+    super.updated?.(changedProperties);
+    if (this.internals) this.internals.setFormValue(this.value);
+  }
+
+  formResetCallback() {
+    this.tesseraFormSignals.push("reset");
+    this.dispatchAction("reset_value");
+  }
+
+  formDisabledCallback(disabled) {
+    this.tesseraFormSignals.push(disabled ? "disabled" : "enabled");
+  }
+}
 
 // <tsr-conf-x21> — X-21 (brief 2e, §5.9/§5.10): a hand-written base with TWO
 // pre-define extendElement mixins, proving the JS registry composes at the
@@ -171,6 +211,10 @@ const FIXTURES = {
   // composed in (ctor: null — nothing left to register; §5.9).
   takeover: {tag: TAKEOVER_TAG, ctor: null},
   x21: {tag: X21_TAG, ctor: ConfX21},
+  // FM (brief 2f): mounted through the recording subclass, NOT the bare
+  // generated class — the shared fm_form.mjs bodies read el.tesseraFormSignals
+  // and rely on the push-per-render setFormValue seam.
+  form: {tag: FORM_TAG, ctor: ConfFormRecording},
 };
 
 let defined = false;
@@ -245,6 +289,10 @@ export async function mount(spec) {
       if (el.updateComplete) await el.updateComplete;
       await Promise.resolve();
     },
+    // §6.5 behaviors namespace (brief 2f, X-12): this tier's registry — the
+    // SAME singleton the mounted elements consult at connect. Tier-2's
+    // adapter owes the same key (its runtime ships behaviors.mjs too).
+    behaviors,
     // Tier-1 tag-takeover capability (§5.9/§5.10, X-21): queue a mixin for
     // this fixture's tag. TRUE + composed when the tag has not been defined
     // yet; FALSE + one loud warn once it has (the class can no longer be
@@ -266,10 +314,11 @@ const SUPPORTED = new Set([
   "T-01", "T-02", "T-04", "T-05", "T-06", "T-07", "T-08", "T-09",
   "D-01", "D-02", "D-06",
   "S-01", "S-02", "S-03", "S-04", "S-05", "S-06",
-  "SD-01", "SD-02", "SD-03",
+  "SD-01", "SD-02", "SD-03", "SD-04",
   "E-01", "E-02", "E-03",
+  "FM-01", "FM-02", "FM-03",
   "X-01", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
-  "X-11", "X-14", "X-15", "X-17", "X-18", "X-19", "X-20", "X-21",
+  "X-11", "X-12", "X-14", "X-15", "X-17", "X-18", "X-19", "X-20", "X-21",
 ]);
 
 /**

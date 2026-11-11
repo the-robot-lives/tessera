@@ -1,20 +1,20 @@
-// Family FM — Forms (lit-parity §2.10 rows #144-#149, brief 3e owns this
-// case set — the provisional scaffold placeholders are retired here).
+// Family FM — Forms (lit-parity §2.10 rows #144-#149).
 //
-// Tier-2 fixture: tsr-holo-form-probe (HoloKit.Components.FormProbe) — the
-// component manifest declares formAssociated (brief 3e fixture hook
-// __tsr_form_associated__; brief 3f moves it to the spec), so defineElement
-// sets `static formAssociated = true` and the constructor attaches an
-// ElementInternals (§6.7: internals NEVER attach otherwise — FM-01 pins the
-// negative on the undeclared counter fixture). The host glue mounts the
-// module through a recording subclass implementing the DOCUMENTED pattern
-// the cases pin: every render pushes state.value through setFormValue
-// (#147), formResetCallback (#148) dispatches the component's reset_value,
-// formDisabledCallback (#149) records transitions into
-// el.tesseraFormSignals; setValidity (#146) is driven straight on internals.
+// Tier-1 fixture: tsr-conf-form (Tessera.TestFixtures.Conformance.Form, brief
+// 2f) — the spec declares `form_associated: true`, so the generated element
+// emits `static formAssociated = true` and the TesseraElement constructor
+// attaches an ElementInternals exposed as `el.internals` (§6.7: internals
+// NEVER attach otherwise — FM-01 pins the negative on the undeclared counter
+// fixture). The WTR adapter mounts it through ConfFormRecording, a subclass
+// implementing the DOCUMENTED pattern the cases pin: every render pushes
+// state.value through setFormValue (#147), formResetCallback (#148)
+// dispatches the fixture's reset_value, formDisabledCallback (#149) records
+// transitions into el.tesseraFormSignals; setValidity (#146) is driven
+// straight on internals.
 //
-// Tier 1: no fixture yet (formAssociated emission is brief 2f) — FM stays
-// adapter-pending on the WTR adapter, skipped, never green.
+// Tier-2 fixture: tsr-holo-form-probe (HoloKit.Components.FormProbe, brief
+// 3e) — same surfaces through its host-glue recording subclass, so the SHARED
+// bodies below run unmodified on both engines (one spec, two adapters).
 
 import {defineCase} from "../support/case.mjs";
 

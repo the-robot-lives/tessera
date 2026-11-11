@@ -17,14 +17,16 @@ const baseStyles = css`
 }
 `;
 
-class TsrConfSlots extends TesseraElement(LitElement, contract, {state: [], actions: [], internalActions: [], extensionApi: "1.0.0"}) {
-  static properties = {};
+class TsrConfSlots extends TesseraElement(LitElement, contract, {state: ["slot_changes"], actions: ["slot_changed"], internalActions: [], extensionApi: "1.0.0"}) {
+  static properties = {
+      slot_changes: { type: Number },
+    };
 
   static styles = [baseStyles];
 
   constructor() {
     super();
-
+        this.slot_changes = 0;
   }
 
   connectedCallback() {
@@ -36,7 +38,7 @@ class TsrConfSlots extends TesseraElement(LitElement, contract, {state: [], acti
   // Snapshot of the declared state keys (actions read state, return the
   // next state — the Elixir `%{state | ...}` shape).
   __tesseraState() {
-    return {};
+    return { slot_changes: this.slot_changes };
   }
 
   __tesseraSetState(next) {
@@ -53,11 +55,14 @@ class TsrConfSlots extends TesseraElement(LitElement, contract, {state: [], acti
     return this.__tesseraDispatch(name, params, ev);
   }
 
-
+      __action_slot_changed(params = {}, ev = null) {
+            const state = this.__tesseraState();
+            return ({ ...state, slot_changes: (state.slot_changes + 1) });
+          }
 
   render() {
     return html`<div data-cy="conf-slots-root">
-  <div data-cy="conf-slots-default"><slot></slot></div>
+  <div data-cy="conf-slots-default"><slot @slotchange=${(ev) => this.__tesseraRunAction("slot_changed", {}, ev)}></slot></div>
   <div data-cy="conf-slots-named"><slot name="header"></slot></div>
   <div data-cy="conf-slots-fallback"><slot name="fb">fallback-content</slot></div>
 </div>`;
@@ -74,4 +79,4 @@ export function register() {
 // Auto-register on direct ESM import (non-Hologram hosts). Hologram hosts
 // reach this module through the generated wrapper, whose own top-level
 // register() call is the load-bearing one — defineOnce makes both safe.
-register();
+if (!(globalThis.__tesseraNoAutoRegister ?? []).includes("tsr-conf-slots")) register();

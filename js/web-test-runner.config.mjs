@@ -23,6 +23,7 @@ export default {
       files: [
         "test/bridge.test.mjs",
         "test/element.test.mjs",
+        "test/behaviors.test.mjs",
         "test/pipeline.test.mjs",
         "test/events.test.mjs",
         "test/bus.test.mjs",

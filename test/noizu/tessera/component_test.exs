@@ -365,6 +365,72 @@ defmodule Noizu.Tessera.ComponentTest do
     # `use Base, extension_api:` pin, covered there since brief 2c.
   end
 
+  describe "form_associated DSL (§6.7, brief 2f)" do
+    alias Noizu.Tessera.Codegen
+    alias Noizu.Tessera.Component.LitCodegen
+
+    @form_opts ~s(tag: "form-probe", js: "form_probe.mjs")
+
+    test "defaults to false and rides NO surface (absent, not false)" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(~s(tag: "form-off-#{id}", js: "form_off_#{id}.mjs"), "")
+      spec = mod.__tessera_spec__()
+
+      assert spec.form_associated == false
+      # Absent keeps pre-2f manifest bytes byte-stable; runtimes treat
+      # absent/false identically (never attach internals).
+      refute Map.has_key?(mod.__tessera_manifest__(), "formAssociated")
+      refute Map.has_key?(hd(Codegen.cem([spec])["modules"])["tessera"], "formAssociated")
+      refute LitCodegen.element_module(spec) =~ "formAssociated"
+    end
+
+    test "declaring true flows into spec, manifest, CEM and the element static" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(~s(tag: "form-on-#{id}", js: "form_on_#{id}.mjs", form_associated: true), "")
+      spec = mod.__tessera_spec__()
+
+      assert spec.form_associated == true
+      assert mod.__tessera_manifest__()["formAssociated"] == true
+      assert hd(Codegen.cem([spec])["modules"])["tessera"]["formAssociated"] == true
+      assert LitCodegen.element_module(spec) =~ "static formAssociated = true;"
+    end
+
+    test "a non-boolean declaration raises with a pointed message" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/:form_associated option must be a boolean/, fn ->
+        compile_source(~s(tag: "form-bad-#{id}", js: "form_bad_#{id}.mjs", form_associated: "yes"), "")
+      end
+    end
+
+    test "a derived spec inherits the base's participation unless it declares its own" do
+      base_id = :erlang.unique_integer([:positive])
+      base =
+        compile_source(
+          ~s(tag: "form-base-#{base_id}", js: "form_base_#{base_id}.mjs", form_associated: true),
+          ""
+        )
+
+      derived_id = :erlang.unique_integer([:positive])
+      derived_path = Path.join(@tmp_dir, "tessera_form_derived_#{derived_id}.ex")
+
+      [{derived, _}] =
+        Code.compile_string(
+          """
+          defmodule Tessera.Inline.F#{derived_id} do
+            use #{inspect(base)}, tag: "form-derived-#{derived_id}"
+          end
+          """,
+          derived_path
+        )
+
+      # Additive: participation flows down the chain, never silently dropped.
+      assert derived.__tessera_spec__().form_associated == true
+      assert derived.__tessera_manifest__()["formAssociated"] == true
+      assert LitCodegen.element_module(derived.__tessera_spec__()) =~ "static formAssociated = true;"
+    end
+  end
+
   describe "styles DSL" do
     @styles_opts ~s(tag: "styles-probe", js: "styles_probe.mjs")
 

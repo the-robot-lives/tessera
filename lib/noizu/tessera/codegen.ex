@@ -295,13 +295,21 @@ defmodule Noizu.Tessera.Codegen do
     # to the first stable 1.0.0 when the spec declares none) plus EVERY action
     # name in declaration order (D2 — the open surface; `internal:` annotation
     # lives in the declaration-level doc entries above). CEM consumers ignore
-    # unknown keys by convention.
-    tessera_field = %{
-      "extensionApi" => spec.extension_api || Spec.default_extension_api(),
-      "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name))
-    }
+    # unknown keys by convention. §6.7 (brief 2f): `formAssociated` rides ONLY
+    # when the spec declares it (same put-if-declared rule as the manifest) —
+    # there is no declared "form value shape" to emit, because the form value
+    # is the author-managed internals value (FM-02), not a spec-declared type.
+    tessera_field =
+      %{
+        "extensionApi" => spec.extension_api || Spec.default_extension_api(),
+        "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name))
+      }
+      |> put_tessera_opt("formAssociated", if(spec.form_associated, do: true, else: nil))
 
     %{"kind" => "javascript-module", "path" => path, "declarations" => declarations,
       "tessera" => tessera_field}
   end
+
+  defp put_tessera_opt(map, _key, nil), do: map
+  defp put_tessera_opt(map, key, value), do: Map.put(map, key, value)
 end

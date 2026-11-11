@@ -103,6 +103,20 @@ defmodule Noizu.Tessera.CodegenTest do
       assert declared["tessera"] == %{"extensionApi" => "2.1.0", "actions" => ["bump", "seed_cache"]}
     end
 
+    test "the `tessera` field carries formAssociated ONLY when the spec declares it (§6.7)" do
+      spec = %Spec{tag: "bare-thing", module: Some.Mod}
+
+      assert hd(Codegen.cem([spec])["modules"])["tessera"] == %{
+               "extensionApi" => "1.0.0",
+               "actions" => []
+             }
+
+      form =
+        Codegen.cem([%Spec{spec | form_associated: true}])["modules"] |> hd()
+
+      assert form["tessera"]["formAssociated"] == true
+    end
+
     test "action docs list declared names in order; internal flag only on annotated ones (§5.3)" do
       spec = %Spec{
         tag: "bare-thing",

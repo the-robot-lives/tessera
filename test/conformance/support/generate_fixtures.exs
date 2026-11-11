@@ -45,7 +45,11 @@ fixtures = [
   Tessera.TestFixtures.Conformance.Takeover,
   Tessera.TestFixtures.Conformance.TakeoverExtAaa,
   Tessera.TestFixtures.Conformance.TakeoverExtBbb,
-  Tessera.TestFixtures.Conformance.TakeoverExtCcc
+  Tessera.TestFixtures.Conformance.TakeoverExtCcc,
+  # FM-01…FM-03 (brief 2f): the Tier-1 form fixture — declares
+  # `form_associated: true`, so its generated element carries
+  # `static formAssociated = true` and the manifest the `formAssociated` key.
+  Tessera.TestFixtures.Conformance.Form
 ]
 
 out_dir = Path.expand("js/test/fixtures/conformance", File.cwd!())
@@ -90,6 +94,13 @@ artifacts =
     spec = mod.__tessera_spec__()
     snake_stem = Extension.snake_stem(spec)
 
+    # WTR-only tail swap (brief 2f): the shared emission auto-registers the
+    # bare generated class on import; the harness's ConfFormRecording subclass
+    # for <tsr-conf-form> must OWN the tag instead (else the bare class wins
+    # the registry race and the FM push-per-render seam silently vanishes).
+    # The harness seeds globalThis.__tesseraNoAutoRegister before importing;
+    # the exported register() stays available for explicit registration.
+    # Goldens/lib bytes untouched — this rewrite lives only in WTR fixtures.
     element =
       spec
       |> LitCodegen.element_module()
@@ -97,6 +108,13 @@ artifacts =
       |> String.replace(
         ~s|from "./#{snake_stem}.contract.generated.mjs"|,
         ~s|from "./#{snake_stem}.contract.mjs"|
+      )
+      |> String.replace(
+        "register();",
+        """
+        if (!(globalThis.__tesseraNoAutoRegister ?? []).includes("#{spec.tag}")) register();\
+        """,
+        global: false
       )
 
     contract = Codegen.contract_module(spec)

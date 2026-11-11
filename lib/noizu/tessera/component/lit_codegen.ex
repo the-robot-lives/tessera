@@ -80,7 +80,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{properties_object(spec)};
 
       static styles = #{styles_array(spec, shared)};
-
+#{form_associated_static(spec)}
       constructor() {
         super();
     #{constructor_defaults(spec)}
@@ -179,7 +179,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{derived_properties_object(spec)};
 
       static styles = #{derived_styles_array(spec, shared, base_class)};
-
+#{form_associated_static(spec)}
       constructor() {
         super();
     #{derived_constructor_defaults(spec)}
@@ -261,7 +261,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       static properties = #{derived_properties_object(spec)};
 
       static styles = #{derived_styles_array(spec, shared, "Base")};
-
+#{form_associated_static(spec)}
       constructor() {
         super();
     #{derived_constructor_defaults(spec)}
@@ -579,6 +579,17 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         "[\n    baseStyles,\n    " <> Enum.join(entries, ",\n    ") <> ",\n  ]"
     end
   end
+
+  # §6.7 (brief 2f): form participation is opt-in — `static formAssociated`
+  # rides ONLY when the spec declared `form_associated: true`. The
+  # TesseraElement mixin gates the ElementInternals attach on
+  # `new.target.formAssociated === true`, so an undeclared element never
+  # attaches internals (the §6.7 negative). Empty string keeps the generated
+  # bytes unchanged for every non-form component (goldens stay stable).
+  defp form_associated_static(%Spec{form_associated: true}),
+    do: "      static formAssociated = true;\n"
+
+  defp form_associated_static(%Spec{}), do: ""
 
   defp class_name(%Spec{} = spec) do
     spec.tag

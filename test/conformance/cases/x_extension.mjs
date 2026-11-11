@@ -134,7 +134,63 @@ export const cases = [
     title: "error path — throwing stage ⇒ tsr-action-error + ok:false",
     run: errorPathBody,
   }),
-  pendingCase({id: "X-12", family: "X", fast: true, title: "behaviors — add/connect/cleanup, throw isolation, remove, unsubscribe", reason: "behaviors conformance fixture owed (2f); core pinned by js/test/element.test.mjs"}),
+  defineCase({
+    id: "X-12",
+    family: "X",
+    fast: true,
+    title: "behaviors — add/connect/cleanup, throw isolation, remove, unsubscribe",
+    async run(mount, expect) {
+      // §6.5 (brief 2f): the mount handle exposes this tier's behaviors
+      // namespace — the SAME registry the mounted element consults on every
+      // connect. Registered fns ride the fixture tag, so the body is
+      // tier-agnostic (the adapter supplies `behaviors` alongside `el`).
+      const h = await mount({fixture: "counter"});
+      const trace = [];
+      const run = () => {
+        trace.push("run");
+        return () => trace.push("cleanup");
+      };
+      const boom = () => {
+        throw new Error("behavior boom");
+      };
+
+      // add returns an UNSUBSCRIBE function (§6.5 — additive to the void
+      // the pre-2f registry returned).
+      const unsub = h.behaviors.add(h.tag, run);
+      expect(typeof unsub).to.equal("function");
+
+      // Behaviors run on EVERY connect — the mount already connected, so
+      // force a fresh connect to observe the registration.
+      h.el.remove();
+      h.win.document.body.appendChild(h.el);
+      await h.waitFor(() => trace.includes("run"));
+
+      // Throw isolation: the throwing behavior is caught + warned, never
+      // breaking the element or its sibling registration.
+      h.behaviors.add(h.tag, boom);
+      h.el.remove();
+      h.win.document.body.appendChild(h.el);
+      await h.waitFor(() => trace.filter((t) => t === "run").length >= 2);
+      expect(h.el.isConnected).to.equal(true);
+
+      // Cleanups run on the matching disconnect — one per connect (the
+      // throwing behavior returns no cleanup; it must not disturb the count).
+      h.el.remove();
+      await h.waitFor(() => trace.includes("cleanup"));
+      const runs = trace.filter((t) => t === "run").length;
+      expect(trace.filter((t) => t === "cleanup").length).to.equal(runs);
+
+      // remove() AND the unsubscribe both deregister — a re-connected
+      // element runs nothing further.
+      h.behaviors.remove(h.tag, boom);
+      unsub();
+      expect(h.behaviors.get(h.tag)).to.not.include(run);
+      expect(h.behaviors.get(h.tag)).to.not.include(boom);
+      h.win.document.body.appendChild(h.el);
+      await h.settle();
+      expect(trace.filter((t) => t === "run").length).to.equal(runs);
+    },
+  }),
   pendingCase({id: "X-13", family: "X", fast: false, title: "subclass hooks — allowed set super-chains; reserved members enforced", reason: "subclass hooks land with brief 2e / 3f"}),
   defineCase({
     id: "X-14",

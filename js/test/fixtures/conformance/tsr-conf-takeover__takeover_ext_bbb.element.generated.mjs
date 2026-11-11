@@ -57,4 +57,4 @@ export function register() {
 
 // Auto-queue on direct ESM import (non-Hologram hosts), mirroring the
 // fresh/derived modules' auto-register.
-register();
+if (!(globalThis.__tesseraNoAutoRegister ?? []).includes("tsr-conf-takeover")) register();

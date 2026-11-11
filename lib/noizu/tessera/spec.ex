@@ -70,7 +70,15 @@ defmodule Noizu.Tessera.Spec do
             # `region_overrides` lists the region names this derived module
             # overrides via `slot_template` (empty for a fresh component).
             regions: [],
-            region_overrides: []
+            region_overrides: [],
+            # Form participation (EXTENSION-CONTRACT.md §6.7, brief 2f): true
+            # only when the author declared `form_associated: true` on `use`.
+            # Derived specs inherit the base's value unless they declare their
+            # own (additive — participation is never silently dropped). Flows
+            # to the manifest (`formAssociated`), the CEM `tessera` field and
+            # the Tier-1 `static formAssociated` emission; the runtime attaches
+            # ElementInternals ONLY when it is set (§6.7 negative).
+            form_associated: false
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -181,7 +189,8 @@ defmodule Noizu.Tessera.Spec do
           priority: integer(),
           extension_api: String.t() | nil,
           regions: [region_entry()],
-          region_overrides: [atom()]
+          region_overrides: [atom()],
+          form_associated: boolean()
         }
 
   @doc """
@@ -558,9 +567,16 @@ defmodule Noizu.Tessera.Spec do
     |> then(fn map ->
       # Derived specs name their base (§5.8); fresh components keep the
       # pre-derivation manifest bytes (no key at all).
-      if spec.derived_from,
-        do: Map.put(map, "derived_from", inspect(spec.derived_from)),
-        else: map
+      map =
+        if spec.derived_from,
+          do: Map.put(map, "derived_from", inspect(spec.derived_from)),
+          else: map
+
+      # §6.7 (brief 2f): form participation rides ONLY when declared — absent
+      # keeps pre-2f manifest bytes byte-stable for existing components, and
+      # every runtime treats absent/false as "never attach internals". (The
+      # Tier-2 standalone runtime, brief 3f, reads this same key.)
+      put_manifest_opt(map, "formAssociated", if(spec.form_associated, do: true, else: nil))
     end)
   end
 end
