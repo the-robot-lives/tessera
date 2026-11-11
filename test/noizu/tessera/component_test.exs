@@ -532,4 +532,189 @@ defmodule Noizu.Tessera.ComponentTest do
       assert warnings =~ "no top-level `register()` call"
     end
   end
+
+  describe "property options (lit-parity 1c)" do
+    test "attr carries attribute rename + reflect into the entry, manifest and element" do
+      mod =
+        compile_source("""
+        attr :display_name, :string, attribute: "data-name", reflect: true
+        state :count, :integer, default: 0
+        template ~TSR"<div>{@count}</div>"
+        """)
+
+      spec = mod.__tessera_spec__()
+      entry = hd(spec.attrs)
+      assert entry[:attribute] == "data-name"
+      assert entry[:reflect] == true
+
+      manifest = mod.__tessera_manifest__()
+      m_entry = hd(manifest["attrs"])
+      assert m_entry["attribute"] == "data-name"
+      assert m_entry["reflect"] == true
+
+      element = File.read!(Path.join(@tmp_dir, "#{spec.tag}.element.generated.mjs"))
+      assert element =~ ~S|displayName: { type: String, attribute: "data-name", reflect: true }|
+    end
+
+    test "attribute: false disables the attribute; prop and state accept the opts too" do
+      mod =
+        compile_source("""
+        attr :tone, :string, attribute: false
+        prop :tag_list, :list, attribute: "data-tags", reflect: true
+        state :count, :integer, default: 0, attribute: false
+        template ~TSR"<div>{@count}</div>"
+        """)
+
+      spec = mod.__tessera_spec__()
+      assert hd(spec.attrs)[:attribute] == false
+      assert hd(spec.props)[:attribute] == "data-tags"
+      assert hd(spec.props)[:reflect] == true
+      assert hd(spec.state)[:attribute] == false
+
+      element = File.read!(Path.join(@tmp_dir, "#{spec.tag}.element.generated.mjs"))
+      assert element =~ "tone: { type: String, attribute: false }"
+      assert element =~ ~S|tagList: { type: Array, attribute: "data-tags", reflect: true }|
+      assert element =~ "count: { type: Number, attribute: false }"
+    end
+
+    test "absent opts keep entries unchanged (no attribute/reflect keys)" do
+      mod = compile_source("attr :tone, :string")
+      entry = hd(mod.__tessera_spec__().attrs)
+      refute Map.has_key?(entry, :attribute)
+      refute Map.has_key?(entry, :reflect)
+      refute Map.has_key?(hd(mod.__tessera_manifest__()["attrs"]), "attribute")
+    end
+
+    test "invalid attribute/reflect values raise pointed CompileErrors" do
+      for {opts, match} <- [
+            {"attribute: true", "attribute:"},
+            {"attribute: 123", "attribute:"},
+            {"attribute: \"bad name\"", "attribute:"},
+            {"attribute: \"\"", "attribute:"},
+            {"reflect: \"yes\"", "reflect:"}
+          ] do
+        assert_raise CompileError, ~r/#{Regex.escape(match)}/, fn ->
+          compile_source("attr :tone, :string, #{opts}")
+        end
+      end
+    end
+  end
+
+  describe "lifecycle DSL (lit-parity 1c)" do
+    @lifecycle_body """
+    state :count, :integer, default: 0
+    event "hook-ping", detail: %{n: :integer}
+    template ~TSR"<div>{@count}</div>"
+    """
+
+    test "all four hooks translate and land in spec.lifecycle + the manifest" do
+      mod =
+        compile_source(@lifecycle_body <> """
+        should_update fn state, _changed -> state.count < 5 end
+        will_update fn state, _changed -> %{state | count: state.count + 1} end
+        first_updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
+        updated fn state, _changed -> emit("hook-ping", %{n: state.count}) end
+        """)
+
+      spec = mod.__tessera_spec__()
+      assert spec.lifecycle[:should_update].js == "(state.count < 5)"
+      assert spec.lifecycle[:will_update].js == "({ ...state, count: (state.count + 1) })"
+      assert spec.lifecycle[:first_updated].js == ~s|emit(this, "hook-ping", {n: state.count})|
+      assert spec.lifecycle[:updated].js == ~s|emit(this, "hook-ping", {n: state.count})|
+
+      assert mod.__tessera_manifest__()["lifecycle"] ==
+               ["should_update", "will_update", "first_updated", "updated"]
+
+      element = File.read!(Path.join(@tmp_dir, "#{spec.tag}.element.generated.mjs"))
+      assert element =~ "shouldUpdate(changedProperties) {"
+      assert element =~ "willUpdate(changedProperties) {"
+      assert element =~ "firstUpdated(changedProperties) {"
+      assert element =~ "updated(changedProperties) {"
+      assert element =~ "const changed = Object.fromEntries(changedProperties);"
+    end
+
+    test "a differently-named second argument is rejected (the binding is `changed`)" do
+      assert_raise CompileError, ~r/second argument must be named `changed`/, fn ->
+        compile_source(@lifecycle_body <> """
+        will_update fn state, delta -> %{state | count: delta.count} end
+        """)
+      end
+    end
+
+    test "a hook reading an undeclared state key raises at compile time" do
+      assert_raise CompileError, ~r/not a declared state key/, fn ->
+        compile_source(@lifecycle_body <> """
+        updated fn state, _changed -> %{state | count: state.nope} end
+        """)
+      end
+    end
+
+    test "a hook outside the subset is rejected by name" do
+      assert_raise CompileError, ~r/case/, fn ->
+        compile_source(@lifecycle_body <> """
+        will_update fn state, _changed -> case state.count do 0 -> state end end
+        """)
+      end
+    end
+
+    test "duplicate hook declarations raise" do
+      assert_raise CompileError, ~r/duplicate tessera lifecycle hook :updated/, fn ->
+        compile_source(@lifecycle_body <> """
+        updated fn state, _changed -> state end
+        updated fn state, _changed -> state end
+        """)
+      end
+    end
+
+    test "wrong arity / multi-clause / pattern second arg raise" do
+      assert_raise CompileError, ~r/exactly two arguments/, fn ->
+        compile_source(@lifecycle_body <> "updated fn state -> state end")
+      end
+
+      assert_raise CompileError, ~r/exactly two arguments/, fn ->
+        compile_source(@lifecycle_body <> "updated fn state, a, b -> state end")
+      end
+
+      assert_raise CompileError, ~r/single-clause|exactly two arguments/, fn ->
+        compile_source(@lifecycle_body <> """
+        updated fn
+          state, _changed -> state
+          state, _changed -> state
+        end
+        """)
+      end
+
+      assert_raise CompileError, ~r/second argument must be named `changed`/, fn ->
+        compile_source(@lifecycle_body <> """
+        updated fn state, %{count: c} -> state end
+        """)
+      end
+    end
+
+    test "lifecycle without a template raises (element DSL is all-or-nothing)" do
+      assert_raise CompileError, ~r/all-or-nothing/, fn ->
+        compile_source("""
+        state :count, :integer, default: 0
+        updated fn state, _changed -> state end
+        """)
+      end
+    end
+
+    test "no hooks → empty lifecycle map and no lifecycle methods in the element" do
+      mod =
+        compile_source("""
+        state :count, :integer, default: 0
+        template ~TSR"<div>{@count}</div>"
+        """)
+
+      assert mod.__tessera_spec__().lifecycle == %{}
+      assert mod.__tessera_manifest__()["lifecycle"] == []
+
+      element = File.read!(Path.join(@tmp_dir, "#{mod.__tessera_spec__().tag}.element.generated.mjs"))
+      refute element =~ "shouldUpdate"
+      refute element =~ "willUpdate"
+      refute element =~ "firstUpdated"
+      refute element =~ "updated(changedProperties)"
+    end
+  end
 end

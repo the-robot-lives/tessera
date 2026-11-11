@@ -12,6 +12,7 @@ defmodule Noizu.Tessera.Spec do
   Entry shapes (plain maps):
 
       attrs:   %{name: :display_name, type: :string, required: true, default: nil, line: 3}
+               optional: attribute: "custom-name" | false, reflect: true
       props:   %{name: :tag_list, type: :list, json: true, default: [], line: 4}
       events:  %{name: "persona-select", detail: %{persona_id: :string}, line: 5}
       slots:   %{name: "default", line: 6}
@@ -19,6 +20,7 @@ defmodule Noizu.Tessera.Spec do
                %{kind: :shared, value: "./shared_styles.mjs", line: 8}
       css:     %{name: "--persona-card-accent", default: "#6366f1", line: 7}
       parts:   %{name: "select-button", line: 8}
+      lifecycle: %{will_update: %{js: "…", line: 9}, …}  (only declared hooks)
 
   `css`/`part` entries are documentation metadata for the Custom Elements
   Manifest (and the gallery) — they do not ride the wire contract.
@@ -41,13 +43,16 @@ defmodule Noizu.Tessera.Spec do
             state: [],
             actions: [],
             template: nil,
-            styles: []
+            styles: [],
+            lifecycle: %{}
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
           required(:type) => atom(),
           optional(:required) => boolean(),
           optional(:default) => any(),
+          optional(:attribute) => String.t() | false,
+          optional(:reflect) => boolean(),
           optional(:line) => non_neg_integer()
         }
 
@@ -56,6 +61,8 @@ defmodule Noizu.Tessera.Spec do
           required(:type) => atom(),
           optional(:json) => boolean(),
           optional(:default) => any(),
+          optional(:attribute) => String.t() | false,
+          optional(:reflect) => boolean(),
           optional(:line) => non_neg_integer()
         }
 
@@ -79,6 +86,8 @@ defmodule Noizu.Tessera.Spec do
           required(:name) => Naming.snake(),
           required(:type) => atom(),
           optional(:default) => any(),
+          optional(:attribute) => String.t() | false,
+          optional(:reflect) => boolean(),
           optional(:line) => non_neg_integer()
         }
 
@@ -101,6 +110,15 @@ defmodule Noizu.Tessera.Spec do
           optional(:line) => non_neg_integer()
         }
 
+  @type lifecycle_hook :: :should_update | :will_update | :first_updated | :updated
+
+  @type lifecycle_entry :: %{
+          required(:js) => String.t(),
+          optional(:line) => non_neg_integer()
+        }
+
+  @type lifecycle :: %{optional(lifecycle_hook()) => lifecycle_entry()}
+
   @type t :: %__MODULE__{
           version: pos_integer(),
           tag: Naming.kebab() | nil,
@@ -117,7 +135,8 @@ defmodule Noizu.Tessera.Spec do
           state: [state_entry()],
           actions: [action_entry()],
           template: template_entry() | nil,
-          styles: [style_entry()]
+          styles: [style_entry()],
+          lifecycle: lifecycle()
         }
 
   @doc """
@@ -176,6 +195,9 @@ defmodule Noizu.Tessera.Spec do
           "tessera #{kind} #{inspect(name)} has unknown type #{inspect(opts[:type])} — " <>
             "known types: #{inspect(Naming.known_types())}"
     end
+
+    validate_attribute_opt!(kind, name, opts[:attribute], file, line)
+    validate_reflect_opt!(kind, name, opts[:reflect], file, line)
 
     :ok
   end
@@ -307,6 +329,46 @@ defmodule Noizu.Tessera.Spec do
     end
   end
 
+  # Lit property options (lit-parity brief 1c): `attribute:` renames or disables
+  # the observed DOM attribute; `reflect:` writes property changes back to it.
+  # Absent (nil) keeps Lit's defaults.
+  defp validate_attribute_opt!(_kind, _name, nil, _file, _line), do: :ok
+  defp validate_attribute_opt!(_kind, _name, false, _file, _line), do: :ok
+
+  defp validate_attribute_opt!(kind, name, value, file, line) when is_binary(value) do
+    unless value != "" and Regex.match?(~r/^[a-zA-Z_:][a-zA-Z0-9_:.\-]*$/, value) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{kind} #{inspect(name)} attribute: #{inspect(value)} is not a valid " <>
+            "HTML attribute name — use a name like \"data-count\" (letters/digits/-/_/./:), " <>
+            "or false to disable the attribute"
+    end
+
+    :ok
+  end
+
+  defp validate_attribute_opt!(kind, name, other, file, line) do
+    raise CompileError,
+      file: file,
+      line: line,
+      description:
+        "tessera #{kind} #{inspect(name)} attribute: must be a string (custom attribute " <>
+          "name) or false (no attribute), got: #{inspect(other)}"
+  end
+
+  defp validate_reflect_opt!(_kind, _name, nil, _file, _line), do: :ok
+  defp validate_reflect_opt!(_kind, _name, value, _file, _line) when is_boolean(value), do: :ok
+
+  defp validate_reflect_opt!(kind, name, other, file, line) do
+    raise CompileError,
+      file: file,
+      line: line,
+      description:
+        "tessera #{kind} #{inspect(name)} reflect: must be a boolean, got: #{inspect(other)}"
+  end
+
   @doc """
   The JSON-literal form of a spec default value, as it appears in the
   generated contract module (CONTRACT.md §2). `nil` becomes `null`.
@@ -364,6 +426,11 @@ defmodule Noizu.Tessera.Spec do
   defp json_key(k) when is_binary(k), do: k
   defp json_key(k), do: to_string(k)
 
+  # Manifest entries carry property options only when the author declared them
+  # (absent keeps the pre-1c manifest bytes for existing components).
+  defp put_manifest_opt(map, _key, nil), do: map
+  defp put_manifest_opt(map, key, value), do: Map.put(map, key, value)
+
   @doc "Spec rendered to a plain JSON-encodable map (used by `__tessera_manifest__/0`)."
   @spec to_manifest_map(t()) :: map()
   def to_manifest_map(%__MODULE__{} = spec) do
@@ -382,6 +449,8 @@ defmodule Noizu.Tessera.Spec do
             "required" => !!a[:required],
             "default" => a[:default]
           }
+          |> put_manifest_opt("attribute", a[:attribute])
+          |> put_manifest_opt("reflect", a[:reflect])
         end),
       "props" =>
         Enum.map(spec.props, fn p ->
@@ -391,6 +460,8 @@ defmodule Noizu.Tessera.Spec do
             "json" => !!p[:json],
             "default" => p[:default]
           }
+          |> put_manifest_opt("attribute", p[:attribute])
+          |> put_manifest_opt("reflect", p[:reflect])
         end),
       "events" =>
         Enum.map(spec.events, fn e ->
@@ -414,8 +485,14 @@ defmodule Noizu.Tessera.Spec do
             "type" => Atom.to_string(s.type),
             "default" => s[:default]
           }
+          |> put_manifest_opt("attribute", s[:attribute])
+          |> put_manifest_opt("reflect", s[:reflect])
         end),
       "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name)),
+      "lifecycle" =>
+        (for hook <- [:should_update, :will_update, :first_updated, :updated],
+             Map.has_key?(spec.lifecycle, hook),
+             do: Atom.to_string(hook)),
       "template" =>
         if spec.template do
           %{"lexer" => Atom.to_string(spec.template.lexer), "raw" => spec.template.raw}

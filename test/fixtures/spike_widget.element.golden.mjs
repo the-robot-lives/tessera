@@ -19,9 +19,9 @@ const baseStyles = css`
 
 class SpikeWidget extends TesseraElement(LitElement, contract) {
   static properties = {
-      count: { type: Number },
-      label: { type: String },
-      items: { type: Object },
+      count: { type: Number, attribute: false },
+      label: { type: String, attribute: "custom-label", reflect: true },
+      items: { type: Array },
     };
 
   static styles = [baseStyles];
@@ -30,6 +30,7 @@ class SpikeWidget extends TesseraElement(LitElement, contract) {
     super();
         this.count = 0;
         this.label = "Count";
+        this.items = [];
   }
 
   connectedCallback() {
@@ -61,6 +62,33 @@ class SpikeWidget extends TesseraElement(LitElement, contract) {
       __action_increment(params = {}, ev = null) {
             const state = this.__tesseraState();
             return (() => { return ({ ...state, count: (state.count + 1) }); })();
+          }
+
+      shouldUpdate(changedProperties) {
+            const state = this.__tesseraState();
+            const changed = Object.fromEntries(changedProperties);
+            return (state.count < 10);
+          }
+
+      willUpdate(changedProperties) {
+            const state = this.__tesseraState();
+            const changed = Object.fromEntries(changedProperties);
+            const next = ({ ...state, count: (state.count + 1) });
+            if (next != null && typeof next === "object") this.__tesseraSetState(next);
+          }
+
+      firstUpdated(changedProperties) {
+            const state = this.__tesseraState();
+            const changed = Object.fromEntries(changedProperties);
+            // side-effects only (emit) — the hook's return value is discarded
+            const next = emit(this, "count-change", {count: state.count});
+          }
+
+      updated(changedProperties) {
+            const state = this.__tesseraState();
+            const changed = Object.fromEntries(changedProperties);
+            // side-effects only (emit) — the hook's return value is discarded
+            const next = emit(this, "count-change", {count: state.count});
           }
 
   render() {
