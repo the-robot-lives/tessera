@@ -15,6 +15,8 @@ defmodule Noizu.Tessera.Spec do
       props:   %{name: :tag_list, type: :list, json: true, default: [], line: 4}
       events:  %{name: "persona-select", detail: %{persona_id: :string}, line: 5}
       slots:   %{name: "default", line: 6}
+      styles:  %{kind: :css, value: ":host { … }", line: 7}
+               %{kind: :shared, value: "./shared_styles.mjs", line: 8}
       css:     %{name: "--persona-card-accent", default: "#6366f1", line: 7}
       parts:   %{name: "select-button", line: 8}
 
@@ -38,7 +40,8 @@ defmodule Noizu.Tessera.Spec do
             parts: [],
             state: [],
             actions: [],
-            template: nil
+            template: nil,
+            styles: []
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -92,6 +95,12 @@ defmodule Noizu.Tessera.Spec do
           optional(:line) => non_neg_integer()
         }
 
+  @type style_entry :: %{
+          required(:kind) => :css | :shared,
+          required(:value) => String.t(),
+          optional(:line) => non_neg_integer()
+        }
+
   @type t :: %__MODULE__{
           version: pos_integer(),
           tag: Naming.kebab() | nil,
@@ -107,7 +116,8 @@ defmodule Noizu.Tessera.Spec do
           parts: [part_entry()],
           state: [state_entry()],
           actions: [action_entry()],
-          template: template_entry() | nil
+          template: template_entry() | nil,
+          styles: [style_entry()]
         }
 
   @doc """
@@ -411,7 +421,11 @@ defmodule Noizu.Tessera.Spec do
           %{"lexer" => Atom.to_string(spec.template.lexer), "raw" => spec.template.raw}
         else
           nil
-        end
+        end,
+      "styles" =>
+        Enum.map(spec.styles, fn s ->
+          %{"kind" => Atom.to_string(s.kind), "value" => s.value}
+        end)
     }
   end
 end

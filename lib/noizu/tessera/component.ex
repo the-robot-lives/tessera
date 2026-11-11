@@ -32,6 +32,8 @@ defmodule Noizu.Tessera.Component do
       part "select-button"
       cy "persona-card-root"
 
+      styles ~CSS":host { border-color: var(--tsr-persona-card-accent, #6cf); }"
+
   Naming rules (CONTRACT.md §1): attr/prop/detail names are snake_case atoms;
   `attr` names reach the DOM kebab-cased, `prop` names camelCased; event
   names are kebab-case strings matching `^[a-z][a-z0-9]*(-[a-z0-9]+)+$`. Each
@@ -53,6 +55,7 @@ defmodule Noizu.Tessera.Component do
 
   alias Noizu.Tessera.Component.Expr
   alias Noizu.Tessera.Component.LitCodegen
+  alias Noizu.Tessera.Component.Styles
   alias Noizu.Tessera.Component.Template
   alias Noizu.Tessera.Hologram.Adapter
   alias Noizu.Tessera.Naming
@@ -95,6 +98,11 @@ defmodule Noizu.Tessera.Component do
       Module.register_attribute(__MODULE__, :tessera_actions, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_template, accumulate: true)
 
+      # Styles DSL: `styles` declarations accumulate in order (css blocks,
+      # plain strings and {:shared, path} entries compose into the element's
+      # static styles array).
+      Module.register_attribute(__MODULE__, :tessera_styles, accumulate: true)
+
       # Hologram component plumbing (hologram mode only): `use Hologram.JS`
       # registers the @__js_imports__ accumulator; the import RESTATES
       # js_import/1-2 alongside call/2 because a second only-import of the
@@ -125,7 +133,9 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
-      sigil_TSR: 2
+      styles: 1,
+      sigil_TSR: 2,
+      sigil_CSS: 2
     ]
 
   defp import_list(true),
@@ -144,7 +154,9 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
-      sigil_TSR: 2
+      styles: 1,
+      sigil_TSR: 2,
+      sigil_CSS: 2
     ]
 
   defp hologram_asts(false, _mjs_path), do: []
@@ -294,6 +306,92 @@ defmodule Noizu.Tessera.Component do
   @spec sigil_TSR({:<<>>, list(), [String.t()]}, list()) :: Macro.t()
   defmacro sigil_TSR({:<<>>, _meta, [markup]}, _modifiers) when is_binary(markup), do: markup
   defmacro sigil_TSR(markup, _modifiers) when is_binary(markup), do: markup
+
+  # -- styles DSL ----------------------------------------------------------------
+  #
+  # `styles` declares author CSS for the generated Lit element (lit-parity
+  # §2.5). Entries are compile-time literals — a ~CSS sigil block, a plain
+  # string, or a {:shared, "path.mjs"} tuple pointing at a Lit shared-styles
+  # module (`export const styles = css`…``). A single entry or a static list
+  # composes; repeated declarations append in order. The CSS text is recorded
+  # as DATA and emitted into the element's `static styles = [baseStyles, …]`
+  # array — Lit validates it at runtime, tessera does not parse it.
+
+  @doc false
+  @spec styles(Macro.t()) :: Macro.t()
+  defmacro styles(entries) when is_list(entries) do
+    caller = __CALLER__
+
+    if entries == [] do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera styles list is empty — declare at least one ~CSS literal, " <>
+            "string or {:shared, \"path.mjs\"} entry"
+    end
+
+    styles_record_ast(caller, Enum.map(entries, &normalize_style_entry!(&1, caller)))
+  end
+
+  defmacro styles(entry) do
+    caller = __CALLER__
+    styles_record_ast(caller, [normalize_style_entry!(entry, caller)])
+  end
+
+  defp normalize_style_entry!({:sigil_CSS, _, [{:<<>>, _, [css]}, modifiers]}, _caller)
+       when is_binary(css) and modifiers == [],
+       do: %{kind: :css, value: css}
+
+  defp normalize_style_entry!({:<<>>, _, [css]}, _caller) when is_binary(css),
+    do: %{kind: :css, value: css}
+
+  defp normalize_style_entry!(css, _caller) when is_binary(css),
+    do: %{kind: :css, value: css}
+
+  # A 2-tuple literal is its own AST ({:shared, path}, not {:{}, _, […]}).
+  defp normalize_style_entry!({:shared, path}, _caller) when is_binary(path),
+    do: %{kind: :shared, value: path}
+
+  defp normalize_style_entry!(other, caller) do
+    raise CompileError,
+      file: caller.file,
+      line: caller.line,
+      description:
+        "tessera styles entries must be ~CSS literals, plain strings or " <>
+          "{:shared, \"path.mjs\"} tuples (compile-time literals), got: " <>
+          Macro.to_string(other)
+  end
+
+  defp styles_record_ast(%Macro.Env{} = caller, entries) do
+    quote bind_quoted: [
+            consumer: caller.module,
+            entries: Macro.escape(entries),
+            line: caller.line,
+            file: caller.file
+          ] do
+      Noizu.Tessera.Component.record(consumer, :styles, entries, nil, [], line, file, false)
+    end
+  end
+
+  # The scanner raises ArgumentError on malformed var() — surface it as a
+  # line-accurate CompileError like every other DSL violation.
+  defp missing_fallbacks!(css, tag, file, line) do
+    Styles.missing_fallbacks(css, tag)
+  rescue
+    e in ArgumentError ->
+      raise CompileError,
+        file: file,
+        line: line,
+        description: "tessera styles: " <> Exception.message(e)
+  end
+
+  @doc false
+  # `~CSS"""…"""` — raw author CSS, passed through verbatim to `styles/1`.
+  # Mirrors sigil_TSR: the macro receives the sigil's UNEXPANDED call AST.
+  @spec sigil_CSS({:<<>>, list(), [String.t()]}, list()) :: Macro.t()
+  defmacro sigil_CSS({:<<>>, _meta, [css]}, _modifiers) when is_binary(css), do: css
+  defmacro sigil_CSS(css, _modifiers) when is_binary(css), do: css
 
   # Expansion-time builder shared by the DSL macros. A plain function (not a
   # defmacrop) so the AST arguments are ordinary call arguments. Returns code
@@ -475,6 +573,57 @@ defmodule Noizu.Tessera.Component do
     :ok
   end
 
+  def record(consumer, :styles, entries, _type, _opts, line, file, _hologram?) do
+    tag = Module.get_attribute(consumer, :tessera_tag)
+
+    Enum.each(entries, fn
+      %{kind: :css, value: css} ->
+        unless is_binary(css) and css != "" do
+          raise CompileError,
+            file: file,
+            line: line,
+            description: "tessera styles css entry must be a non-empty string"
+        end
+
+        case missing_fallbacks!(css, tag, file, line) do
+          [] ->
+            :ok
+
+          missing ->
+            raise CompileError,
+              file: file,
+              line: line,
+              description:
+                "tessera styles: var() reads of #{Enum.join(missing, ", ")} must carry a " <>
+                  "fallback so an unthemed element renders correctly " <>
+                  "(EXTENSION-CONTRACT.md §7) — e.g. var(#{hd(missing)}, 8px)"
+        end
+
+        Module.put_attribute(
+          consumer,
+          :tessera_styles,
+          {line, %{kind: :css, value: css, line: line}}
+        )
+
+      %{kind: :shared, value: path} ->
+        unless is_binary(path) and path != "" do
+          raise CompileError,
+            file: file,
+            line: line,
+            description:
+              "tessera styles {:shared, path} entry must carry a non-empty module path string"
+        end
+
+        Module.put_attribute(
+          consumer,
+          :tessera_styles,
+          {line, %{kind: :shared, value: path, line: line}}
+        )
+    end)
+
+    :ok
+  end
+
   def record(_consumer, kind, _name, _type, _opts, line, file, _hologram?) do
     raise CompileError,
       file: file,
@@ -505,6 +654,9 @@ defmodule Noizu.Tessera.Component do
     # declaration's line on any subset violation.
     lit = lit_compile!(attrs, props, events, env)
 
+    styles =
+      accumulated(env.module, :tessera_styles) |> Enum.map(fn {_line, entry} -> entry end)
+
     spec = %Spec{
       version: @contract_version,
       tag: Module.get_attribute(env.module, :tessera_tag),
@@ -520,7 +672,8 @@ defmodule Noizu.Tessera.Component do
       parts: parts,
       state: lit.state,
       actions: lit.actions,
-      template: lit.template
+      template: lit.template,
+      styles: styles
     }
 
     body =

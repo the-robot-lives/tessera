@@ -294,7 +294,8 @@ defmodule Noizu.Tessera.SpecTest do
                "parts" => ["select-button"],
                "state" => [],
                "actions" => [],
-               "template" => nil
+               "template" => nil,
+               "styles" => []
              }
 
       # Must be JSON-encodable (the manifest task writes it verbatim).

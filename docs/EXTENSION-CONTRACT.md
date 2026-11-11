@@ -757,14 +757,14 @@ attach internals to an element that did not. [PENDING TIER-1] and
 - **Parts.** Styleable internals are exposed as `::part(name)` targets. Part
   names are lower-kebab, element-scoped, and MUST NOT carry the tag prefix —
   scoping comes from the selector (`persona-card::part(row)`). Every exposed
-  part is declared in the CEM (`parts`) and MUST exist in the rendered DOM of
+  part is declared in the CEM (`cssParts`) and MUST exist in the rendered DOM of
   both runtimes (X-14). The host element SHOULD expose a `root` part.
   Composites re-exposing inner parts MUST declare `exportparts`, with
   re-exposed names prefixed by the composite (`outer-inner`).
 - **Custom properties.** Every CSS custom property an element reads is
   `--tsr-<tag>-<prop>`: tag verbatim (hyphens kept), prop lower-kebab —
   `--tsr-persona-card-accent`. Components MUST declare each property they
-  read in the CEM (`cssCustomProperties`) with its fallback default, and MUST
+  read in the CEM (`cssProperties`) with its fallback default, and MUST
   provide the `var()` fallback so an unthemed element renders correctly.
   Un-prefixed globals are never read; a design-token cascade reaches the
   element only through its declared `--tsr-<tag>-*` properties. `--tsr-*`

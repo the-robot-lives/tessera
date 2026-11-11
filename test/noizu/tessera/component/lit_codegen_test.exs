@@ -9,34 +9,9 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
   alias Noizu.Tessera.Component.LitCodegen
   alias Noizu.Tessera.Spec
 
-  defp spec do
-    %Spec{
-      version: 1,
-      tag: "spike-widget",
-      module: Noizu.Tessera.Component.LitCodegenTest.SpikeWidget,
-      file: "lib/spike_widget.ex",
-      js: "spike_widget.mjs",
-      cy: "spike-widget-root",
-      attrs: [%{name: :label, type: :string, default: "Count", line: 2}],
-      props: [%{name: :items, type: :list, line: 7}],
-      slots: [],
-      events: [%{name: "count-change", detail: %{count: :integer}, line: 4}],
-      state: [%{name: :count, type: :integer, default: 0, line: 3}],
-      actions: [
-        %{
-          name: :increment,
-          js: ~S|(() => { return ({ ...state, count: (state.count + 1) }); })()|,
-          line: 5
-        }
-      ],
-      template: %{
-        lexer: :minimal,
-        raw: "<div>{@count}</div>",
-        render_js: "html`<div>${__t(this.count)}</div>`",
-        line: 6
-      }
-    }
-  end
+  # The spec lives in test/support so `mix tessera.golden` regenerates the
+  # element golden from the SAME spec these tests pin.
+  defp spec, do: Tessera.TestFixtures.SpikeWidgetSpec.spec()
 
   describe "element_module/1" do
     test "matches the golden fixture byte-for-byte" do
@@ -77,6 +52,90 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       assert js =~ ~S|export function register()|
       assert js =~ ~S|return defineOnce("spike-widget", SpikeWidget);|
       assert js =~ "register();\n"
+    end
+  end
+
+  describe "styles composition" do
+    test "no author styles → static styles = [baseStyles] with the :host defaults" do
+      js = LitCodegen.element_module(spec())
+
+      assert js =~ "static styles = [baseStyles];"
+      assert js =~ "const baseStyles = css`"
+
+      assert js =~
+               ":host {\n  display: block;\n  font-family: system-ui, -apple-system, sans-serif;\n}"
+    end
+
+    test "author css blocks and shared modules compose in declaration order, base first" do
+      styled = %Spec{
+        spec()
+        | styles: [
+            %{kind: :shared, value: "./shared_styles.mjs", line: 10},
+            %{kind: :css, value: ":host { color: red; }", line: 11},
+            %{kind: :css, value: ".x { gap: 4px; }", line: 12}
+          ]
+      }
+
+      js = LitCodegen.element_module(styled)
+
+      assert js =~
+               "static styles = [\n    baseStyles,\n    __tsrSharedStyles0,\n    css`\n:host { color: red; }\n`,\n    css`\n.x { gap: 4px; }\n`,\n  ];"
+
+      assert js =~ ~s|import { styles as __tsrSharedStyles0 } from "./shared_styles.mjs";|
+    end
+
+    test "a repeated shared path imports once and joins the array at each position" do
+      styled = %Spec{
+        spec()
+        | styles: [
+            %{kind: :shared, value: "./s.mjs", line: 10},
+            %{kind: :css, value: "a{}", line: 11},
+            %{kind: :shared, value: "./s.mjs", line: 12}
+          ]
+      }
+
+      js = LitCodegen.element_module(styled)
+
+      assert js
+             |> String.split(~s|import { styles as __tsrSharedStyles0 } from "./s.mjs";|)
+             |> length() == 2
+
+      assert js =~
+               "baseStyles,\n    __tsrSharedStyles0,\n    css`\na{}\n`,\n    __tsrSharedStyles0,\n  ];"
+    end
+
+    test "distinct shared paths get distinct deterministic bindings" do
+      styled = %Spec{
+        spec()
+        | styles: [
+            %{kind: :shared, value: "./a.mjs", line: 10},
+            %{kind: :shared, value: "./b.mjs", line: 11}
+          ]
+      }
+
+      js = LitCodegen.element_module(styled)
+      assert js =~ ~s|import { styles as __tsrSharedStyles0 } from "./a.mjs";|
+      assert js =~ ~s|import { styles as __tsrSharedStyles1 } from "./b.mjs";|
+    end
+
+    test "author CSS is escaped for the css`` literal (backtick, ${, backslash)" do
+      styled = %Spec{
+        spec()
+        | styles: [
+            %{kind: :css, value: ~S|.x{content:"`"} .y{content:"${"} .z{content:"\"}|, line: 10}
+          ]
+      }
+
+      js = LitCodegen.element_module(styled)
+      assert js =~ ~S|.x{content:"\`"}|
+      assert js =~ ~S|.y{content:"\${"}|
+      assert js =~ ~S|.z{content:"\\"}|
+    end
+
+    test "the host exposes a root part through connectedCallback (EXTENSION-CONTRACT §7)" do
+      js = LitCodegen.element_module(spec())
+      assert js =~ "connectedCallback() {\n    super.connectedCallback();"
+      assert js =~ ~s|this.setAttribute("part", "root");|
     end
   end
 
