@@ -30,7 +30,10 @@ defmodule HologramDemo.MixProject do
       {:hologram, "~> 0.10.1"},
       # The tessera component package under examples/ — which itself path-deps
       # on the tessera library two levels up.
-      {:persona_kit, path: "../../examples/persona_kit"}
+      {:persona_kit, path: "../../examples/persona_kit"},
+      # Tier 2 spike: ordinary Hologram components compiled to standalone
+      # tessera bundles (mix tessera.compile_component).
+      {:holo_kit, path: "../../examples/holo_kit"}
     ]
   end
 end

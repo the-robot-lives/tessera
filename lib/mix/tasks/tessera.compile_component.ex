@@ -41,12 +41,12 @@ defmodule Mix.Tasks.Tessera.CompileComponent do
       Mix.raise("tessera.compile_component must run inside an app with :hologram as a dep")
     end
 
-    compile_third_party!()
+    third_party = collect_third_party!()
 
-    Standalone.compile(modules, opts)
+    Standalone.compile(modules, Keyword.put(opts, :extra_sources, third_party))
   end
 
-  defp compile_third_party! do
+  defp collect_third_party! do
     dir = Path.join(File.cwd!(), "test/support/third_party")
 
     sources =
@@ -58,24 +58,10 @@ defmodule Mix.Tasks.Tessera.CompileComponent do
 
     if sources == [] do
       Mix.shell().info("[tessera-holo] no third-party components in #{dir}")
-      []
     else
-      ebin_dir = Path.join(File.cwd!(), "_build/tessera_holo_third_party")
-      File.mkdir_p!(ebin_dir)
-
-      Mix.shell().info("[tessera-holo] compiling third-party components: #{inspect(sources)}")
-
-      case Kernel.ParallelCompiler.compile(sources, beam_dest: ebin_dir) do
-        {:ok, _modules, _warnings} ->
-          Code.append_path(ebin_dir)
-          sources
-
-        {:error, errors} ->
-          formatted =
-            Enum.map_join(errors, "\n", fn {file, line, msg} -> "  #{file}:#{line}: #{msg}" end)
-
-          Mix.raise("third-party component compilation failed:\n#{formatted}")
-      end
+      Mix.shell().info("[tessera-holo] third-party components: #{inspect(sources)}")
     end
+
+    sources
   end
 end

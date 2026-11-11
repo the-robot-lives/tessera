@@ -41,6 +41,12 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   alias Hologram.Compiler
   alias Hologram.Compiler.CallGraph
 
+  # Scratch OTP app the stub pages + third-party modules are loaded under so
+  # `Hologram.Reflection.list_elixir_modules/0` (which enumerates LOADED
+  # APPLICATIONS only) sees them during the pipeline.
+  # NOTE: module attributes are order-dependent — keep this above first use.
+  @scratch_app :tessera_holo_stubs
+
   @stub_prefix TesseraHolo.Stubs
 
   @page_defs_anchor "globalThis.Hologram.pageReachableFunctionDefs = (deps) => {"
@@ -70,12 +76,6 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   """
   @spec compile(list(module() | String.t()), keyword()) :: map()
   def compile(components, opts \\ []) when is_list(components) do
-    components = components |> List.wrap() |> Enum.map(&expand_module/1)
-
-    if components == [] do
-      raise ArgumentError, message: "no component modules given"
-    end
-
     out_dir = Path.expand(opts[:out] || "priv/static/tessera-holo")
     build_dir = Path.join(out_dir, ".build")
     ebin_dir = Path.join(build_dir, "ebin")
@@ -90,6 +90,21 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     IO.puts("[tessera-holo] components: #{inspect(components)}")
     IO.puts("[tessera-holo] hologram assets: #{short(paths.assets_dir)}")
     IO.puts("[tessera-holo] out: #{short(out_dir)}")
+
+    # Third-party extension modules (e.g. `use HoloKit.Components.EditableList,
+    # tag: "..."` consumers) compile FIRST so their module names resolve and
+    # their injected __props__/0 is readable during stub generation.
+    extra_sources = opts[:extra_sources] || []
+
+    if extra_sources != [] do
+      compile_extra_sources!(extra_sources, ebin_dir)
+    end
+
+    components = components |> List.wrap() |> Enum.map(&expand_module/1)
+
+    if components == [] do
+      raise ArgumentError, message: "no component modules given"
+    end
 
     stubs = compile_stubs!(components, ebin_dir)
 
@@ -108,7 +123,11 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         DynamicSupervisor.stop(sup)
       end
 
-    File.rm_rf!(build_dir)
+    # Keep the scratch dir when debugging (TESSERA_KEEP_BUILD=1).
+    unless System.get_env("TESSERA_KEEP_BUILD") do
+      File.rm_rf!(build_dir)
+    end
+
     purge_stubs(stubs)
 
     results
@@ -142,12 +161,16 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     cg_pages = CallGraph.remove_runtime_mfas!(cg_runtime, runtime_mfas)
 
     graph = CallGraph.get_graph(cg_pages)
-    templatables = page_modules ++ components
+
+    # Upstream passes ALL pages + ALL components here; list_page_mfas looks
+    # up every templatable it extracts from the page's reachable set (the
+    # layout included), so the map must at least cover the stub layout too.
+    templatables = Enum.uniq(page_modules ++ [stubs.layout] ++ components)
 
     server_callback_analysis =
       CallGraph.server_callback_analysis_by_templatable(graph, templatables)
 
-    # --- runtime entry -------------------------------------------------------
+    # --- runtime entry    # --- runtime entry -------------------------------------------------------
     manual_imports = manually_ported_imports(paths)
     manual_body = manually_ported_body(paths)
 
@@ -174,6 +197,12 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         {defs_entry, manifest} = build_component_entry(component, page_js, ctx)
 
         IO.puts("[tessera-holo] #{component} entry built (#{page.base})")
+
+        # TESSERA_DEBUG_DUMP=1 keeps .build/ and additionally writes the raw
+        # page JS next to the surgically-edited defs entry for inspection.
+        if System.get_env("TESSERA_DEBUG_DUMP") do
+          Path.join(ctx.entry_dir, "#{page.base}.page.js") |> File.write!(page_js)
+        end
 
         %{component: component, base: page.base, defs_entry: defs_entry, manifest: manifest}
       end)
@@ -424,13 +453,52 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     |> String.split("\n")
     |> Enum.filter(&String.starts_with?(&1, "import ManuallyPorted"))
     |> Enum.map_join("\n", fn line ->
-      String.replace(line, ~s(from "./), ~s(from ") <> Path.join(paths.js_dir, "/") <> ~s())
+      String.replace(line, ~s(from "./), ~s(from ") <> paths.js_dir <> "/")
     end)
   end
 
   # -------------------------------------------------------------------------
   # Stub pages
   # -------------------------------------------------------------------------
+
+  # The scratch ebin is loaded as a REAL OTP app (`:tessera_holo_stubs`) so
+  # `Hologram.Reflection.list_elixir_modules/0` — which enumerates loaded
+  # apps only — sees the stub pages and any third-party extension modules.
+  # Without this the IR PLT skips them and the emitted defs are empty.
+  defp compile_extra_sources!([], _ebin_dir), do: :ok
+
+  defp compile_extra_sources!(extra_sources, ebin_dir) do
+    IO.puts("[tessera-holo] compiling #{length(extra_sources)} third-party extension source(s)")
+
+    # NOTE: ParallelCompiler.compile/2 NEVER writes BEAM files (its :dest
+    # option only annotates in-memory loads) — compile_to_path/3 is the one
+    # that writes beams, which the scratch app load below depends on.
+    case Kernel.ParallelCompiler.compile_to_path(extra_sources, ebin_dir,
+           return_diagnostics: true
+         ) do
+      {:ok, modules, diagnostics} ->
+        report_diagnostics(diagnostics)
+
+        modules
+        |> Enum.map_join(", ", &Atom.to_string/1)
+        |> then(&IO.puts("[tessera-holo] third-party modules: #{&1}"))
+
+      {:error, errors, diagnostics} ->
+        report_diagnostics(diagnostics)
+
+        formatted =
+          Enum.map_join(errors, "\n", fn
+            {file, line, msg} -> "  #{file}:#{line}: #{msg}"
+            %{file: file, position: pos, message: msg} -> "  #{file}:#{pos}: #{msg}"
+          end)
+
+        raise RuntimeError, message: "tessera third-party component compilation failed:\n#{formatted}"
+    end
+
+    # Load the scratch app NOW so the freshly compiled modules exist when
+    # `expand_module/1` resolves their names and `__props__/0` is readable.
+    load_scratch_app!(ebin_dir)
+  end
 
   defp compile_stubs!(components, ebin_dir) do
     layout_module = stub_module_name("Layout")
@@ -460,7 +528,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
           alias #{layout_module}
 
           route "/tessera_holo_stub/#{base}"
-          layout #{Macro.camelize(base) <> "LayoutAlias" && inspect(layout_module)}
+          layout #{layout_module}
 
           def template do
             sigil_HOLO("<#{tag} cid={~s(tssr)} #{tag_args} />", [])
@@ -468,7 +536,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         end
         """
 
-        %{module: module, base: base, component: component}
+        %{module: module, base: base, component: component, src: src}
       end
 
     layout_path = Path.join(ebin_dir, "stub_layout.ex")
@@ -481,23 +549,77 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         p
       end
 
-    case Kernel.ParallelCompiler.compile([layout_path | page_paths], beam_dest: ebin_dir) do
-      {:ok, _modules, warnings} ->
-        Enum.each(warnings, fn {file, line, msg} -> IO.warn("#{file}:#{line}: #{msg}") end)
+    case Kernel.ParallelCompiler.compile_to_path([layout_path | page_paths], ebin_dir,
+           return_diagnostics: true
+         ) do
+      {:ok, _modules, diagnostics} ->
+        report_diagnostics(diagnostics)
 
-      {:error, errors} ->
+      {:error, errors, diagnostics} ->
+        report_diagnostics(diagnostics)
+
         formatted =
-          Enum.map_join(errors, "\n", fn {file, line, msg} -> "  #{file}:#{line}: #{msg}" end)
+          Enum.map_join(errors, "\n", fn
+            {file, line, msg} -> "  #{file}:#{line}: #{msg}"
+            %{file: file, position: pos, message: msg} -> "  #{file}:#{pos}: #{msg}"
+          end)
 
         raise RuntimeError, message: "tessera stub compilation failed:\n#{formatted}"
     end
 
-    Code.append_path(ebin_dir)
+    load_scratch_app!(ebin_dir)
     %{layout: layout_module, pages: pages}
+  end
+
+  defp load_scratch_app!(ebin_dir) do
+    # Unload a previous scratch app from an earlier run in the same VM.
+    case Application.unload(@scratch_app) do
+      :ok -> :ok
+      {:error, {:not_loaded, @scratch_app}} -> :ok
+    end
+
+    beams =
+      ebin_dir
+      |> Path.join("*.beam")
+      |> Path.wildcard()
+      |> Enum.map(&(&1 |> Path.basename() |> Path.rootname() |> String.to_atom()))
+
+    spec = [
+      description: "tessera standalone compiler scratch app",
+      vsn: "0",
+      modules: beams,
+      applications: [:elixir]
+    ]
+
+    :ok = :application.load({:application, @scratch_app, spec})
+    Code.append_path(ebin_dir)
+
+    # Re-load from disk so this VM run sees exactly what the scratch app
+    # contains (compile_to_path already loaded the modules in memory; this
+    # makes reruns deterministic).
+    Enum.each(beams, fn m ->
+      :code.purge(m)
+
+      case Code.ensure_loaded(m) do
+        {:module, ^m} -> :ok
+        {:error, reason} -> raise "cannot load scratch module #{m}: #{inspect(reason)}"
+      end
+    end)
+
   end
 
   defp stub_module_name(suffix) do
     Module.concat(@stub_prefix, suffix)
+  end
+
+  defp report_diagnostics(diagnostics) do
+    Enum.each(diagnostics, fn
+      %{severity: :warning, file: file, position: pos, message: msg} ->
+        IO.warn("#{file}:#{pos}: #{msg}")
+
+      _ ->
+        :ok
+    end)
   end
 
   # Dummy prop args for the stub template: enough to make prop evaluation,
@@ -534,6 +656,11 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   defp dummy_value(_), do: nil
 
   defp purge_stubs(stubs) do
+    case Application.unload(@scratch_app) do
+      :ok -> :ok
+      {:error, {:not_loaded, @scratch_app}} -> :ok
+    end
+
     ([stubs.layout] ++ Enum.map(stubs.pages, & &1.module))
     |> Enum.each(fn module ->
       if :code.which(module) != :non_existing do
@@ -576,7 +703,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     if function_exported?(component, :__tessera_tag__, 0) do
       component.__tessera_tag__()
     else
-      "tsr-holo-" <> component_base(component)
+      "tsr-holo-" <> String.replace(component_base(component), "_", "-")
     end
   end
 
@@ -603,12 +730,20 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   # -------------------------------------------------------------------------
 
   defp hologram_paths do
-    lib_dir = :code.lib_dir(:hologram) |> to_string()
-    assets_dir = Path.join(lib_dir, "assets")
+    # Upstream convention (Mix.Tasks.Compile.Hologram): the dep's assets
+    # live at <project>/deps/hologram/assets. :code.lib_dir(:hologram)
+    # resolves to the _build copy which has no assets.
+    assets_dir = Path.join([File.cwd!(), "deps", "hologram", "assets"])
+
+    unless File.dir?(Path.join(assets_dir, "js")) do
+      raise RuntimeError,
+        message: "hologram assets not found at #{assets_dir} (run from the host app)"
+    end
+
     node_modules = Path.join(assets_dir, "node_modules")
 
     %{
-      lib_dir: lib_dir,
+      lib_dir: Path.dirname(assets_dir),
       assets_dir: assets_dir,
       js_dir: Path.join(assets_dir, "js"),
       node_modules: node_modules,
