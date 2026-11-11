@@ -108,7 +108,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         return this.__tesseraDispatch(name, params, ev);
       }
 
-    #{action_methods(spec)}#{lifecycle_block(spec)}
+    #{action_methods(spec)}#{lifecycle_block(spec)}#{region_methods(spec)}
 
       render() {
         return #{spec.template[:render_js]};
@@ -188,7 +188,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         return {#{state_snapshot_keys(spec)}};
       }
 
-    #{derived_action_methods(spec)}#{derived_lifecycle_block(spec)}
+    #{derived_action_methods(spec)}#{derived_lifecycle_block(spec)}#{region_methods(spec)}
 
       render() {
         return #{spec.template[:render_js]};
@@ -209,8 +209,12 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   end
 
   # Entries the derived module itself declared (new or overriding). Inherited
-  # entries (marked by the merge) ride the ES class chain and are not re-emitted.
-  defp new_entries(entries), do: Enum.reject(entries, & &1[:inherited])
+  # entries (marked by the merge) ride the ES class chain and are not re-emitted
+  # — EXCEPT actions whose emission points were rewritten by an event rename
+  # (brief 2d §5.6, `:re_emit`): the base still emits the OLD name, so the
+  # derived class re-emits the rewritten action method to shadow it.
+  defp new_entries(entries),
+    do: Enum.reject(entries, fn e -> e[:inherited] && !e[:re_emit] end)
 
   defp base_import_path(%Spec{file: file}, %Spec{} = base_spec) when is_binary(file) do
     base_path = Path.join(Path.dirname(base_spec.file), "#{base_spec.tag}.element.generated.mjs")
@@ -268,14 +272,16 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     attr_lines =
       Enum.map(new_entries(spec.attrs), fn a ->
         if a[:default] != nil,
-          do: "        this.#{Naming.snake_to_camel(a.name)} = #{Spec.json_literal(a[:default])};",
+          do:
+            "        this.#{Naming.snake_to_camel(a.name)} = #{Spec.json_literal(a[:default])};",
           else: ""
       end)
 
     prop_lines =
       Enum.map(new_entries(spec.props), fn p ->
         if p[:default] != nil,
-          do: "        this.#{Naming.snake_to_camel(p.name)} = #{Spec.json_literal(p[:default])};",
+          do:
+            "        this.#{Naming.snake_to_camel(p.name)} = #{Spec.json_literal(p[:default])};",
           else: ""
       end)
 
@@ -303,11 +309,33 @@ defmodule Noizu.Tessera.Component.LitCodegen do
       @lifecycle_order
       |> Enum.filter(fn hook ->
         entry = spec.lifecycle[hook]
-        entry && !entry[:inherited]
+        # inherited hooks ride the chain unless a rename rewrote their emit
+        # points (brief 2d §5.6) — then the derived re-emits to shadow.
+        entry && (!entry[:inherited] || entry[:re_emit])
       end)
       |> Enum.map_join("\n\n", fn hook -> lifecycle_method(hook, spec.lifecycle[hook].js) end)
 
     if methods == "", do: "", else: "\n\n" <> methods
+  end
+
+  # Template regions (brief 2d, EXTENSION-CONTRACT.md §5.4): each compiled
+  # region method is emitted as `__region_<name>() { return html`…`; }`. The
+  # render() body references them via `${this.__region_<name>()}`; overrides
+  # (slot_template) call `super.__region_<name>()` for {%super%}. Empty when
+  # the template declares no regions (goldens stay byte-stable).
+  defp region_methods(%Spec{} = spec) do
+    case spec.template[:region_methods] || [] do
+      [] ->
+        ""
+
+      methods ->
+        "\n\n" <>
+          Enum.map_join(methods, "\n\n", fn r ->
+            "      __region_#{r.name}() {\n" <>
+              "            return #{r.js};\n" <>
+              "          }"
+          end)
+    end
   end
 
   @doc "Path of the generated element module under `dir`."

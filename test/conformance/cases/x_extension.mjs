@@ -380,7 +380,35 @@ export const cases = [
     },
   }),
   pendingCase({id: "X-16", family: "X", fast: true, title: "Elixir derivation end-to-end — derived tag registers, base untouched", reason: "derivation macro lands with brief 2c / 3f"}),
-  pendingCase({id: "X-17", family: "X", fast: true, title: "region replacement — override renders on derived; unknown region fails", reason: "template regions land with brief 2d"}),
+  defineCase({
+    id: "X-17",
+    family: "X",
+    fast: true,
+    title: "region replacement — override renders on derived; unknown region fails",
+    async run(mount, expect) {
+      // §5.4 regions as compiled-in fragments. Mount-handle contract only —
+      // both tiers mount the LOGICAL pair (regionBase, regionVendor).
+      const base = await mount({fixture: "regionBase"});
+      const baseRow = base.shadowRoot.querySelector("[data-cy=conf-region-row]");
+      expect(baseRow).to.not.equal(null);
+      // the base's default region body renders through __region_row()
+      expect(baseRow.textContent).to.include("base-row");
+      expect(base.shadowRoot.querySelector("[data-cy=conf-region-vendor]")).to.equal(null);
+
+      const vendor = await mount({fixture: "regionVendor"});
+      const vendorSpan = vendor.shadowRoot.querySelector("[data-cy=conf-region-vendor]");
+      expect(vendorSpan, "slot_template :row override renders").to.not.equal(null);
+      expect(vendorSpan.classList.contains("vendor-row")).to.equal(true);
+      // {%super%} composes the BASE body inside the override (real ES
+      // super.__region_row() on the class chain — §5.4)
+      expect(vendorSpan.textContent).to.include("base-row");
+      // the overridden region still sits inside the inherited host structure
+      expect(vendor.shadowRoot.querySelector("[data-cy=conf-region-vendor]").closest("li.row")).to.not.equal(null);
+      // the compile-failure half of X-17 (slot_template for an UNKNOWN region
+      // must fail the compile, §5.7) is Elixir-only: proven by
+      // extension_test.exs "override of an unknown region is a CompileError".
+    },
+  }),
 
   defineCase({
     id: "X-18",

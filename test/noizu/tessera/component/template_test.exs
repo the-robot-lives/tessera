@@ -336,4 +336,135 @@ defmodule Noizu.Tessera.Component.TemplateTest do
       assert error.description =~ "does not resolve"
     end
   end
+
+  # -- template regions (brief 2d, EXTENSION-CONTRACT.md §5.4) -------------------
+
+  describe "region lexing (brief 2d, T1-1)" do
+    test "region markup forces the minimal lexer on the hologram host" do
+      if Template.lexer() == :hologram do
+        assert Template.lexer_for(~S|<div>{%region :row}x{%endregion}</div>|) == :minimal
+        # {%super%} alone also forces minimal
+        assert Template.lexer_for(~S|<div>{%super%}</div>|) == :minimal
+        # non-region markup keeps the host lexer
+        assert Template.lexer_for(~S|<div>x</div>|) == Template.lexer()
+      end
+    end
+
+    test "{%region :name} + {%endregion} lex to region tokens" do
+      assert {:ok, [{:region_start, :row}, {:text, "x"}, :region_end]} =
+               Template.minimal_lex("{%region :row}x{%endregion}")
+
+      # endregion is NOT lexed as a {%region open tag
+      assert {:ok, [:region_end]} = Template.minimal_lex("{%endregion}")
+    end
+
+    test "invalid region names are rejected by message" do
+      assert {:error, msg} = Template.minimal_lex("{%region row}x{%endregion}")
+      assert msg =~ "invalid {%region} name"
+
+      assert {:error, msg} = Template.minimal_lex("{%region :Row}x{%endregion}")
+      assert msg =~ "invalid {%region} name"
+
+      assert {:error, msg} = Template.minimal_lex("{%region :row")
+      assert msg =~ "unclosed {%region} tag"
+    end
+
+    test "region frames nest and treeify to {:region, name, children}" do
+      assert {:ok, tree} =
+               Template.minimal_lex(
+                 "{%region :row}<li>{%region :cell}x{%endregion}</li>{%endregion}"
+               )
+               |> then(fn {:ok, tokens} -> Template.treeify(tokens, [], []) end)
+
+      assert {:region, :row, [{:element, "li", [], [{:region, :cell, [text: "x"]}]}]} = tree
+    end
+
+    test "{%endregion} without a matching {%region} errors" do
+      {:ok, tokens} = Template.minimal_lex("<div>{%endregion}</div>")
+      assert {:error, msg} = Template.treeify(tokens, [], [])
+      assert msg =~ "{%endregion} without a matching {%region}"
+    end
+
+    test "nesting is capped at 8 regions" do
+      body = Enum.map_join(1..8, "", fn i -> "{%region :r#{i}}" end)
+      close = String.duplicate("{%endregion}", 8)
+
+      assert {:ok, _} = Template.parse("<div>#{body}x#{close}</div>")
+
+      too_deep =
+        Enum.map_join(1..9, "", fn i -> "{%region :r#{i}}" end) <>
+          "x" <> String.duplicate("{%endregion}", 9)
+
+      assert {:error, msg} = Template.parse("<div>#{too_deep}</div>")
+      assert msg =~ "nest more than 8 regions deep"
+    end
+  end
+
+  describe "region emission (method calls + super)" do
+    test "a region in the host template lowers to a method call" do
+      js = render!(~S|<ul><li class="row">{%region :row}<span>x</span>{%endregion}</li></ul>|)
+      assert js =~ "${this.__region_row()}"
+      refute js =~ "<span>x</span>"
+    end
+
+    test "compile_region_methods emits one html`…` body per region, preorder" do
+      {:ok, tree} =
+        Template.parse(
+          ~S|<div>{%region :a}A{%region :b}B{%endregion}{%endregion}{%region :c}C{%endregion}</div>|
+        )
+
+      methods = Template.compile_region_methods(tree, ctx())
+      assert Enum.map(methods, & &1.name) == [:a, :b, :c]
+      assert Enum.map(methods, & &1.js) == ["html`A${this.__region_b()}`", "html`B`", "html`C`"]
+    end
+
+    test "duplicate region names raise a CompileError" do
+      {:ok, tree} =
+        Template.parse(~S|<div>{%region :x}a{%endregion}{%region :x}b{%endregion}</div>|)
+
+      error = assert_raise CompileError, fn -> Template.compile_region_methods(tree, ctx()) end
+      assert error.description =~ "duplicate template region"
+    end
+
+    test "regions/1 lists declared names with their nested sets" do
+      {:ok, tree} =
+        Template.parse(~S|<div>{%region :row}R{%region :cell}C{%endregion}{%endregion}</div>|)
+
+      assert Template.regions(tree) == [
+               %{name: :row, nested: [:cell]},
+               %{name: :cell, nested: []}
+             ]
+    end
+
+    test "{%super%} inside an override body lowers to super.__region_<name>()" do
+      {:ok, body} = Template.parse(~S|<li class="v">{%super%}</li>|)
+      ovr = Template.compile_region_override(:row, body, ctx())
+      assert ovr.js == "html`<li class=\"v\">${super.__region_row()}</li>`"
+    end
+
+    test "{%super%} outside an override (default body / host template) raises" do
+      {:ok, tree} = Template.parse(~S|<div>{%super%}</div>|)
+
+      error = assert_raise CompileError, fn -> Template.to_lit_render(tree, ctx()) end
+      assert error.description =~ "only valid inside a slot_template region override"
+
+      {:ok, row} = Template.parse(~S|<div>{%region :x}{%super%}{%endregion}</div>|)
+      assert_raise CompileError, fn -> Template.compile_region_methods(row, ctx()) end
+    end
+
+    test "regions may contain <slot> and $event bindings (compiled-in fragments, not DOM slots)" do
+      js =
+        render!(
+          ~S|<div>{%region :row}<slot name="row-icon"></slot><button type="button" $click={:increment}>+</button>{%endregion}</div>|
+        )
+
+      assert js =~ "${this.__region_row()}"
+
+      {:ok, tree} =
+        Template.parse(~S|<div>{%region :row}<slot name="row-icon"></slot>{%endregion}</div>|)
+
+      [method] = Template.compile_region_methods(tree, ctx())
+      assert method.js == ~S|html`<slot name="row-icon"></slot>`|
+    end
+  end
 end

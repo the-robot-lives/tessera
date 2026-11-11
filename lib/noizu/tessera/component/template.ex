@@ -14,9 +14,15 @@ defmodule Noizu.Tessera.Component.Template do
       subset token stream below.
     * **Minimal path** — a hand-rolled lexer for exactly the subset (plain
       elements, static/interpolated attributes, `{expr}`, `{%if}/{%else}/{/if}`,
-      `{%for pat <- expr}/{/for}`, `$event={:action[, params]}`), used when
-      Hologram is absent so spec-only consumers (npm/UMD packaging without a
-      Hologram host) still compile.
+      `{%for pat <- expr}/{/for}`, `$event={:action[, params]}`,
+      `{%region :name}/{%endregion}`, `{%super%}`), used when Hologram is
+      absent so spec-only consumers (npm/UMD packaging without a Hologram
+      host) still compile.
+
+  Region-bearing markup ALWAYS lexes through the minimal lexer on both hosts
+  (brief 2d, T1-1): Hologram's `parse_markup` does not know `{%region%}`, so
+  `lex/1` forces the minimal path whenever the markup mentions a region or the
+  `{%super%}` marker — one token stream, one tree shape, on every host.
 
   Token stream (the shared subset):
 
@@ -24,6 +30,7 @@ defmodule Noizu.Tessera.Component.Template do
       {:text, s} | {:expr, ast}
       {:if_start, ast} | :else | :if_end
       {:for_start, var, coll_ast} | :for_end
+      {:region_start, name} | :region_end | :super
 
       attrs :: [{name, {:static, s} | {:parts, [{:text, s} | {:expr, expr_string}]}}
                 | {:"$event", dom_event, binding_src}
@@ -72,18 +79,36 @@ defmodule Noizu.Tessera.Component.Template do
     if hologram_available?(), do: :hologram, else: :minimal
   end
 
+  @doc """
+  Which lexer `parse/1` will use for THIS markup (brief 2d / T1-1): region
+  markup always lexes `:minimal` — Hologram's parser does not know
+  `{%region :name}`/`{%endregion}`/`{%super%}` — everything else follows the
+  host (`:hologram` when the dep is present).
+  """
+  @spec lexer_for(String.t()) :: :hologram | :minimal
+  def lexer_for(markup) when is_binary(markup) do
+    cond do
+      region_markup?(markup) -> :minimal
+      hologram_available?() -> :hologram
+      true -> :minimal
+    end
+  end
+
   defp hologram_available? do
     mod = hologram_module()
     match?({:module, ^mod}, Code.ensure_loaded(mod)) and function_exported?(mod, :parse_markup, 1)
   end
 
   defp lex(markup) do
-    if hologram_available?() do
-      hologram_lex(markup)
-    else
-      minimal_lex(markup)
+    cond do
+      region_markup?(markup) -> minimal_lex(markup)
+      hologram_available?() -> hologram_lex(markup)
+      true -> minimal_lex(markup)
     end
   end
+
+  defp region_markup?(markup),
+    do: String.contains?(markup, "{%region") or String.contains?(markup, "{%super")
 
   # -- hologram lexer ----------------------------------------------------------
 
@@ -128,7 +153,10 @@ defmodule Noizu.Tessera.Component.Template do
     end
   end
 
-  @directives ~w(if else for raw)
+  # region/endregion/super are known (brief 2d) but NEVER reach this path —
+  # lex/1 forces the minimal lexer for region markup; listing them keeps the
+  # known-directive set honest for any other caller of unknown_directive/2.
+  @directives ~w(if else for raw region endregion super)
 
   defp unknown_directive(markup) do
     ~r/{(?:%|\/)([a-z_]+)/
@@ -393,6 +421,29 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp min_tokens("{/for}" <> rest, acc), do: min_tokens(rest, [:for_end | acc])
 
+  # regions (brief 2d, EXTENSION-CONTRACT.md §5.4) — endregion BEFORE the
+  # {%region prefix clause: it is a string-prefix of the open tag's text.
+  defp min_tokens("{%endregion}" <> rest, acc), do: min_tokens(rest, [:region_end | acc])
+
+  defp min_tokens("{%super%}" <> rest, acc), do: min_tokens(rest, [:super | acc])
+
+  defp min_tokens("{%region" <> rest, acc) do
+    case split_expr(rest, "", 0) do
+      {:ok, expr, remaining} ->
+        case region_name(String.trim(expr)) do
+          {:ok, name} ->
+            min_tokens(remaining, [{:region_start, name} | acc])
+
+          :error ->
+            {:error,
+             "invalid {%region} name `#{String.trim(expr)}` — use a snake atom: {%region :row}"}
+        end
+
+      :error ->
+        {:error, "unclosed {%region} tag"}
+    end
+  end
+
   # escapes
   defp min_tokens("\\{" <> rest, acc), do: min_text("{", rest, acc)
   defp min_tokens("\\}" <> rest, acc), do: min_text("}", rest, acc)
@@ -475,6 +526,17 @@ defmodule Noizu.Tessera.Component.Template do
       _ -> min_tokens(rest, [{:text, text} | acc])
     end
   end
+
+  # region name grammar (paired with the {%region token clause above)
+  defp region_name(":" <> name) do
+    if Regex.match?(~r/^[a-z][a-z0-9_]*$/, name) do
+      {:ok, String.to_atom(name)}
+    else
+      :error
+    end
+  end
+
+  defp region_name(_other), do: :error
 
   # split "expr}rest" honoring nested braces inside the expression
   defp split_expr("}" <> rest, expr, 0), do: {:ok, expr, rest}
@@ -566,6 +628,8 @@ defmodule Noizu.Tessera.Component.Template do
   `{:if, {ast, then, else}}`, `{:else, {ast, then, else}}`,
   `{:for, {var, coll, children}}`. Top-level nodes accumulate in `top`.
   """
+  # maximum {%region} nesting depth (brief 2d, DECIDED: exceed → CompileError)
+  @max_region_depth 8
   @spec treeify(list(), list(), list()) :: {:ok, term()} | {:error, String.t()}
   def treeify([], [], top), do: {:ok, finish_root(Enum.reverse(top))}
   def treeify([], _stack, _top), do: {:error, "unclosed element(s) at end of template"}
@@ -616,6 +680,32 @@ defmodule Noizu.Tessera.Component.Template do
   def treeify([:for_end | rest], [{:for, {var, coll, children}} | stack], top),
     do: push({:for, var, coll, Enum.reverse(children)}, stack, rest, top)
 
+  # regions (brief 2d, §5.4) — {:region, {name, children}} frames; nesting is
+  # allowed but capped: opening a 9th region fails compilation.
+  def treeify([{:region_start, name} | rest], stack, top) do
+    if region_depth(stack) >= @max_region_depth do
+      {:error,
+       "{%region #{inspect(name)}} would nest more than #{@max_region_depth} regions deep — region nesting is capped at #{@max_region_depth} (EXTENSION-CONTRACT.md §5.4)"}
+    else
+      treeify(rest, [{:region, {name, []}} | stack], top)
+    end
+  end
+
+  def treeify([:region_end | rest], [{:region, {name, children}} | stack], top),
+    do: push({:region, name, Enum.reverse(children)}, stack, rest, top)
+
+  def treeify([:region_end | _], _stack, _top),
+    do: {:error, "{%endregion} without a matching {%region}"}
+
+  def treeify([:super | rest], stack, top), do: push(:super, stack, rest, top)
+
+  defp region_depth(stack),
+    do:
+      Enum.count(stack, fn
+        {:region, _} -> true
+        _frame -> false
+      end)
+
   defp push(node, [], rest, top), do: treeify(rest, [], [node | top])
 
   defp push(node, [{:elem, {tag, attrs, children}} | stack], rest, top),
@@ -630,6 +720,9 @@ defmodule Noizu.Tessera.Component.Template do
   defp push(node, [{:for, {var, coll, children}} | stack], rest, top),
     do: treeify(rest, [{:for, {var, coll, [node | children]}} | stack], top)
 
+  defp push(node, [{:region, {name, children}} | stack], rest, top),
+    do: treeify(rest, [{:region, {name, [node | children]}} | stack], top)
+
   defp finish_root([single]), do: single
   defp finish_root(many), do: {:fragment, many}
 
@@ -640,28 +733,28 @@ defmodule Noizu.Tessera.Component.Template do
   leading `return`). `ctx` is a `Noizu.Tessera.Component.Expr` context.
   """
   @spec to_lit_render(term(), Expr.t()) :: String.t()
-  def to_lit_render(tree, %Expr{} = ctx), do: "html`#{node_js(tree, ctx)}`"
+  def to_lit_render(tree, %Expr{} = ctx), do: "html`#{node_js(tree, ctx, %{super_region: nil})}`"
 
-  defp node_js({:fragment, children}, ctx),
-    do: Enum.map_join(children, " ", &node_js(&1, ctx))
+  defp node_js({:fragment, children}, ctx, opts),
+    do: Enum.map_join(children, " ", &node_js(&1, ctx, opts))
 
-  defp node_js({:element, tag, attrs, children}, ctx) do
+  defp node_js({:element, tag, attrs, children}, ctx, opts) do
     attr_js =
       attrs
       |> Enum.map_join(" ", &attr_js(&1, ctx))
       |> then(fn s -> if s == "", do: "", else: " " <> s end)
 
-    children_js = Enum.map_join(children, "", &node_js(&1, ctx))
+    children_js = Enum.map_join(children, "", &node_js(&1, ctx, opts))
     "<#{tag}#{attr_js}>#{children_js}</#{tag}>"
   end
 
-  defp node_js({:text, s}, _ctx), do: escape_lit_text(s)
+  defp node_js({:text, s}, _ctx, _opts), do: escape_lit_text(s)
 
   # Child position: a directive (class_map/style_map/if_defined) or the bare
   # `nothing` sentinel emits WITHOUT the __t wrapper — directives are valid
   # child expressions and `nothing` must reach lit-html untouched (__t would
   # pass it through anyway, but the unquoted form is the canonical one).
-  defp node_js({:expr, ast}, ctx) do
+  defp node_js({:expr, ast}, ctx, _opts) do
     if directive_ast?(ast) do
       "${#{Expr.translate(ast, ctx)}}"
     else
@@ -669,24 +762,120 @@ defmodule Noizu.Tessera.Component.Template do
     end
   end
 
-  defp node_js({:if, ast, children, []}, ctx) do
-    inner = Enum.map_join(children, "", &node_js(&1, ctx))
+  defp node_js({:if, ast, children, []}, ctx, opts) do
+    inner = Enum.map_join(children, "", &node_js(&1, ctx, opts))
     "${(#{Expr.translate(ast, ctx)}) ? html`#{inner}` : html``}"
   end
 
-  defp node_js({:if, ast, children, else_children}, ctx) do
-    inner = Enum.map_join(children, "", &node_js(&1, ctx))
-    else_inner = Enum.map_join(else_children, "", &node_js(&1, ctx))
+  defp node_js({:if, ast, children, else_children}, ctx, opts) do
+    inner = Enum.map_join(children, "", &node_js(&1, ctx, opts))
+    else_inner = Enum.map_join(else_children, "", &node_js(&1, ctx, opts))
     "${(#{Expr.translate(ast, ctx)}) ? html`#{inner}` : html`#{else_inner}`}"
   end
 
-  defp node_js({:for, var, coll, children}, ctx) do
+  defp node_js({:for, var, coll, children}, ctx, opts) do
     # the loop var is pattern-bound inside the callback — body expressions
     # (interpolations AND attribute expressions) may reference it
     inner_ctx = %{ctx | vars: MapSet.put(ctx.vars, var)}
-    inner = Enum.map_join(children, "", &node_js(&1, inner_ctx))
+    inner = Enum.map_join(children, "", &node_js(&1, inner_ctx, opts))
     "${(#{Expr.translate(coll, ctx)} ?? []).map((#{var}) => html`#{inner}`)}"
   end
+
+  # Regions (§5.4, brief 2d) are compiled-in fragments, NOT DOM slots: the
+  # host template references them by calling the generated `__region_<name>`
+  # method; the bodies compile separately (compile_region_methods/2 below).
+  defp node_js({:region, name, _children}, _ctx, _opts), do: "${this.__region_#{name}()}"
+
+  defp node_js(:super, ctx, %{super_region: nil}) do
+    raise CompileError,
+      file: ctx.file,
+      line: ctx.line || 0,
+      description:
+        "{%super%} is only valid inside a slot_template region override — it composes the " <>
+          "base region body at that point (EXTENSION-CONTRACT.md §5.4)"
+  end
+
+  defp node_js(:super, _ctx, %{super_region: name}), do: "${super.__region_#{name}()}"
+
+  # -- regions (brief 2d, EXTENSION-CONTRACT.md §5.4) ----------------------------
+
+  @doc """
+  Declared regions of a parsed tree, preorder (outer before inner), as
+  `%{name: atom, nested: [atom]}` where `nested` lists every region name
+  appearing anywhere inside the region's body.
+  """
+  @spec regions(term()) :: [%{name: atom(), nested: [atom()]}]
+  def regions(tree) do
+    for {:region, name, children} <- region_nodes(tree) do
+      %{
+        name: name,
+        nested:
+          children |> Enum.flat_map(&region_nodes/1) |> Enum.map(fn {:region, n, _} -> n end)
+      }
+    end
+  end
+
+  @doc """
+  Compile the default region bodies of a template tree into method fragments
+  `%{name: atom, js: "html`...`"}` (the derived render() references them via
+  `${this.__region_<name>()}`). Duplicate region names raise a CompileError.
+  """
+  @spec compile_region_methods(term(), Expr.t()) :: [%{name: atom(), js: String.t()}]
+  def compile_region_methods(tree, %Expr{} = ctx) do
+    nodes = region_nodes(tree)
+
+    dups =
+      nodes
+      |> Enum.map(fn {:region, n, _} -> n end)
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_n, c} -> c > 1 end)
+      |> Enum.map(fn {n, _c} -> n end)
+
+    if dups != [] do
+      raise CompileError,
+        file: ctx.file,
+        line: ctx.line || 0,
+        description:
+          "duplicate template region(s) #{inspect(dups)} — region names must be unique within a template (EXTENSION-CONTRACT.md §5.4)"
+    end
+
+    for {:region, name, children} <- nodes do
+      %{
+        name: name,
+        js: "html`#{Enum.map_join(children, "", &node_js(&1, ctx, %{super_region: nil}))}`"
+      }
+    end
+  end
+
+  @doc """
+  Compile one `slot_template :name` override body. `{%super%}` inside the body
+  lowers to `super.__region_<name>()` (the base default fragment at that point
+  in the chain).
+  """
+  @spec compile_region_override(atom(), term(), Expr.t()) :: %{name: atom(), js: String.t()}
+  def compile_region_override(name, tree, %Expr{} = ctx) when is_atom(name) do
+    %{name: name, js: "html`#{node_js(tree, ctx, %{super_region: name})}`"}
+  end
+
+  defp region_nodes(tree), do: tree |> collect_region_nodes([]) |> Enum.reverse()
+
+  defp collect_region_nodes({:region, _name, children} = node, acc) do
+    Enum.reduce(children, [node | acc], &collect_region_nodes/2)
+  end
+
+  defp collect_region_nodes({:element, _tag, _attrs, children}, acc),
+    do: Enum.reduce(children, acc, &collect_region_nodes/2)
+
+  defp collect_region_nodes({:fragment, children}, acc),
+    do: Enum.reduce(children, acc, &collect_region_nodes/2)
+
+  defp collect_region_nodes({:if, _ast, then_c, else_c}, acc),
+    do: Enum.reduce(then_c ++ else_c, acc, &collect_region_nodes/2)
+
+  defp collect_region_nodes({:for, _var, _coll, children}, acc),
+    do: Enum.reduce(children, acc, &collect_region_nodes/2)
+
+  defp collect_region_nodes(_leaf, acc), do: acc
 
   # attribute emission
   defp attr_js({:"$event", event, binding_src}, ctx) do

@@ -988,17 +988,35 @@ rides `extension_api` 2.0.0, not this document.
 
 **[PENDING TIER-1]** (spike proved the element DSL; these surfaces are new):
 
-- T1-1 — region syntax (`{%region%}` / `{%endregion}`) in the dual lexer and
-  codegen; nesting limits; interaction with slot rendering.
+- T1-1 — resolved (brief 2d): `{%region :name}…{%endregion}` + `{%super%}` in
+  the dual lexer (region markup forces the minimal lexer on both hosts) and
+  codegen — each region lowers to a `__region_<name>()` html-method; host
+  render interpolates `${this.__region_x()}`; `slot_template :name` overrides
+  in derived modules compose the inner body via a real ES
+  `super.__region_x()`. Nesting capped at 8 (CompileError); duplicate region
+  names CompileError; unknown/nested-mismatch/duplicate overrides §5.7
+  CompileErrors. Slot interaction: regions are compiled-in fragments that MAY
+  contain `<slot>`s (not DOM slots themselves). Multi-layer chain composition
+  of overrides rides T1-10.
 - T1-2 — the Elixir override convention: the injected `base_action/3`
   dispatcher (name/arity confirmation — the working mechanism on Tier 2 per
   the 2026-11-11 spike finding, since Hologram's IR has no `super`);
   generated dispatcher equivalents for fn-based actions; init-hook
   dispatchers. The canonical `use Vendor.Element` macro generates all of it
   (D4, §5.3) — remaining work is the exact names/arities only.
-- T1-3 — event-rename rewrite pass over compiled emission points; binding-prop
-  regeneration.
-- T1-4 — type-change reference-graph pass over compiled template/action ASTs.
+- T1-3 — resolved (brief 2d): the rename declaration `event "new", renames:
+  "inherited"` replaces the inherited entry in place (detail merged,
+  `renamed_from` marker; no rename chains, no collisions — §5.6 guards); a
+  string rewrite pass over compiled action/lifecycle JS swaps the
+  `emit(this, "old"` literal, and `re_emit` makes the derived class
+  re-emit/shadow the base method. Binding-prop + CEM/contract regeneration
+  fall out of the merged spec (the element tier lists only the new name; the
+  bridge resolves through the contract); detail retypes are CompileErrors.
+- T1-4 — resolved (brief 2d): reference-graph guard — the base's compiled
+  template tree (`{@key}` / `state.key` reads, re-parsed at merge time) plus
+  base action fn ASTs collect the referenced keys; an author override that
+  retypes a referenced attr/prop/state key is a CompileError naming base and
+  derived modules (§5.5).
 - T1-5 — resolved (brief 2a): sync dispatch returns `DispatchResult` directly,
   any async stage makes the call `Promise<DispatchResult>`; `value` =
   post-transition snapshot on commit, the vetoing stage's return on veto

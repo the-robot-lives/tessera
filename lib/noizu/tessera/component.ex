@@ -135,6 +135,11 @@ defmodule Noizu.Tessera.Component do
       Module.register_attribute(__MODULE__, :tessera_actions, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_template, accumulate: true)
 
+      # Template region overrides (brief 2d, EXTENSION-CONTRACT.md §5.4):
+      # `slot_template :name, ~TSR"""…"""` — derived modules only; a fresh
+      # component declaring one fails compilation.
+      Module.register_attribute(__MODULE__, :tessera_slot_templates, accumulate: true)
+
       # Styles DSL: `styles` declarations accumulate in order (css blocks,
       # plain strings and {:shared, path} entries compose into the element's
       # static styles array).
@@ -173,6 +178,7 @@ defmodule Noizu.Tessera.Component do
       state: 2,
       state: 3,
       template: 1,
+      slot_template: 2,
       action: 2,
       action: 3,
       should_update: 1,
@@ -199,6 +205,7 @@ defmodule Noizu.Tessera.Component do
       state: 2,
       state: 3,
       template: 1,
+      slot_template: 2,
       action: 2,
       action: 3,
       should_update: 1,
@@ -327,6 +334,56 @@ defmodule Noizu.Tessera.Component do
             file: caller.file
           ] do
       Noizu.Tessera.Component.record(consumer, :template, markup, nil, [], line, file, false)
+    end
+  end
+
+  @doc false
+  # `slot_template :name, ~TSR"""…"""` — a region override (brief 2d,
+  # EXTENSION-CONTRACT.md §5.4). Derived modules only: it replaces the default
+  # body of the base region `:name`; `{%super%}` inside the body composes the
+  # base fragment at that point. Validation against the base's declared
+  # regions happens at __before_compile__ (the base spec is only readable
+  # then).
+  @spec slot_template(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro slot_template(name, {:sigil_TSR, _, [{:<<>>, _, [markup]}, modifiers]})
+           when is_binary(markup) and modifiers == [],
+           do: slot_template_record_ast(__CALLER__, name, markup)
+
+  defmacro slot_template(name, markup) when is_binary(markup),
+    do: slot_template_record_ast(__CALLER__, name, markup)
+
+  defmacro slot_template(name, {:<<>>, _meta, [markup]}) when is_binary(markup),
+    do: slot_template_record_ast(__CALLER__, name, markup)
+
+  defmacro slot_template(name, other) do
+    caller = __CALLER__
+
+    raise CompileError,
+      file: caller.file,
+      line: caller.line,
+      description:
+        "tessera slot_template #{inspect(name)} must be a ~TSR literal (or plain string " <>
+          "literal), got: " <> Macro.to_string(other)
+  end
+
+  defp slot_template_record_ast(%Macro.Env{} = caller, name, markup) when is_binary(markup) do
+    quote bind_quoted: [
+            consumer: caller.module,
+            name: name,
+            markup: markup,
+            line: caller.line,
+            file: caller.file
+          ] do
+      Noizu.Tessera.Component.record(
+        consumer,
+        :slot_template,
+        name,
+        markup,
+        [],
+        line,
+        file,
+        false
+      )
     end
   end
 
@@ -519,7 +576,14 @@ defmodule Noizu.Tessera.Component do
   # order and Hologram's hook reads @__props__ first.
   def record(consumer, :attr, name, type, opts, line, file, hologram?) do
     opts = eval_opts!(opts, :attr, name, file, line)
-    Spec.validate!(:attr, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
+
+    Spec.validate!(
+      :attr,
+      name,
+      %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]},
+      file,
+      line
+    )
 
     entry =
       %{
@@ -542,7 +606,14 @@ defmodule Noizu.Tessera.Component do
 
   def record(consumer, :prop, name, type, opts, line, file, _hologram?) do
     opts = eval_opts!(opts, :prop, name, file, line)
-    Spec.validate!(:prop, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
+
+    Spec.validate!(
+      :prop,
+      name,
+      %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]},
+      file,
+      line
+    )
 
     entry =
       %{
@@ -563,11 +634,13 @@ defmodule Noizu.Tessera.Component do
     detail = opts[:detail] || %{}
     Spec.validate!(:event, name, detail, file, line)
 
-    Module.put_attribute(
-      consumer,
-      :tessera_events,
-      {line, %{name: name, detail: detail, line: line}}
-    )
+    entry = %{name: name, detail: detail, line: line}
+    # `renames:` (§5.6, brief 2d) — carried only when set so the common entry
+    # shape stays byte-identical for goldens. The rename rewrite + guards run
+    # in the merge (Extension.merge_spec!/3).
+    entry = if opts[:renames], do: Map.put(entry, :renames, opts[:renames]), else: entry
+
+    Module.put_attribute(consumer, :tessera_events, {line, entry})
 
     if hologram? do
       binding = Naming.event_binding_prop(name)
@@ -625,7 +698,15 @@ defmodule Noizu.Tessera.Component do
   # __before_compile__ so errors carry the declaration's line.
   def record(consumer, :state, name, type, opts, line, file, _hologram?) do
     opts = eval_opts!(opts, :state, name, file, line)
-    Spec.validate!(:state, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
+
+    Spec.validate!(
+      :state,
+      name,
+      %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]},
+      file,
+      line
+    )
+
     assert_json_safe_default!(opts[:default], :state, name, file, line)
 
     entry =
@@ -645,6 +726,33 @@ defmodule Noizu.Tessera.Component do
     end
 
     Module.put_attribute(consumer, :tessera_template, {line, markup})
+    :ok
+  end
+
+  def record(consumer, :slot_template, name, markup, _opts, line, file, _hologram?) do
+    unless is_atom(name) and Regex.match?(Naming.snake_regex(), Atom.to_string(name)) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera slot_template name #{inspect(name)} must be a snake_case atom " <>
+            "(e.g. slot_template :row, …) (EXTENSION-CONTRACT.md §5.4)"
+    end
+
+    unless is_binary(markup) and markup != "" do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera slot_template #{inspect(name)} body must be a non-empty ~TSR literal string"
+    end
+
+    Module.put_attribute(
+      consumer,
+      :tessera_slot_templates,
+      {line, %{name: name, markup: markup, line: line}}
+    )
+
     :ok
   end
 
@@ -704,7 +812,8 @@ defmodule Noizu.Tessera.Component do
     # variant: `_`, `_changed`). A var AST is a 3-tuple with an atom context —
     # patterns like %{count: c} carry a list there.
     unless match?({name, _, ctx} when is_atom(name) and is_atom(ctx), second) and
-             (elem(second, 0) == :changed or String.starts_with?(Atom.to_string(elem(second, 0)), "_")) do
+             (elem(second, 0) == :changed or
+                String.starts_with?(Atom.to_string(elem(second, 0)), "_")) do
       raise CompileError,
         file: file,
         line: line,
@@ -828,8 +937,14 @@ defmodule Noizu.Tessera.Component do
       priority: Module.get_attribute(env.module, :tessera_derived_priority) || 0,
       # §8.3: element components ship 1.0.0 when neither the author declared
       # one nor a base supplied it — the first stable extension_api.
-      extension_api: Module.get_attribute(env.module, :tessera_extension_api) ||
-                       Spec.default_extension_api()
+      extension_api:
+        Module.get_attribute(env.module, :tessera_extension_api) ||
+          Spec.default_extension_api(),
+      # Template regions ride the compiled template entry (§5.4, brief 2d):
+      # `regions` = what the template declares, `region_overrides` = what this
+      # module replaces via slot_template.
+      regions: (lit.template && lit.template[:regions]) || [],
+      region_overrides: (lit.template && lit.template[:region_overrides]) || []
     }
 
     body =
@@ -895,7 +1010,23 @@ defmodule Noizu.Tessera.Component do
     lifecycle_raw = Module.get_attribute(env.module, :tessera_lifecycle) || %{}
     template = assert_single_template!(templates, state, actions_raw, lifecycle_raw, env)
 
-    lit = lit_compile!(attrs, props, events, state, actions_raw, template, lifecycle_raw, env, false)
+    assert_no_slot_templates_on_fresh!(accumulated(env.module, :tessera_slot_templates), env)
+
+    lit =
+      lit_compile!(
+        attrs,
+        props,
+        events,
+        state,
+        actions_raw,
+        template,
+        lifecycle_raw,
+        env,
+        false,
+        MapSet.new(),
+        [],
+        []
+      )
 
     styles = accumulated(env.module, :tessera_styles) |> Enum.map(fn {_l, e} -> e end)
 
@@ -954,6 +1085,11 @@ defmodule Noizu.Tessera.Component do
       env
     )
 
+    slot_templates =
+      accumulated(env.module, :tessera_slot_templates) |> Enum.map(fn {_l, e} -> e end)
+
+    validate_region_overrides!(base_spec, slot_templates, merged.template, env)
+
     lit =
       lit_compile!(
         merged.attrs,
@@ -965,19 +1101,25 @@ defmodule Noizu.Tessera.Component do
         merged.lifecycle,
         env,
         true,
-        MapSet.new(Enum.map(base_spec.actions, & &1.name))
+        MapSet.new(Enum.map(base_spec.actions, & &1.name)),
+        slot_templates,
+        base_spec.regions
       )
 
-    {merged.attrs, merged.props, merged.events, merged.slots, merged.css_properties,
-     merged.parts, merged.cy, lit, merged.styles}
+    {merged.attrs, merged.props, merged.events, merged.slots, merged.css_properties, merged.parts,
+     merged.cy, lit, merged.styles}
   end
 
   # The author's own template (0 or 1). A derived module may omit it and inherit
   # the base's; the all-or-nothing element check is satisfied by the merge.
   defp author_template!(templates, env) do
     case templates do
-      [] -> nil
-      [{line, markup}] -> %{line: line, markup: markup}
+      [] ->
+        nil
+
+      [{line, markup}] ->
+        %{line: line, markup: markup}
+
       many ->
         raise CompileError,
           file: env.file,
@@ -1045,7 +1187,25 @@ defmodule Noizu.Tessera.Component do
   # pre-rendered lit-html render() string. `derived?` enables the base_action
   # down-call + state rebinding subset forms; inherited entries (marked by the
   # merge) pass their already-translated JS through untouched.
-  defp lit_compile!(attrs, props, events, state, actions_raw, template, lifecycle_raw, env, derived?, base_action_names \\ MapSet.new()) do
+  #
+  # `region_overrides` (slot_template payloads) + `base_regions` drive the
+  # region method assembly (brief 2d, §5.4): a fresh component compiles all
+  # default region bodies; a derived one compiles its overrides plus any
+  # newly-declared regions, letting the rest ride the ES class chain.
+  defp lit_compile!(
+         attrs,
+         props,
+         events,
+         state,
+         actions_raw,
+         template,
+         lifecycle_raw,
+         env,
+         derived?,
+         base_action_names,
+         region_overrides,
+         base_regions
+       ) do
     assert_no_duplicates!(:state, state, env)
     assert_no_action_duplicates!(actions_raw, env)
 
@@ -1073,10 +1233,13 @@ defmodule Noizu.Tessera.Component do
 
         # `internal:` rides the translated entry (advisory CEM grouping + the
         # runtime's warn-on-interception); carried from inherited entries so a
-        # redeclaration MAY flip it (§5.3, §8.2).
+        # redeclaration MAY flip it (§5.3, §8.2). `re_emit:` (§5.6 rename) is
+        # carried too — without it the derived class would skip shadowing the
+        # base action whose rewritten JS lives in this very entry.
         %{name: entry.name, js: js, fn_ast: entry[:fn_ast], line: entry.line}
         |> then(fn e -> if entry[:internal], do: Map.put(e, :internal, true), else: e end)
         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)
+        |> then(fn e -> if entry[:re_emit], do: Map.put(e, :re_emit, true), else: e end)
       end)
 
     lifecycle =
@@ -1088,19 +1251,29 @@ defmodule Noizu.Tessera.Component do
             lifecycle_js(entry, %{ctx | line: entry.line || 0})
           end
 
-        {hook, %{js: js, line: entry.line}
-         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)}
+        {hook,
+         %{js: js, line: entry.line}
+         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)
+         |> then(fn e -> if entry[:re_emit], do: Map.put(e, :re_emit, true), else: e end)}
       end)
 
     template_entry =
       template &&
         with {:ok, tree} <- Template.parse(template.markup) do
+          rctx = %{ctx | line: template.line}
+
           %{
             raw: template.markup,
-            lexer: Template.lexer(),
-            render_js: Template.to_lit_render(tree, %{ctx | line: template.line}),
+            lexer: Template.lexer_for(template.markup),
+            render_js: Template.to_lit_render(tree, rctx),
+            regions: Template.regions(tree),
             line: template.line
           }
+          |> Map.put(
+            :region_methods,
+            compile_region_payload(tree, rctx, derived?, region_overrides, base_regions)
+          )
+          |> Map.put(:region_overrides, Enum.map(region_overrides, & &1.name))
         else
           {:error, msg} ->
             raise CompileError,
@@ -1112,13 +1285,190 @@ defmodule Noizu.Tessera.Component do
     %{state: state, actions: actions, template: template_entry, lifecycle: lifecycle}
   end
 
+  # Region method assembly (§5.4, brief 2d).
+  #
+  #   * Fresh: every declared region's default body compiles into a method on
+  #     the element class.
+  #   * Derived: only slot_template overrides plus any region newly declared by
+  #     an author-replaced template are emitted — every other region rides the
+  #     ES class chain (the base already defines `__region_<name>()`). The
+  #     dedup keeps the LAST definition, so an explicit `slot_template :cell`
+  #     wins over a same-named nested region inside another override body.
+  defp compile_region_payload(tree, ctx, false, _overrides, _base_regions) do
+    Template.compile_region_methods(tree, ctx)
+  end
+
+  defp compile_region_payload(tree, ctx, true, overrides, base_regions) do
+    override_methods =
+      Enum.flat_map(overrides, fn %{name: name, markup: markup, line: line} ->
+        # validate_region_overrides!/4 already parsed the body (unknown-region +
+        # nested-set guards); this re-parse carries the override's line for
+        # emission-time CompileErrors (unknown keys, stray {%super%}…).
+        case Template.parse(markup) do
+          {:ok, body} ->
+            octx = %{ctx | line: line}
+
+            Template.compile_region_methods(body, octx) ++
+              [Template.compile_region_override(name, body, octx)]
+
+          {:error, msg} ->
+            raise CompileError,
+              file: ctx.file,
+              line: line,
+              description: "tessera slot_template #{inspect(name)}: " <> msg
+        end
+      end)
+
+    base_names = MapSet.new(Enum.map(base_regions, & &1.name))
+    overridden = MapSet.new(Enum.map(overrides, & &1.name))
+
+    new_defaults =
+      tree
+      |> Template.compile_region_methods(ctx)
+      |> Enum.reject(fn m ->
+        MapSet.member?(base_names, m.name) or MapSet.member?(overridden, m.name)
+      end)
+
+    (new_defaults ++ override_methods)
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.reverse()
+  end
+
+  defp assert_no_slot_templates_on_fresh!([], _env), do: :ok
+
+  defp assert_no_slot_templates_on_fresh!([{line, %{name: name}} | _], env) do
+    raise CompileError,
+      file: env.file,
+      line: line,
+      description:
+        "tessera slot_template #{inspect(name)} on a fresh component — region overrides " <>
+          "require a base (`use Base, tag: …`); a fresh template declares regions with " <>
+          "{%region :name}…{%endregion} (EXTENSION-CONTRACT.md §5.4)"
+  end
+
+  # slot_template validation against the base's compiled regions (§5.7):
+  #   * the base declares no regions at all → CompileError (use the base's own
+  #     templates, not region overrides);
+  #   * unknown region name → CompileError naming the base's declared regions;
+  #   * the override body changes the nested region set → region mismatch
+  #     CompileError;
+  #   * a region declared twice in the same derived module → CompileError.
+  defp validate_region_overrides!(base_spec, overrides, merged_template, env) do
+    unless overrides == [] do
+      base_regions = base_spec.regions
+
+      if base_regions == [] do
+        raise CompileError,
+          file: env.file,
+          line: env.line,
+          description:
+            "tessera slot_template used, but base #{inspect(base_spec.module)} declares no " <>
+              "template regions — the base template must opt in with {%region :name}…{%endregion} " <>
+              "(EXTENSION-CONTRACT.md §5.4)"
+      end
+
+      dups =
+        overrides
+        |> Enum.map(& &1.name)
+        |> Enum.frequencies()
+        |> Enum.filter(fn {_n, c} -> c > 1 end)
+
+      if dups != [] do
+        raise CompileError,
+          file: env.file,
+          line: env.line,
+          description:
+            "duplicate tessera slot_template override(s) #{inspect(Enum.map(dups, &elem(&1, 0)))} — " <>
+              "a region is overridden once (EXTENSION-CONTRACT.md §5.4)"
+      end
+
+      base_by_name = Map.new(base_regions, &{&1.name, &1})
+
+      Enum.each(overrides, fn %{name: name, markup: markup, line: line} ->
+        case Map.fetch(base_by_name, name) do
+          :error ->
+            raise CompileError,
+              file: env.file,
+              line: line,
+              description:
+                "unknown override: tessera slot_template #{inspect(name)} — base " <>
+                  "#{inspect(base_spec.module)} declares no region #{inspect(name)} " <>
+                  "(its regions: #{inspect(Enum.map(base_regions, & &1.name))}) " <>
+                  "(EXTENSION-CONTRACT.md §5.7)"
+
+          {:ok, base_region} ->
+            case Template.parse(markup) do
+              {:error, msg} ->
+                raise CompileError,
+                  file: env.file,
+                  line: line,
+                  description: "tessera slot_template #{inspect(name)}: " <> msg
+
+              {:ok, body} ->
+                got = body |> Template.regions() |> Enum.map(& &1.name) |> Enum.sort()
+                want = base_region.nested |> Enum.sort()
+
+                if got != want do
+                  raise CompileError,
+                    file: env.file,
+                    line: line,
+                    description:
+                      "region mismatch: the override of #{inspect(name)} changes the nested " <>
+                        "region set — base declares #{inspect(want)}, the override declares " <>
+                        "#{inspect(got)} (EXTENSION-CONTRACT.md §5.7)"
+                end
+            end
+        end
+      end)
+    end
+
+    warn_dead_regions!(base_spec, merged_template, env)
+    :ok
+  end
+
+  # Whole-template replacement discards the base's region structure (§5.4 gotcha):
+  # warn once per dropped region name. `nil` merged template ⇒ the base template
+  # is inherited byte-identically — nothing dead.
+  defp warn_dead_regions!(_base_spec, nil, _env), do: :ok
+
+  defp warn_dead_regions!(base_spec, merged_template, env) do
+    if base_spec.regions != [] and merged_template.markup != base_spec.template.raw do
+      new_region_names =
+        case Template.parse(merged_template.markup) do
+          {:ok, tree} -> MapSet.new(Enum.map(Template.regions(tree), & &1.name))
+          {:error, _} -> MapSet.new()
+        end
+
+      dead =
+        base_spec.regions
+        |> Enum.reject(fn r -> MapSet.member?(new_region_names, r.name) end)
+        |> Enum.map(& &1.name)
+
+      if dead != [] do
+        IO.warn(
+          "tessera derived #{inspect(env.module)} replaces the base template — inherited " <>
+            "regions #{inspect(dead)} no longer render and any slot_template overrides for " <>
+            "them are dead surface (the derived CEM keeps the inherited event surface, " <>
+            "EXTENSION-CONTRACT.md §5.4)",
+          file: env.file,
+          line: env.line
+        )
+      end
+    end
+
+    :ok
+  end
+
   # Lifecycle hooks reuse the action subset. The second fn argument is
   # normalized to `changed` (the record guard admits `changed`, `_` and
   # underscore-prefixed variants) — the generated method declares
   # `const changed = Object.fromEntries(...)`, so the translated body reads
   # that exact binding.
   defp lifecycle_js(%{fn_ast: {:fn, meta, [{:->, arrow_meta, [[first, second], body]}]}}, ctx) do
-    normalized = {:fn, meta, [{:->, arrow_meta, [[first, {:changed, elem(second, 1), nil}], body]}]}
+    normalized =
+      {:fn, meta, [{:->, arrow_meta, [[first, {:changed, elem(second, 1), nil}], body]}]}
+
     Expr.translate_action(normalized, ctx)
   end
 
