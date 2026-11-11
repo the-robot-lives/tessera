@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tessera demo — plain HTML</title>
+    <script type="module" src="./dist/bundle.js"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .panel { margin-bottom: 1.5rem; }
+      #event-log { background: #f4f4f5; border: 1px solid #d4d4d8; border-radius: 6px; padding: 8px 12px; min-height: 1.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1 data-cy="plain-title">tessera demo — plain HTML</h1>
+
+    <div class="panel" data-cy="plain-cards">
+      <h2>persona-card</h2>
+      <persona-card display-name="Ada Lovelace" tagline="first programmer"></persona-card>
+      <persona-card display-name="Grace Hopper" tag_list='["compiler", "navy"]'></persona-card>
+    </div>
+
+    <div class="panel" data-cy="plain-picker">
+      <h2>persona-picker</h2>
+      <persona-picker
+        title="Pick a persona"
+        tsr-props='{"personas": [{"id": "ada", "name": "Ada Lovelace", "tags": ["logic"]}, {"id": "grace", "name": "Grace Hopper", "tags": ["navy"]}]}'
+      ></persona-picker>
+    </div>
+
+    <div class="panel">
+      <h2>vanilla event log</h2>
+      <div id="event-log" data-cy="plain-log"></div>
+    </div>
+  </body>
+</html>

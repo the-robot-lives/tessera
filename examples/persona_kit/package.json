@@ -1,0 +1,16 @@
+{
+  "name": "persona-kit-tests",
+  "private": true,
+  "type": "module",
+  "description": "Web Test Runner harness for the PersonaKit example components (dev tooling only — the shipped package has no runtime JS deps; the elements are colocated in lib/).",
+  "scripts": {
+    "test": "wtr --config web-test-runner.config.mjs",
+    "test:watch": "wtr --config web-test-runner.config.mjs --watch"
+  },
+  "devDependencies": {
+    "@open-wc/testing": "^4.0.0",
+    "@web/test-runner": "^0.20.2",
+    "lit": "^3.3.3",
+    "@noizu/tessera-core": "file:../../priv/js"
+  }
+}
