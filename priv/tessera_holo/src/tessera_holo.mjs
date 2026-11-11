@@ -341,6 +341,20 @@ export function mountComponent(shadowRoot, moduleName, props = {}, options = {})
     lastSnapshot: null,
     // Active DispatchResult context (set only by dispatchComponentAction).
     __dispatch: null,
+    // --- brief 3c: lifecycle projection + awaitable updateComplete -------
+    // true WHILE renderInstance runs (the only moment a fence can be queued —
+    // Tier-2 commits render synchronously inside dispatch/setProps/Hologram.
+    // render, exactly as §6.2 pins); waiters resolve when that render ends.
+    rendering: false,
+    renderWaiters: [],
+    // per-mount render counter (firstUpdated additionally latches on the
+    // ELEMENT so it fires once per element lifetime — Lit parity, rows
+    // #10/#18 of lit-parity §2.1).
+    hasRendered: false,
+    // merged camelCase props+state view captured at the END of each render;
+    // the next render diffs against it to build `changed` (OLD values, plain
+    // object — LC-01/LC-04, contract §6.2 camelCase keys).
+    lastRenderedView: null,
   };
 
   instances.set(cid, instance);
@@ -381,6 +395,22 @@ export function mountComponent(shadowRoot, moduleName, props = {}, options = {})
     },
     stateSnapshot() {
       return stateSnapshot(instance);
+    },
+    // brief 3c — awaitable render fence (lit-parity §2.1 rows #12/#220):
+    // resolves true when the render cycle observed at access time commits.
+    // Tier-2 commits render SYNCHRONOUSLY (Hologram.render → renderInstance
+    // inside dispatchAction/setProps), so at idle the DOM is already current
+    // and the promise resolves on the next microtask. Accessed DURING a
+    // render (from a lifecycle hook) it queues behind that render's commit.
+    // Limitation, pinned honestly (same class as the X-10 async-action debt):
+    // a render scheduled by Hologram's own async continuation AFTER the
+    // dispatch promise settles is not observable from the shim — await the
+    // dispatchAction Promise first, then updateComplete.
+    updateComplete() {
+      return updateCompleteFor(instance);
+    },
+    hasRendered() {
+      return instance.hasRendered;
     },
     destroy() {
       destroyInstance(instance);
@@ -424,31 +454,67 @@ function renderInstance(instance) {
 
   const dom = T.tuple([T.atom("component"), moduleAlias, propsDom, T.list([])]);
 
-  // renderDom's `context` is the EMITTED-CONTEXT boxed map (stock passes
-  // pageEmittedContext from #renderPageInsideLayout) — NOT a buildContext
-  // object; renderStatefulComponent feeds it straight into :maps.merge/2.
-  // A standalone instance has no context providers, so it starts empty.
-  // defaultTarget is overridden by #renderStatefulComponent with the
-  // component cid, so template event bindings target this instance.
-  const context = T.map();
-  const content = R.renderDom(dom, context, T.keywordList([]), T.bitstring("page"), null);
-
-  // renderDom returns a FLAT ARRAY of vnodes/text for a list-root template
-  // (#renderNodes). Stock patches a single vnode (renderPage wraps the array
-  // in html/body vnodes); snabbdom cannot patch an array — wrap in a div
-  // matching the hostDiv selector so patch updates it in place.
-  const vnode = Array.isArray(content) ? h("div", {}, content) : content;
 
   const prevState = instance.lastSnapshot;
 
-  if (!instance.patch) {
-    instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
-    instance.vnode = instance.patch(toVNode(instance.hostDiv), vnode);
-  } else {
-    withFocusPreservation(instance, () => {
-      instance.vnode = instance.patch(instance.vnode, vnode);
-    });
-  }
+  // --- brief 3c: pre-patch lifecycle projection ---------------------------
+  // On the FIRST render the component struct does not exist yet (renderDom
+  // registers it inside the patch), so state keys are NOT observable
+  // pre-patch — willUpdate's `changed` there carries the props view only.
+  // Honest Tier-2 divergence, documented in the LC case header + lit-parity
+  // §2.1 row #7. From the second render on, the action has already committed
+  // state before this render runs, so willUpdate sees props+state diffs.
+  const preView = renderView(instance.props, instance.hasRendered ? stateSnapshot(instance) : null);
+  const willChanged = diffView(instance.lastRenderedView, preView);
+
+  instance.rendering = true;
+  let committed = false;
+
+  try {
+    runElementHook(instance.element, "willUpdate", willChanged);
+
+    // renderDom's `context` is the EMITTED-CONTEXT boxed map (stock passes
+    // pageEmittedContext from #renderPageInsideLayout) — NOT a buildContext
+    // object; renderStatefulComponent feeds it straight into :maps.merge/2.
+    // A standalone instance has no context providers, so it starts empty.
+    // defaultTarget is overridden by #renderStatefulComponent with the
+    // component cid, so template event bindings target this instance.
+    const context = T.map();
+    const content = R.renderDom(dom, context, T.keywordList([]), T.bitstring("page"), null);
+
+    // renderDom returns a FLAT ARRAY of vnodes/text for a list-root template
+    // (#renderNodes). Stock patches a single vnode (renderPage wraps the array
+    // in html/body vnodes); snabbdom cannot patch an array — wrap in a div
+    // matching the hostDiv selector so patch updates it in place.
+    const vnode = Array.isArray(content) ? h("div", {}, content) : content;
+
+    if (!instance.patch) {
+      instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
+      instance.vnode = instance.patch(toVNode(instance.hostDiv), vnode);
+    } else {
+      withFocusPreservation(instance, () => {
+        instance.vnode = instance.patch(instance.vnode, vnode);
+      });
+    }
+
+    committed = true;
+
+    const snap = stateSnapshot(instance);
+
+    // --- post-patch: firstUpdated (once per element lifetime) + updated ---
+    const postView = renderView(instance.props, snap);
+    const changed = diffView(instance.lastRenderedView, postView);
+    const firstEver =
+      !instance.hasRendered && !(instance.element && instance.element.__tesseraEverRendered);
+
+    if (instance.element) {
+      if (firstEver) runElementHook(instance.element, "firstUpdated", changed);
+      runElementHook(instance.element, "updated", changed);
+      instance.element.__tesseraEverRendered = true;
+    }
+
+    instance.hasRendered = true;
+    instance.lastRenderedView = postView;
 
   // tsr-state-change commit point (EXTENSION-CONTRACT §6.2, Tier-2 spike
   // resolution): fired AFTER the re-render, once per transition, with the
@@ -460,34 +526,117 @@ function renderInstance(instance) {
   // only seeds the baseline (mount is not a transition); disconnected
   // instances never fire it. Not bridge traffic — it is a direct element
   // event and MUST NOT be routed through data-tsr-on.
-  const snap = stateSnapshot(instance);
+    if (snap) {
+      instance.lastSnapshot = snap;
 
-  if (snap) {
-    instance.lastSnapshot = snap;
+      if (prevState) {
+        const keys = changedKeys(prevState, snap);
+        const commit = instance.__commit && !instance.__commit.fired ? instance.__commit : null;
 
-    if (prevState) {
-      const keys = changedKeys(prevState, snap);
-      const commit = instance.__commit && !instance.__commit.fired ? instance.__commit : null;
+        if ((keys.length > 0 || commit) && instance.element && instance.element.isConnected) {
+          if (commit) {
+            commit.fired = true;
+            instance.__commit = null;
+          }
 
-      if ((keys.length > 0 || commit) && instance.element && instance.element.isConnected) {
-        if (commit) {
-          commit.fired = true;
-          instance.__commit = null;
+          const detail = {keys, state: snap};
+
+          if (commit) detail.action = commit.action;
+
+          instance.element.dispatchEvent(
+            new CustomEvent("tsr-state-change", {
+              bubbles: true,
+              composed: true,
+              detail,
+            }),
+          );
         }
-
-        const detail = {keys, state: snap};
-
-        if (commit) detail.action = commit.action;
-
-        instance.element.dispatchEvent(
-          new CustomEvent("tsr-state-change", {
-            bubbles: true,
-            composed: true,
-            detail,
-          }),
-        );
       }
     }
+  } finally {
+    // updateComplete fence: whoever queued during this render resolves once
+    // the DOM is committed (true) — or with false when the patch itself
+    // threw, so a failed render can never hang an awaiting test.
+    instance.rendering = false;
+    flushRenderWaiters(instance, committed);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// brief 3c — lifecycle projection helpers (hooks + render fence)
+// ---------------------------------------------------------------------------
+
+// Merged camelCase view of what a render consumes: props (snake attrs ->
+// camel, CONTRACT §1) unioned with the state snapshot (already camel-canonical
+// per §6.2; non-enumerable snake aliases are skipped by Object.keys). On
+// collision STATE wins — the snapshot is the post-transition value actually
+// rendered, props are pre-init inputs.
+function renderView(props, snapshot) {
+  const view = {};
+
+  for (const [k, v] of Object.entries(props || {})) view[camel(k)] = v;
+  if (snapshot) for (const k of Object.keys(snapshot)) view[k] = snapshot[k];
+
+  return view;
+}
+
+// changedProperties equivalent — PLAIN object mapping each changed key to its
+// OLD value (undefined when the key is new). Strict !== (same basis as
+// changedKeys / X-05 reference stability). NOT a live Map — lc_lifecycle.mjs
+// LC-04 pins the shape; lit-parity §2.1 row #34. prev === null (first render)
+// means every key is new.
+function diffView(prev, next) {
+  const p = prev || {};
+  const changed = {};
+
+  for (const k of Object.keys(next)) {
+    if (!(k in p) || p[k] !== next[k]) changed[k] = p[k];
+  }
+
+  for (const k of Object.keys(p)) {
+    if (!(k in next)) changed[k] = p[k];
+  }
+
+  return changed;
+}
+
+function updateCompleteFor(instance) {
+  if (instance.rendering) {
+    // Reentrant access (from a lifecycle hook, or a nested render): queue
+    // behind this render's commit instead of resolving on stale DOM.
+    return new Promise((resolve) => instance.renderWaiters.push(resolve));
+  }
+
+  // Idle: every Tier-2 commit renders synchronously, so the DOM already
+  // reflects all state applied before this access. Resolve on the next
+  // microtask (lit-parity rows #12/#220).
+  return Promise.resolve(true);
+}
+
+function flushRenderWaiters(instance, value) {
+  if (instance.renderWaiters.length === 0) return;
+
+  const waiters = instance.renderWaiters;
+  instance.renderWaiters = [];
+  for (const resolve of waiters) resolve(value);
+}
+
+// Element-side lifecycle hook dispatch. TIER-2 DIVERGENCE from Lit (which
+// propagates): renderInstance also IS the shared Hologram.render loop over
+// every mounted instance — a hook that throws must not abort the OTHER
+// components' renders, so errors are caught + warned (behaviors/§10 error-
+// isolation precedent) and the update completes.
+function runElementHook(element, name, arg) {
+  if (!element || typeof element[name] !== "function") return;
+
+  try {
+    element[name](arg);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[tessera-holo] <${String(element.tagName).toLowerCase()}> ${name}() threw — render continues`,
+      error,
+    );
   }
 }
 
@@ -541,6 +690,10 @@ function withFocusPreservation(instance, patchFn) {
 }
 
 function destroyInstance(instance) {
+  // brief 3c: a disconnect must never leave an awaiting updateComplete
+  // hanging — queue-flush with the "cycle aborted" answer (false).
+  flushRenderWaiters(instance, false);
+
   try {
     instance.hostDiv.remove();
   } catch (_error) {

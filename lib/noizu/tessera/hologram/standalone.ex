@@ -273,6 +273,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       export const ensureRuntime = TesseraHolo.ensureRuntime;
       export const mountComponent = TesseraHolo.mountComponent;
       export const defineElement = TesseraHolo.defineElement;
+      export const TesseraHoloElement = TesseraHolo.TesseraHoloElement;
       export const setBus = TesseraHolo.setBus;
       export default TesseraHolo;
       """)
@@ -383,6 +384,7 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       export const ensureRuntime = TesseraHolo.ensureRuntime;
       export const mountComponent = TesseraHolo.mountComponent;
       export const defineElement = TesseraHolo.defineElement;
+      export const TesseraHoloElement = TesseraHolo.TesseraHoloElement;
       export const setBus = TesseraHolo.setBus;
       export default TesseraHolo;
       """)

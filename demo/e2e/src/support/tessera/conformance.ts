@@ -34,12 +34,16 @@ export type ConformanceHandle = {
 // PipelineProbe — the exact Hologram mirror of the Tier-1 `tsr-conf-pipeline`
 // fixture: same state keys, same bump/select_item/seed_cache semantics, same
 // internal: annotation) — the shared X-05…X-11/X-20 bodies mount "pipeline".
-// Cases outside these fixtures are adapter-pending on Tier 2 (their fixtures
-// land with the remaining feature briefs).
+// "lifecycle" (tsr-holo-lifecycle, brief 3c) is the Counter module wrapped in a
+// recording subclass: el.tesseraLifecycleLog gains {hook, changed, domText}
+// entries per render — the LC family + C-13/C-14 mount it. Cases outside these
+// fixtures are adapter-pending on Tier 2 (their fixtures land with the
+// remaining feature briefs).
 const FIXTURES: Record<string, string> = {
   counter: "tsr-holo-counter",
   state: "tsr-holo-state-probe",
   pipeline: "tsr-holo-pipeline-probe",
+  lifecycle: "tsr-holo-lifecycle",
 };
 
 let ctx: {win: Window} | null = null;
@@ -112,13 +116,19 @@ export function mount(spec: {fixture: string; attrs?: Record<string, string>}): 
     const wait = () => {
       const sr = el.shadowRoot;
       if (sr) {
-        // Tier-agnostic settle (§9): Tier 2 renders SYNCHRONOUSLY at the
-        // commit point (after Hologram.render() in #processActionResult), so
-        // a microtask + macrotask flush is the equivalent of Tier 1 awaiting
-        // el.updateComplete.
-        const settle = () =>
-          new Promise<void>((resolve) => win.setTimeout(() => void resolve(), 0));
-        resolve({
+        // Tier-agnostic settle (§9): brief 3c gives the shim a real render-
+        // commit fence — el.updateComplete resolves once the snabbdom patch of
+        // an in-flight render commits (Tier 2 renders SYNCHRONOUSLY inside
+        // dispatchAction/setProps, so at idle it resolves immediately with the
+        // DOM already current). settle() = that fence + a macrotask flush, the
+        // Tier-1 "await el.updateComplete" equivalent.
+        const settle = () => {
+          const fence = (el as unknown as {updateComplete?: Promise<unknown>}).updateComplete;
+          return Promise.resolve(fence).then(
+            () => new Promise<void>((flush) => win.setTimeout(() => void flush(), 0)),
+          );
+        };
+        const handle: ConformanceHandle = {
           el,
           tag,
           shadowRoot: sr,
@@ -126,7 +136,10 @@ export function mount(spec: {fixture: string; attrs?: Record<string, string>}): 
           waitFor: makeWaitFor(win),
           nextEvent: makeNextEvent(win),
           settle,
-        });
+        };
+        // Init wait also rides the fence: the first render commits during
+        // connectedCallback, so every case starts from a settled first render.
+        void settle().then(() => resolve(handle));
       } else if (Date.now() - start > 15_000) {
         reject(new Error(`conformance: <${tag}> never mounted a shadow root`));
       } else {

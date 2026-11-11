@@ -166,10 +166,15 @@ adapter visits `/holo_runtime` and mounts fresh `tsr-holo-counter` instances.
   - Compiled-DSL fixtures (`state`/`template`/`styles`/`slots`, brief 4b
     case-fill): C-07, T-02/T-04/T-05/T-07/T-08/T-09, S-01…S-06, SD-01/02/03,
     X-03, X-14 (18). SD-03 (fallback content) uses brief 1c's slot pre-pass.
-- **Implemented + Tier-2 green (counter fixture):** C-01, T-01, E-01, E-02, E-03 (5).
-- **Pending (48):** reflection / property options / lifecycle (1c — landed;
+- **Implemented + Tier-2 green (counter/state/lifecycle fixtures):** C-01,
+  T-01, E-01, E-02, E-03, X-03, X-05…X-11, X-20 (3d), C-13, C-14, LC-01…LC-04
+  (3c — `tsr-holo-lifecycle` recording fixture).
+  - C-13/C-14 + LC-01…LC-04 are implemented but **adapter-pending on Tier 1**:
+    the recording fixture (a subclass writing `el.tesseraLifecycleLog`) is
+    wired Tier-2-only today; Tier 1 skips them, never green by accident.
+- **Pending (29):** reflection / property options (1c — landed;
   cases owed to a follow-up 4b wave), directives classMap/styleMap/ifDefined/
-  nothing + when/choose (1d), the extension surface (2a–2f/3d/3f), and the
+  nothing + when/choose (1d), the remaining extension surface (2a–2f/3f), and the
   accepted-gap families (CT/RC/SSR). FM/RC/SSR ids are provisional placeholders.
 
 ## Owed next (not in this scaffold)
