@@ -1,24 +1,26 @@
-# tessera CI — Phase 1 MVP
+# tessera CI — tiered for fast turnaround (docs/notes/test-tiering.md)
 #
-# Jobs:
-#   exunit     — format check, warnings-as-errors compile, ExUnit for the
-#                library and the persona_kit example package
-#   js         — @noizu/tessera-core WTR suite (incl. the assert-no-lit guard)
-#                + persona_kit component WTR suite
-#   e2e-smoke  — BLOCKING: boots both demos and runs the Cypress legs that are
-#                green on Linux (plain_html, hologram_nav, hologram_main leg
-#                (b)). This is the hard gate behind the "integration-tested
-#                end to end" claim for shadow events on the primary CI
-#                platform.
-#   e2e-full   — NON-BLOCKING (continue-on-error): the remaining hologram_main
-#                legs (a)/(c)/(d), which fail on ubuntu runners while passing
-#                on macOS. TODO(tessera-e2e-linux): make blocking once the
-#                Linux failure mode is fixed — docs/notes/e2e-linux-ci.md.
+# FAST lane (the per-change gate): pushes to feature/** and epic.** branches,
+#   and PRs into epic.**/develop/stage/main. Runs the fast ExUnit subset
+#   (`mix test.fast`, excludes :slow/:nightly), the fast WTR group
+#   (`npm run test:fast`), and the BLOCKING e2e-smoke core claim (Cypress
+#   @fast). Target: a few minutes.
+# INTEGRATION lane: push to develop/stage/main (the epic→develop regular
+#   merge). Full ExUnit + full WTR (core host-matrix + persona_kit) + the
+#   blocking e2e-smoke.
+# NIGHTLY lane: nightly.yml (schedule) — e2e-full (all hosts incl. the
+#   currently-red Linux legs, continue-on-error) + coverage. The weekly
+#   upstream-drift canary stays in canary.yml.
 #
-# No job in this workflow depends on another (`needs:` is unused) — house
-# rule: GitHub skips propagate through `needs`, so if a deploy-type job is
-# ever added it MUST gate on `!cancelled() && needs.<job>.result == 'success'`
-# rather than a bare `needs:`, or a skipped dependency would silently skip it.
+# The blocking core-claim smoke (shadow-DOM event → dispatchAction → Hologram
+# action → re-render) runs in BOTH the fast and integration lanes — it is never
+# gated away. e2e-smoke has no `if:` so every in-scope push/PR carries it.
+#
+# No job depends on another (`needs:` is unused) — house rule: GitHub skips
+# propagate through `needs`, so a deploy-type job added later MUST gate on
+# `!cancelled() && needs.<job>.result == 'success'` rather than a bare `needs:`.
+# Lane selection uses `if:` on event/ref instead; a skipped lane job never
+# silently skips a gate.
 #
 # Elixir 1.18.x / OTP 27: hologram 0.10.1 supports ~> 1.15; 1.18 avoids the
 # Elixir 1.20+ "redundant init/3 clause" type warning that would fail the
@@ -28,9 +30,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, stage, main]
+    branches: [develop, stage, main, "epic.**"]
   push:
-    branches: [develop, stage, main]
+    branches: [develop, stage, main, "epic.**", "feature/**"]
 
 permissions:
   contents: read
@@ -40,7 +42,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  exunit:
+  # ---------------------------------------------------------------- FAST lane
+  exunit-fast:
+    if: >-
+      github.event_name == 'pull_request' ||
+      startsWith(github.ref, 'refs/heads/feature/') ||
+      startsWith(github.ref, 'refs/heads/epic.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,34 +66,29 @@ jobs:
           key: mix-${{ runner.os }}-${{ hashFiles('mix.lock', 'examples/persona_kit/mix.lock') }}
           restore-keys: mix-${{ runner.os }}-
 
-      - name: Library — format, compile, test
+      - name: Library — format, compile, FAST test
         run: |
           mix deps.get
           mix format --check-formatted
           mix compile --warnings-as-errors
-          mix test
+          mix test.fast
 
-      - name: persona_kit — format, compile, test
+      - name: persona_kit — format, compile, FAST test
         working-directory: examples/persona_kit
         run: |
           mix deps.get
           mix format --check-formatted
           mix compile --warnings-as-errors
-          mix test
+          mix test.fast
 
-  js:
+  js-fast:
+    if: >-
+      github.event_name == 'pull_request' ||
+      startsWith(github.ref, 'refs/heads/feature/') ||
+      startsWith(github.ref, 'refs/heads/epic.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # persona_kit's WTR suite imports the component .mjs files, and each
-      # .mjs imports its `*.contract.generated.mjs` sibling — a build artifact
-      # written by the Elixir compiler (gitignored by design). Generate them
-      # before wtr runs or every component test 404s on a fresh checkout.
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "27.x"
-          elixir-version: "1.18.x"
 
       - uses: actions/setup-node@v4
         with:
@@ -98,26 +100,13 @@ jobs:
           path: js/node_modules
           key: js-${{ runner.os }}-${{ hashFiles('js/package-lock.json') }}
 
-      - name: tessera-core WTR suite (incl. assert-no-lit)
+      # Core WTR imports priv/js/src directly — no BEAM/contract codegen needed
+      # for the fast group (persona_kit's contract modules are integration-only).
+      - name: tessera-core FAST WTR group (incl. assert-no-lit)
         working-directory: js
-        run: npm ci && npm test
+        run: npm ci && npm run test:fast
 
-      - name: Cache persona_kit node_modules
-        uses: actions/cache@v4
-        with:
-          path: examples/persona_kit/node_modules
-          key: pk-js-${{ runner.os }}-${{ hashFiles('examples/persona_kit/package-lock.json') }}
-
-      - name: Generate persona_kit contract modules (mix compile)
-        working-directory: examples/persona_kit
-        run: mix deps.get && mix compile
-
-      - name: persona_kit WTR suite
-        working-directory: examples/persona_kit
-        run: npm ci && npm test
-
-  # Shared demo-boot steps for the two e2e jobs (duplicated deliberately —
-  # GH Actions has no YAML anchors, and both jobs must be hermetic).
+  # ------------------------------------------- BLOCKING core claim (both lanes)
   e2e-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -176,11 +165,33 @@ jobs:
           done
           echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
 
-      - name: Cypress smoke suite (blocking legs)
+      # The generated package gallery (mix tessera.gen.gallery) — static HTML
+      # + the package's own bundles, driven by custom-elements.json. The
+      # component .mjs import their contract.generated.mjs siblings, so
+      # persona_kit must be compiled first; esbuild resolves the components'
+      # bare imports from persona_kit's node_modules (installed above).
+      - name: Boot component gallery on :5588
+        run: |
+          (cd examples/persona_kit && mix deps.get && mix compile)
+          cd examples/persona_kit/gallery
+          npm ci
+          npm run build
+          nohup npm run serve > /tmp/gallery.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5588/ && exit 0
+            sleep 1
+          done
+          echo "::error::gallery did not come up on :5588"; tail -20 /tmp/gallery.log; exit 1
+
+      # @fast = the Linux-green core-claim legs (plain_html, gallery,
+      # hologram_nav, hologram_main leg (b)). grepFilterSpecs loads only these
+      # specs. This is the hard gate behind the shadow-event core claim —
+      # BLOCKING in both lanes.
+      - name: Cypress FAST smoke (blocking core claim, @fast)
         working-directory: demo/e2e
         run: |
           npm ci
-          npx cypress run --spec "src/e2e/plain_html.cy.ts,src/e2e/hologram_nav.cy.ts,src/e2e/hologram_main_smoke.cy.ts"
+          npm run test:fast
 
       - name: Upload cypress screenshots on failure
         if: failure()
@@ -190,20 +201,60 @@ jobs:
           path: demo/e2e/cypress/screenshots
           if-no-files-found: ignore
 
-  e2e-full:
+  # --------------------------------------------------------- INTEGRATION lane
+  exunit-integration:
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' ||
+       github.ref == 'refs/heads/stage' ||
+       github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
-    # mode below is fixed — see docs/notes/e2e-linux-ci.md (component-own
-    # shadow updates are lost under the Hologram host on ubuntu runners while
-    # all specs pass on macOS; toolchain + Linux browser both ruled out).
-    # A red run must still be triaged, it just does not block.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install inotify-tools (file_system / LiveReload)
-        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
 
+      - name: Restore deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock', 'examples/persona_kit/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - name: Library — format, compile, FULL test
+        run: |
+          mix deps.get
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test
+
+      - name: persona_kit — format, compile, FULL test
+        working-directory: examples/persona_kit
+        run: |
+          mix deps.get
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test
+
+  js-integration:
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' ||
+       github.ref == 'refs/heads/stage' ||
+       github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # persona_kit's WTR suite imports the component .mjs files, and each
+      # .mjs imports its `*.contract.generated.mjs` sibling — a build artifact
+      # written by the Elixir compiler (gitignored by design). Generate them
+      # before wtr runs or every component test 404s on a fresh checkout.
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27.x"
@@ -213,45 +264,26 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Boot Hologram demo on :5586
-        working-directory: demo/hologram_app
-        run: |
-          export HOLOGRAM_START=1
-          mix deps.get
-          mix tessera.install
-          nohup mix holo > /tmp/holo.log 2>&1 &
-          for i in $(seq 1 120); do
-            curl -sf -o /dev/null http://localhost:5586/ && exit 0
-            sleep 2
-          done
-          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
-
-      - name: Install persona_kit npm deps (lit resolves from importer path)
-        working-directory: examples/persona_kit
-        run: npm ci
-
-      - name: Boot plain-HTML demo on :5587
-        working-directory: demo/plain_html
-        run: |
-          npm install
-          npm run build
-          nohup npm run serve > /tmp/plain.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5587/ && exit 0
-            sleep 1
-          done
-          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
-
-      - name: "Cypress full suite (non-blocking legs: hologram_main a/c/d)"
-        working-directory: demo/e2e
-        run: |
-          npm ci
-          npx cypress run --spec "src/e2e/hologram_main.cy.ts"
-
-      - name: Upload cypress screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Cache js core node_modules
+        uses: actions/cache@v4
         with:
-          name: cypress-screenshots-full
-          path: demo/e2e/cypress/screenshots
-          if-no-files-found: ignore
+          path: js/node_modules
+          key: js-${{ runner.os }}-${{ hashFiles('js/package-lock.json') }}
+
+      - name: tessera-core FULL WTR suite (incl. assert-no-lit + host matrix)
+        working-directory: js
+        run: npm ci && npm test
+
+      - name: Cache persona_kit node_modules
+        uses: actions/cache@v4
+        with:
+          path: examples/persona_kit/node_modules
+          key: pk-js-${{ runner.os }}-${{ hashFiles('examples/persona_kit/package-lock.json') }}
+
+      - name: Generate persona_kit contract modules (mix compile)
+        working-directory: examples/persona_kit
+        run: mix deps.get && mix compile
+
+      - name: persona_kit WTR suite
+        working-directory: examples/persona_kit
+        run: npm ci && npm test

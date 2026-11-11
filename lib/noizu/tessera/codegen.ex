@@ -111,6 +111,12 @@ defmodule Noizu.Tessera.Codegen do
   @doc """
   A Custom Elements Manifest (schemaVersion #{@cem_schema_version}) covering
   `specs`, as a JSON-encodable map with string keys.
+
+  Per component declaration: `tagName`, `attributes` (kebab name, type,
+  required flag, JSON-literal default), `members` (camelCase property fields
+  with type, `json` flag and JSON-literal default), `events` (name +
+  camelCase detail schema), `slots`, `cssProperties` (name + default) and
+  `cssParts` — the last two fed by the spec DSL's `css`/`part` declarations.
   """
   @spec cem([Spec.t()]) :: map()
   def cem(specs) when is_list(specs) do
@@ -153,33 +159,62 @@ defmodule Noizu.Tessera.Codegen do
 
   defp inline_list(entries), do: "[#{Enum.join(entries, ", ")}]"
 
-  # Theming contract (EXTENSION-CONTRACT.md §7): every --tsr-<tag>-* property
-  # the element's author CSS reads, with its var() fallback default. Reads
-  # inside {:shared, …} modules are JS-side and not scanned — the consuming
-  # component declares those in its own styles block.
-  defp cem_css_custom_properties(%Spec{tag: nil}), do: []
+  # Theming surface (EXTENSION-CONTRACT.md §7), unified from BOTH declaration
+  # mechanisms: explicit `css`/`part` DSL entries (from-lit / gallery metadata,
+  # declaration order first) plus the styles DSL's scanned author-CSS reads
+  # and template parts. Explicit declarations win on a name collision — they
+  # are the author's deliberate statement; scanned additions follow sorted by
+  # name for byte determinism. Reads inside {:shared, …} modules are JS-side
+  # and not scanned — declare those explicitly or in the component's own
+  # styles block.
+  defp cem_css_properties(%Spec{} = spec) do
+    explicit =
+      Enum.map(spec.css_properties, fn c ->
+        base = %{"name" => c.name}
+        if c[:default] != nil, do: Map.put(base, "default", c.default), else: base
+      end)
 
-  defp cem_css_custom_properties(%Spec{} = spec) do
-    spec.styles
-    |> Enum.filter(&(&1.kind == :css))
-    |> Enum.flat_map(&Styles.custom_property_reads(&1.value, spec.tag))
-    |> Enum.uniq_by(& &1.name)
-    |> Enum.sort_by(& &1.name)
-    |> Enum.map(fn
-      %{name: name, default: nil} -> %{"name" => name}
-      %{name: name, default: default} -> %{"name" => name, "default" => default}
-    end)
+    explicit_names = MapSet.new(spec.css_properties, & &1.name)
+
+    scanned =
+      if spec.tag do
+        spec.styles
+        |> Enum.filter(&(&1.kind == :css))
+        |> Enum.flat_map(&Styles.custom_property_reads(&1.value, spec.tag))
+        |> Enum.reject(&MapSet.member?(explicit_names, &1.name))
+        |> Enum.uniq_by(& &1.name)
+        |> Enum.sort_by(& &1.name)
+        |> Enum.map(fn
+          %{name: name, default: nil} -> %{"name" => name}
+          %{name: name, default: default} -> %{"name" => name, "default" => default}
+        end)
+      else
+        []
+      end
+
+    explicit ++ scanned
   end
 
   # The generated element exposes a `root` part on the host plus every part
-  # declared in the template markup. Spec-only components (no template) have
-  # no generated DOM to make that claim about.
-  defp cem_parts(%Spec{template: nil}), do: []
+  # declared in the template markup; explicit `part` DSL declarations come
+  # first. Spec-only components (no template) have no generated DOM to claim
+  # a root part for — their explicit declarations still stand.
+  defp cem_css_parts(%Spec{} = spec) do
+    explicit = Enum.map(spec.parts, &%{"name" => &1.name})
+    explicit_names = MapSet.new(spec.parts, & &1.name)
 
-  defp cem_parts(%Spec{} = spec) do
-    ["root" | Styles.parts(spec.template.raw)]
-    |> Enum.uniq()
-    |> Enum.map(&%{"name" => &1})
+    generated =
+      case spec.template do
+        nil -> []
+        template -> ["root" | Styles.parts(template.raw)]
+      end
+
+    rest =
+      generated
+      |> Enum.reject(&MapSet.member?(explicit_names, &1))
+      |> Enum.map(&%{"name" => &1})
+
+    Enum.uniq_by(explicit ++ rest, & &1["name"])
   end
 
   defp cem_module(%Spec{} = spec) do
@@ -214,7 +249,11 @@ defmodule Noizu.Tessera.Codegen do
               "type" => %{"text" => Atom.to_string(p.type)}
             }
 
-            if p[:json], do: Map.put(member, "json", true), else: member
+            member = if p[:json], do: Map.put(member, "json", true), else: member
+
+            if p[:default] != nil,
+              do: Map.put(member, "default", Spec.json_literal(p[:default])),
+              else: member
           end),
         "events" =>
           Enum.map(spec.events, fn e ->
@@ -229,8 +268,8 @@ defmodule Noizu.Tessera.Codegen do
             }
           end),
         "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
-        "cssCustomProperties" => cem_css_custom_properties(spec),
-        "parts" => cem_parts(spec)
+        "cssProperties" => cem_css_properties(spec),
+        "cssParts" => cem_css_parts(spec)
       }
     ]
 

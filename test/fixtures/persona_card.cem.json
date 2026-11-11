@@ -19,7 +19,16 @@
               }
             }
           ],
-          "cssCustomProperties": [
+          "cssParts": [
+            {
+              "name": "select-button"
+            }
+          ],
+          "cssProperties": [
+            {
+              "default": "#6366f1",
+              "name": "--persona-card-accent"
+            },
             {
               "default": "#6cf",
               "name": "--tsr-persona-card-accent"
@@ -61,6 +70,7 @@
           "kind": "custom-element-definition",
           "members": [
             {
+              "default": "[]",
               "json": true,
               "kind": "field",
               "name": "tagList",
@@ -69,6 +79,7 @@
               }
             },
             {
+              "default": "{}",
               "json": true,
               "kind": "field",
               "name": "filters",
@@ -77,6 +88,7 @@
               }
             },
             {
+              "default": "10",
               "kind": "field",
               "name": "maxCount",
               "type": {
@@ -85,7 +97,6 @@
             }
           ],
           "name": "persona-card",
-          "parts": [],
           "slots": [
             {
               "name": "header"

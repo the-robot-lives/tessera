@@ -92,8 +92,8 @@ defmodule Noizu.Tessera.Component.Template do
 
       dir ->
         {:error,
-          "{%#{dir}} (or {/#{dir}}) is outside the tessera element template subset — " <>
-            "supported directives: {%if}/{%else}/{/if}, {%for}/{/for}"}
+         "{%#{dir}} (or {/#{dir}}) is outside the tessera element template subset — " <>
+           "supported directives: {%if}/{%else}/{/if}, {%for}/{/for}"}
     end
   end
 
@@ -164,7 +164,9 @@ defmodule Noizu.Tessera.Component.Template do
     do: {:error, "{%raw} blocks are outside the tessera element template subset"}
 
   defp holo_token({:block_end, "raw"}), do: :skip
-  defp holo_token({:doctype, _}), do: {:error, "doctype is outside the tessera element template subset"}
+
+  defp holo_token({:doctype, _}),
+    do: {:error, "doctype is outside the tessera element template subset"}
 
   defp holo_token(:public_comment_start),
     do: {:error, "HTML comments are outside the tessera element template subset"}
@@ -172,13 +174,15 @@ defmodule Noizu.Tessera.Component.Template do
   defp holo_token(:public_comment_end), do: :skip
 
   defp holo_token(other),
-    do: {:error, "#{inspect(elem(other, 0))} template construct is outside the tessera element subset"}
+    do:
+      {:error,
+       "#{inspect(elem(other, 0))} template construct is outside the tessera element subset"}
 
   defp component_guard(tag, token) do
     if component_tag?(tag) do
       {:error,
-        "component tag <#{tag}> is outside the tessera element template subset — " <>
-          "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
+       "component tag <#{tag}> is outside the tessera element template subset — " <>
+         "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
     else
       {:ok, token}
     end
@@ -223,19 +227,23 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp expr_ast(expr_str) do
     case Code.string_to_quoted(expr_str) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, {line, _, msg}} -> {:error, "invalid expression `#{expr_str}` (line #{line}): #{msg}"}
+      {:ok, ast} ->
+        {:ok, ast}
+
+      {:error, {line, _, msg}} ->
+        {:error, "invalid expression `#{expr_str}` (line #{line}): #{msg}"}
     end
   end
 
   defp for_pattern(expr_str) do
     case Code.string_to_quoted(expr_str) do
-      {:ok, {:<-, _, [{var, _, nil}, coll]}} when is_atom(var) -> {:ok, {var, coll}}
+      {:ok, {:<-, _, [{var, _, nil}, coll]}} when is_atom(var) ->
+        {:ok, {var, coll}}
 
       _ ->
         {:error,
-          "for pattern `#{expr_str}` is outside the tessera element subset — " <>
-            "use a single variable: {%for item <- @items}"}
+         "for pattern `#{expr_str}` is outside the tessera element subset — " <>
+           "use a single variable: {%for item <- @items}"}
     end
   end
 
@@ -324,12 +332,16 @@ defmodule Noizu.Tessera.Component.Template do
     else
       if component_tag?(name) do
         {:error,
-          "component tag <#{name}> is outside the tessera element template subset — " <>
-            "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
+         "component tag <#{name}> is outside the tessera element template subset — " <>
+           "the element template renders plain DOM; use the `behaviors.add` escape hatch for JS"}
       else
         case min_attrs(String.trim_leading(remaining), []) do
           {:ok, attrs, after_tag, self_closing} ->
-            token = if self_closing, do: {:self_closing_tag, name, attrs}, else: {:start_tag, name, attrs}
+            token =
+              if self_closing,
+                do: {:self_closing_tag, name, attrs},
+                else: {:start_tag, name, attrs}
+
             min_tokens(after_tag, [token | acc])
 
           {:error, msg} ->
@@ -360,8 +372,13 @@ defmodule Noizu.Tessera.Component.Template do
   # split "expr}rest" honoring nested braces inside the expression
   defp split_expr("}" <> rest, expr, 0), do: {:ok, expr, rest}
   defp split_expr("{" <> rest, expr, depth), do: split_expr(rest, expr <> "{", depth + 1)
-  defp split_expr("}" <> rest, expr, depth) when depth > 0, do: split_expr(rest, expr <> "}", depth - 1)
-  defp split_expr(<<c::utf8, rest::binary>>, expr, depth), do: split_expr(rest, expr <> <<c::utf8>>, depth)
+
+  defp split_expr("}" <> rest, expr, depth) when depth > 0,
+    do: split_expr(rest, expr <> "}", depth - 1)
+
+  defp split_expr(<<c::utf8, rest::binary>>, expr, depth),
+    do: split_expr(rest, expr <> <<c::utf8>>, depth)
+
   defp split_expr("", _expr, _depth), do: :error
 
   defp take_name(<<c::utf8, rest::binary>>, acc)
@@ -386,7 +403,8 @@ defmodule Noizu.Tessera.Component.Template do
             {:ok, value, remaining} ->
               min_attrs(String.trim_leading(remaining), [event_attr(name, value) | attrs])
 
-            {:error, msg} -> {:error, msg}
+            {:error, msg} ->
+              {:error, msg}
           end
 
         _ ->
@@ -411,7 +429,8 @@ defmodule Noizu.Tessera.Component.Template do
   end
 
   defp min_attr_value(other),
-    do: {:error, "attribute value must be \"static\" or {expr}, got: #{String.slice(other, 0, 10)}"}
+    do:
+      {:error, "attribute value must be \"static\" or {expr}, got: #{String.slice(other, 0, 10)}"}
 
   # `$event={...}` bindings become the shared {:"$event", event, src} attr
   # shape (same as the Hologram lexer's holo_attrs), so attr_js handles both
@@ -419,7 +438,6 @@ defmodule Noizu.Tessera.Component.Template do
   defp event_attr("$" <> event, {:parts, [{:expr, src}]}), do: {:"$event", event, src}
   defp event_attr("$" <> event, {:static, s}), do: {:"$event", event, String.trim(s)}
   defp event_attr(name, value), do: {name, value}
-
 
   # "text {expr} more" mixed value → parts (expr kept as string for parity
   # with the Hologram lexer)
@@ -554,9 +572,13 @@ defmodule Noizu.Tessera.Component.Template do
   # attribute emission
   defp attr_js({:"$event", event, binding_src}, ctx) do
     case parse_binding(binding_src) do
-      {:ok, ast} -> emit_event_binding(event, ast, ctx)
+      {:ok, ast} ->
+        emit_event_binding(event, ast, ctx)
+
       :error ->
-        raise CompileError, file: ctx.file, line: ctx.line || 0,
+        raise CompileError,
+          file: ctx.file,
+          line: ctx.line || 0,
           description:
             "invalid $#{event} binding `#{binding_src}` — use $#{event}={:action} or " <>
               "$#{event}={:action, key: value}"
@@ -570,7 +592,9 @@ defmodule Noizu.Tessera.Component.Template do
   defp attr_js({name, {:parts, parts}}, ctx) do
     inner =
       Enum.map_join(parts, "", fn
-        {:text, s} -> escape_lit_text(s)
+        {:text, s} ->
+          escape_lit_text(s)
+
         {:expr, e} ->
           ast = if is_binary(e), do: to_ast(e, ctx), else: e
           "${__t(#{Expr.translate(ast, ctx)})}"
@@ -591,7 +615,9 @@ defmodule Noizu.Tessera.Component.Template do
 
       true ->
         case Code.string_to_quoted(src) do
-          {:ok, ast} -> {:ok, ast}
+          {:ok, ast} ->
+            {:ok, ast}
+
           {:error, _} ->
             case Code.string_to_quoted("{#{src}}") do
               {:ok, ast} -> {:ok, ast}
@@ -608,7 +634,8 @@ defmodule Noizu.Tessera.Component.Template do
     "@#{event}=${(ev) => this.__tesseraRunAction(\"#{action}\", {}, ev)}"
   end
 
-  defp emit_event_binding(event, {action, params}, ctx) when is_atom(action) and is_list(params) do
+  defp emit_event_binding(event, {action, params}, ctx)
+       when is_atom(action) and is_list(params) do
     validate_action!(action, ctx)
 
     params_js =
@@ -621,7 +648,9 @@ defmodule Noizu.Tessera.Component.Template do
   end
 
   defp emit_event_binding(event, other, ctx) do
-    raise CompileError, file: ctx.file, line: ctx.line || 0,
+    raise CompileError,
+      file: ctx.file,
+      line: ctx.line || 0,
       description:
         "invalid $#{event} binding #{Macro.to_string(other)} — use $#{event}={:action} or " <>
           "$#{event}={:action, key: value}"
@@ -629,8 +658,11 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp literal_only!(k, v, ctx) do
     unless is_atom(k) and literal?(v) do
-      raise CompileError, file: ctx.file, line: ctx.line || 0,
-        description: "$event binding params must be compile-time literals — #{inspect(k)}: #{Macro.to_string(v)}"
+      raise CompileError,
+        file: ctx.file,
+        line: ctx.line || 0,
+        description:
+          "$event binding params must be compile-time literals — #{inspect(k)}: #{Macro.to_string(v)}"
     end
 
     v
@@ -649,7 +681,9 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp validate_action!(action, ctx) do
     unless MapSet.member?(ctx.actions, action) do
-      raise CompileError, file: ctx.file, line: ctx.line || 0,
+      raise CompileError,
+        file: ctx.file,
+        line: ctx.line || 0,
         description:
           "template binds unknown action #{inspect(action)} — declare " <>
             "`action #{inspect(action)}, fn state, params -> ... end` first"
@@ -662,7 +696,9 @@ defmodule Noizu.Tessera.Component.Template do
         ast
 
       {:error, {line, _, msg}} ->
-        raise CompileError, file: ctx.file, line: line,
+        raise CompileError,
+          file: ctx.file,
+          line: line,
           description: "invalid template expression `#{expr}`: #{msg}"
     end
   end

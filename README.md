@@ -84,7 +84,14 @@ cd demo/hologram_app && export HOLOGRAM_START=1 && mix deps.get && mix tessera.i
 cd demo/plain_html && npm install && npm run build && npm run serve
 # → http://localhost:5587
 
-# Cypress e2e for both (servers must be running)
+# Component gallery — CEM-driven live demos + typed attr/prop/slot/CSS editors
+# + event log, generated from the package (mix tessera.gen.gallery)
+cd examples/persona_kit && mix compile && mix tessera.gen.gallery
+npm install                          # package root: lit + @noizu/tessera-core
+cd gallery && npm install && npm run build && npm run serve
+# → http://localhost:5588
+
+# Cypress e2e for all three (servers must be running)
 cd demo/e2e && npm ci && npx cypress run --spec "src/e2e/*.cy.ts"
 ```
 

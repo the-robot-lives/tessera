@@ -8,6 +8,11 @@
 
 /// <reference types="cypress" />
 
+// @cypress/grep support: enables @fast/@slow tag filtering (test tiering —
+// docs/notes/test-tiering.md). Must register before any spec runs.
+import { register as registerCypressGrep } from "@cypress/grep";
+registerCypressGrep();
+
 type WinWithBucket = Window & { __tesseraConsoleErrors?: string[] };
 
 function installConsoleCapture(win: WinWithBucket): void {

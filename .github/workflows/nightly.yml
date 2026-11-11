@@ -1,0 +1,138 @@
+# tessera NIGHTLY lane — tiered CI (docs/notes/test-tiering.md)
+#
+# Slow, non-blocking-by-design coverage that must NOT gate per-change work:
+#   - e2e-full: ALL Cypress hosts, including the currently-red-on-Linux
+#     component-own-shadow legs (hologram_main a/c/d, tagged @slow).
+#     continue-on-error + TODO(tessera-e2e-linux) — docs/notes/e2e-linux-ci.md.
+#   - coverage: full ExUnit with --cover (library + persona_kit).
+# The full ExUnit/WTR suites also run in the INTEGRATION lane (ci.yml) on every
+# epic→develop merge; nightly re-runs coverage + the red e2e legs on a schedule.
+# The weekly upstream-drift canary stays in canary.yml (scheduled + manual).
+#
+# A red nightly must still be triaged — it just never blocks a merge. No job
+# here is a gate, and none uses `needs:` (skip-propagation house rule, ci.yml).
+
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # daily, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exunit-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - name: Restore deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock', 'examples/persona_kit/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - name: Library — FULL test + coverage
+        run: |
+          mix deps.get
+          mix compile --warnings-as-errors
+          mix test --cover
+
+      - name: persona_kit — FULL test
+        working-directory: examples/persona_kit
+        run: |
+          mix deps.get
+          mix compile --warnings-as-errors
+          mix test
+
+  e2e-full:
+    runs-on: ubuntu-latest
+    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
+    # mode is fixed — docs/notes/e2e-linux-ci.md (component-own shadow updates
+    # are lost under the Hologram host on ubuntu runners while all specs pass
+    # on macOS; toolchain + Linux browser both ruled out). The @slow legs
+    # (hologram_main a/c/d) are the known-red ones; @fast legs pass here too.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install inotify-tools (file_system / LiveReload)
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Boot Hologram demo on :5586
+        working-directory: demo/hologram_app
+        run: |
+          export HOLOGRAM_START=1
+          mix deps.get
+          mix tessera.install
+          nohup mix holo > /tmp/holo.log 2>&1 &
+          for i in $(seq 1 120); do
+            curl -sf -o /dev/null http://localhost:5586/ && exit 0
+            sleep 2
+          done
+          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
+
+      - name: Install persona_kit npm deps (lit resolves from importer path)
+        working-directory: examples/persona_kit
+        run: npm ci
+
+      # The @slow spike_lit spec exercises the elixir-to-lit spike's UMD/ESM/
+      # React hosts, whose bundles are built by spike_kit and copied into
+      # demo/plain_html/dist. Generate the element modules (mix compile) then
+      # build the bundles before the plain demo serves them.
+      - name: Build spike bundles (spike_kit → plain_html/dist)
+        working-directory: examples/spike_kit
+        run: |
+          npm ci
+          mix deps.get
+          mix compile
+          npm run build:bundles
+
+      - name: Boot plain-HTML demo on :5587
+        working-directory: demo/plain_html
+        run: |
+          npm install
+          npm run build
+          nohup npm run serve > /tmp/plain.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://localhost:5587/ && exit 0
+            sleep 1
+          done
+          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
+
+      - name: "Cypress FULL suite (all hosts; @slow Linux legs non-blocking)"
+        working-directory: demo/e2e
+        run: |
+          npm ci
+          npm test
+
+      - name: Upload cypress screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-full
+          path: demo/e2e/cypress/screenshots
+          if-no-files-found: ignore

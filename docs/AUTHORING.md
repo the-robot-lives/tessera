@@ -43,6 +43,8 @@ end
 | `prop :name, :type, json: true` | JSON payload shipped through `tsr-props` | DOM property, camelCased key (`tagList`) |
 | `event "name-detail"` | CustomEvent the element emits | binding prop `on_persona_select`, default action `persona_select`, `data-tsr-on="persona-select:action@target"` |
 | `slot "name"` | declared slot (documented in manifest) | passthrough `<slot />` |
+| `css "--name", default: "…"` | CSS custom property the element reads (CEM + gallery metadata) | `var(--name, …)` in your styles; **not** on the wire contract |
+| `part "name"` | styling hook exposed as `::part(name)` (CEM + gallery metadata) | `part="name"` in your template; **not** on the wire contract |
 | `cy "name"` | `data-cy` value | rendered verbatim |
 | `styles ~CSS"…"` / `styles […]` | author CSS for the generated Lit element | `static styles = [baseStyles, …author entries]` |
 
@@ -110,10 +112,10 @@ author CSS are escaped for the `css`` literal.
 element reads must be `--tsr-<tag>-<prop>` (tag verbatim, prop lower-kebab)
 and MUST carry a `var()` fallback — a tag-scoped read without one raises a
 `CompileError` naming the property. Reads are declared in the CEM
-(`cssCustomProperties`, with the fallback default); un-prefixed globals and
+(`cssProperties`, with the fallback default); un-prefixed globals and
 other tags' properties pass through but are not this element's declared
 surface. The host exposes a `root` part; `part="…"` attributes in the template
-are declared in the CEM (`parts`) and reachable via `::part()` from the outer
+are declared in the CEM (`cssParts`) and reachable via `::part()` from the outer
 tree. Properties read only inside a `{:shared, …}` module are JS-side and not
 scanned — declare them in the component's own `styles` block too.
 
@@ -199,6 +201,35 @@ package inside your element for events and shared behavior.
 use Noizu.Tessera.Package, components: [MyApp.Components.PersonaCard]
 ```
 
-generates `components/0` (component modules) and `manifest/0` (aggregated
-manifest maps) on the host module — feed `mix tessera.manifest` with it to
-emit `tessera-manifest.json` + `custom-elements.json` for tooling.
+generates `components/0` (component modules), `manifest/0` (aggregated
+manifest maps), `cem/0` (the package's Custom Elements Manifest) and the
+`__tessera_package__/0` discovery marker on the host module — feed
+`mix tessera.manifest` with it to emit `tessera-manifest.json` +
+`custom-elements.json` for tooling, or `mix tessera.cem` to write just the
+package's `custom-elements.json`.
+
+## Gallery
+
+Every package includes the built-in **interactive component gallery** by
+default — no opt-in flag. From the package's Mix project:
+
+```sh
+mix tessera.gen.gallery            # scaffolds gallery/ from the package CEM
+npm install                        # package root: lit + @noizu/tessera-core
+                                   # (esbuild resolves the components' bare
+                                   #  imports from the component files' dir)
+cd gallery && npm install && npm run build && npm run serve
+```
+
+serves a framework-agnostic gallery on http://localhost:5588 (PORT
+overridable). It reads `gallery/custom-elements.json` and, per component,
+renders a **live demo** plus typed **attribute/property editors**, **slot-content
+editors**, **CSS custom-property editors** (live theming) and an **event log**
+(event name + camelCase detail). The runtime lives in tessera
+`priv/gallery/gallery.mjs`; the generated `gallery/src/main.mjs` imports the
+package's component `.mjs` modules (their load-bearing `register()` defines the
+elements) and that runtime, and esbuild bundles them. Re-run
+`mix tessera.gen.gallery` after changing the package's components.
+
+`examples/persona_kit/gallery` is a checked-in, e2e-tested instance
+(`demo/e2e/src/e2e/gallery.cy.ts`).

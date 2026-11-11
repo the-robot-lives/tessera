@@ -79,7 +79,7 @@ defmodule Noizu.Tessera.CodegenTest do
       assert [%{"kind" => "javascript-module", "path" => "bare_thing.ex"}] = cem["modules"]
     end
 
-    test "declares every tag-scoped var() read with its fallback, sorted (EXTENSION-CONTRACT §7)" do
+    test "styles DSL: every tag-scoped var() read is declared with its fallback, sorted (EXTENSION-CONTRACT §7)" do
       spec = %Spec{
         tag: "bare-thing",
         module: Some.Mod,
@@ -96,13 +96,28 @@ defmodule Noizu.Tessera.CodegenTest do
 
       [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
 
-      assert declaration["cssCustomProperties"] == [
+      assert declaration["cssProperties"] == [
                %{"name" => "--tsr-bare-thing-a", "default" => "2px"},
                %{"name" => "--tsr-bare-thing-z", "default" => "1px"}
              ]
     end
 
-    test "parts: root plus template-declared parts; spec-only components claim none" do
+    test "explicit css declarations win over scanned reads of the same name" do
+      spec = %Spec{
+        tag: "bare-thing",
+        module: Some.Mod,
+        css_properties: [%{name: "--tsr-bare-thing-a", default: "9px", line: 1}],
+        styles: [%{kind: :css, value: "a{gap:var(--tsr-bare-thing-a, 2px)}", line: 2}]
+      }
+
+      [declaration] = Codegen.cem([spec])["modules"] |> hd() |> Map.fetch!("declarations")
+
+      assert declaration["cssProperties"] == [
+               %{"name" => "--tsr-bare-thing-a", "default" => "9px"}
+             ]
+    end
+
+    test "cssParts: root plus template-declared parts; spec-only components claim no root" do
       templated = %Spec{
         tag: "bare-thing",
         module: Some.Mod,
@@ -116,7 +131,7 @@ defmodule Noizu.Tessera.CodegenTest do
 
       [declaration] = Codegen.cem([templated])["modules"] |> hd() |> Map.fetch!("declarations")
 
-      assert declaration["parts"] == [
+      assert declaration["cssParts"] == [
                %{"name" => "root"},
                %{"name" => "row"},
                %{"name" => "cell"}
@@ -127,8 +142,54 @@ defmodule Noizu.Tessera.CodegenTest do
         |> hd()
         |> Map.fetch!("declarations")
 
-      assert spec_only["parts"] == []
-      assert spec_only["cssCustomProperties"] == []
+      assert spec_only["cssParts"] == []
+      assert spec_only["cssProperties"] == []
+    end
+
+    test "members carry camelCase names, json flags and JSON-literal defaults" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      members = Map.new(decl["members"], &{&1["name"], &1})
+
+      assert members["tagList"]["default"] == "[]"
+      assert members["tagList"]["json"] == true
+      assert members["filters"]["default"] == "{}"
+      assert members["maxCount"]["default"] == "10"
+      refute Map.has_key?(members["maxCount"], "json")
+    end
+
+    test "css properties and parts come from the spec DSL declarations (+ styles scans)" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+
+      # Explicit `css` declaration first, then the styles DSL's scanned
+      # tag-scoped reads (sorted) — the unified theming surface.
+      assert decl["cssProperties"] == [
+               %{"name" => "--persona-card-accent", "default" => "#6366f1"},
+               %{"name" => "--tsr-persona-card-accent", "default" => "#6cf"},
+               %{"name" => "--tsr-persona-card-gap", "default" => "4px"}
+             ]
+
+      assert decl["cssParts"] == [%{"name" => "select-button"}]
+    end
+
+    test "events carry a camelCase detail schema; empty specs emit empty css lists" do
+      cem = Codegen.cem([@fixture_spec])
+      [decl] = hd(cem["modules"])["declarations"]
+      select = Enum.find(decl["events"], &(&1["name"] == "persona-select"))
+
+      assert select["type"] == %{"text" => "CustomEvent"}
+
+      assert select["detail"] == %{
+               "personaId" => %{"text" => "string"},
+               "clickCount" => %{"text" => "integer"}
+             }
+
+      bare = Codegen.cem([%Spec{tag: "bare-thing"}])
+      [bare_decl] = hd(bare["modules"])["declarations"]
+      assert bare_decl["cssProperties"] == []
+      assert bare_decl["cssParts"] == []
+      assert bare_decl["slots"] == [%{"name" => "default"}]
     end
   end
 

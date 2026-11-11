@@ -20,7 +20,19 @@ defmodule NoizuTessera.MixProject do
       homepage_url: "https://tessera.noizu.com",
       deps: deps(),
       package: package(),
-      docs: docs()
+      docs: docs(),
+      aliases: aliases()
+    ]
+  end
+
+  # Test tiering (docs/notes/test-tiering.md). The fast per-change lane runs
+  # `mix test.fast`, which excludes anything tagged `:slow` or `:nightly`;
+  # plain `mix test` still runs the WHOLE suite (integration + nightly lanes).
+  # No current test carries those tags — the whole ExUnit suite is sub-second —
+  # so the alias is the convention hook the Phase 4b conformance matrices use.
+  defp aliases do
+    [
+      "test.fast": ["test --exclude slow --exclude nightly"]
     ]
   end
 

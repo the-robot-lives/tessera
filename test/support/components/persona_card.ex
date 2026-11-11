@@ -21,11 +21,13 @@ defmodule Tessera.TestFixtures.PersonaCard do
 
   slot("header")
   slot("footer")
+  css "--persona-card-accent", default: "#6366f1"
+  part "select-button"
   cy("persona-card-root")
 
   # Styles DSL (spec-only component: flows to the manifest + CEM theming
   # declarations; no generated element). Two tag-scoped var() reads pin the
-  # CEM cssCustomProperties shape; the shared entry pins the manifest shape.
+  # CEM cssProperties shape; the shared entry pins the manifest shape.
   styles([
     ~CSS"""
     :host {

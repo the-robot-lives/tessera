@@ -91,14 +91,14 @@ defmodule SpikeKitTest do
       cem = Noizu.Tessera.Codegen.cem([SpikeKit.StylesPanel.__tessera_spec__()])
       [declaration] = cem["modules"] |> hd() |> Map.fetch!("declarations")
 
-      assert declaration["cssCustomProperties"] == [
+      assert declaration["cssProperties"] == [
                %{"name" => "--tsr-spike-styles-panel-accent", "default" => "#6cf"},
                %{"name" => "--tsr-spike-styles-panel-gap", "default" => "4px"},
                %{"name" => "--tsr-spike-styles-panel-padding", "default" => "8px"},
                %{"name" => "--tsr-spike-styles-panel-slotted", "default" => "#c0c"}
              ]
 
-      assert declaration["parts"] == [
+      assert declaration["cssParts"] == [
                %{"name" => "root"},
                %{"name" => "row"},
                %{"name" => "accent"}
