@@ -44,7 +44,16 @@ defmodule Noizu.Tessera.Spec do
             actions: [],
             template: nil,
             styles: [],
-            lifecycle: %{}
+            lifecycle: %{},
+            # Extension derivation (EXTENSION-CONTRACT.md §5). `derived_from`
+            # names the base module when this spec was produced by
+            # `use Base, tag: …` (nil for a fresh component); `priority` is the
+            # §5.9 chain-order knob (higher sits further out; consumed by the
+            # takeover chain); `extension_api` is the §8 semver axis (flows from
+            # the base unless the derived module declares its own pin).
+            derived_from: nil,
+            priority: 0,
+            extension_api: nil
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -94,6 +103,8 @@ defmodule Noizu.Tessera.Spec do
   @type action_entry :: %{
           required(:name) => atom(),
           required(:js) => String.t(),
+          optional(:fn_ast) => Macro.t(),
+          optional(:inherited) => boolean(),
           optional(:line) => non_neg_integer()
         }
 
@@ -136,7 +147,10 @@ defmodule Noizu.Tessera.Spec do
           actions: [action_entry()],
           template: template_entry() | nil,
           styles: [style_entry()],
-          lifecycle: lifecycle()
+          lifecycle: lifecycle(),
+          derived_from: module() | nil,
+          priority: integer(),
+          extension_api: String.t() | nil
         }
 
   @doc """
@@ -504,5 +518,12 @@ defmodule Noizu.Tessera.Spec do
           %{"kind" => Atom.to_string(s.kind), "value" => s.value}
         end)
     }
+    |> then(fn map ->
+      # Derived specs name their base (§5.8); fresh components keep the
+      # pre-derivation manifest bytes (no key at all).
+      if spec.derived_from,
+        do: Map.put(map, "derived_from", inspect(spec.derived_from)),
+        else: map
+    end)
   end
 end

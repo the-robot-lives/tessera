@@ -353,4 +353,63 @@ defmodule Noizu.Tessera.Component.LitCodegenTest do
       assert File.read!(wrapper) == "// hand-written\n"
     end
   end
+
+  describe "derived element module (EXTENSION-CONTRACT.md §5.8, X-16 lowering)" do
+    defp derived_spec, do: Tessera.TestFixtures.DerivedWidgetSpec.spec()
+
+    test "matches the derived golden fixture byte-for-byte" do
+      golden = File.read!(Path.join(__DIR__, "../../../fixtures/derived_widget.element.golden.mjs"))
+      assert LitCodegen.element_module(derived_spec()) == golden
+    end
+
+    test "extends the base class re-mixed with the merged contract; imports the base" do
+      js = LitCodegen.element_module(derived_spec())
+
+      assert js =~ "class DerivedWidget extends TesseraElement(WidgetBase, contract)"
+      assert js =~ ~S|import { WidgetBase } from "./widget-base.element.generated.mjs"|
+      assert js =~ ~S|import contract from "./derived_widget.contract.generated.mjs"|
+      # base artifacts are referenced, never re-emitted
+      refute js =~ "const baseStyles"
+    end
+
+    test "only new/overridden reactive properties are emitted (inherited ride the chain)" do
+      js = LitCodegen.element_module(derived_spec())
+
+      assert js =~ "extra: { type: Number }"
+      assert js =~ "badge: { type: String }"
+      # inherited label/count are NOT redeclared
+      refute js =~ "label: { type: String }"
+      refute js =~ "count: { type: Number }"
+    end
+
+    test "styles compose explicitly over the base array (#82 — Lit does not auto-inherit)" do
+      js = LitCodegen.element_module(derived_spec())
+      assert js =~ "[\n    ...WidgetBase.styles,\n    css`"
+      assert js =~ ":host { border: 1px solid var(--derived-widget-accent, #6cf); }"
+    end
+
+    test "constructor sets only NEW defaults; state snapshot is the merged keys" do
+      js = LitCodegen.element_module(derived_spec())
+      assert js =~ "this.extra = 0;"
+      assert js =~ ~s|this.badge = "";|
+      refute js =~ "this.count = 0;"
+      assert js =~ "return { count: this.count, extra: this.extra };"
+    end
+
+    test "overridden action down-calls via real ES super; new action has no down-call" do
+      js = LitCodegen.element_module(derived_spec())
+      assert js =~ "let state = this.__tesseraState();"
+      assert js =~ "(state = super.__action_increment(params, ev))"
+      assert js =~ "__action_bump(params = {}, ev = null)"
+      # inherited decrement-style methods are not re-emitted; only increment+bump
+      assert js =~ "__action_increment"
+      refute js =~ "__action_decrement"
+    end
+
+    test "a fresh (non-derived) spec still lowers through the fresh path" do
+      js = LitCodegen.element_module(spec())
+      assert js =~ "class SpikeWidget extends TesseraElement(LitElement, contract)"
+      assert js =~ "const baseStyles = css`"
+    end
+  end
 end

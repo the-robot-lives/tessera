@@ -61,6 +61,7 @@ defmodule Noizu.Tessera.Component do
   """
 
   alias Noizu.Tessera.Component.Expr
+  alias Noizu.Tessera.Component.Extension
   alias Noizu.Tessera.Component.LitCodegen
   alias Noizu.Tessera.Component.Styles
   alias Noizu.Tessera.Component.Template
@@ -75,8 +76,27 @@ defmodule Noizu.Tessera.Component do
   @spec __using__(keyword()) :: Macro.t()
   defmacro __using__(opts) do
     caller = __CALLER__
+    {derived?, opts} = Keyword.pop(opts, :__derived__, false)
     tag = Keyword.get(opts, :tag)
     js = Keyword.get(opts, :js)
+
+    # Set at EXPANSION time (not in the quoted output) so a later `use Base`
+    # expansion can see it for the reverse double-use guard — quoted
+    # Module.put_attribute calls only evaluate after nested macro expansion.
+    Module.put_attribute(caller.module, :tessera_tag, tag)
+
+    # §5.1: a deriving module (`use Base, tag: …`) must not repeat the
+    # compiler. The internal use from Extension.derive!/3 carries __derived__
+    # to lift the guard for itself only.
+    if not derived? and Module.get_attribute(caller.module, :tessera_derived_from) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera double use: #{inspect(caller.module)} derives from " <>
+            "#{inspect(Module.get_attribute(caller.module, :tessera_derived_from))} — " <>
+            "do not also `use Noizu.Tessera.Component` (EXTENSION-CONTRACT.md §5.1)"
+    end
 
     Spec.validate!(:tag, tag, %{}, caller.file, caller.line)
     validate_js_option!(js, caller.file, caller.line)
@@ -756,26 +776,14 @@ defmodule Noizu.Tessera.Component do
   @doc false
   @spec __before_compile__(Macro.Env.t()) :: Macro.t()
   defmacro __before_compile__(env) do
-    attrs = attr_entries(env)
-    props = prop_entries(env)
-    events = event_entries(env)
-    slots = slot_entries(env)
+    derived_from = Module.get_attribute(env.module, :tessera_derived_from)
 
-    css_properties =
-      accumulated(env.module, :tessera_css_properties) |> Enum.map(fn {_l, e} -> e end)
-
-    parts = accumulated(env.module, :tessera_parts) |> Enum.map(fn {_l, e} -> e end)
-    cys = accumulated(env.module, :tessera_cy)
-
-    validate_all!(attrs, props, events, slots, css_properties, parts, cys, env)
-
-    # SPIKE: translate state/actions/template into the spec (JS strings + the
-    # pre-rendered lit-html render()). Raises CompileError with the DSL
-    # declaration's line on any subset violation.
-    lit = lit_compile!(attrs, props, events, env)
-
-    styles =
-      accumulated(env.module, :tessera_styles) |> Enum.map(fn {_line, entry} -> entry end)
+    {attrs, props, events, slots, css_properties, parts, cy, lit, styles} =
+      if derived_from do
+        compile_derived!(env, derived_from)
+      else
+        compile_fresh!(env)
+      end
 
     spec = %Spec{
       version: @contract_version,
@@ -783,7 +791,7 @@ defmodule Noizu.Tessera.Component do
       module: env.module,
       file: env.file,
       js: Module.get_attribute(env.module, :tessera_js),
-      cy: cys != [] && elem(List.last(cys), 1),
+      cy: cy,
       attrs: attrs,
       props: props,
       events: events,
@@ -794,7 +802,10 @@ defmodule Noizu.Tessera.Component do
       actions: lit.actions,
       template: lit.template,
       styles: styles,
-      lifecycle: lit.lifecycle
+      lifecycle: lit.lifecycle,
+      derived_from: derived_from,
+      priority: Module.get_attribute(env.module, :tessera_derived_priority) || 0,
+      extension_api: Module.get_attribute(env.module, :tessera_extension_api)
     }
 
     body =
@@ -812,9 +823,144 @@ defmodule Noizu.Tessera.Component do
         end
       end
 
+    # Injected down-chain dispatchers (§5.3). base_init/2,3 reach the base's
+    # init hooks; base_action/3 only exists for a Tier-2 base (fn-actions
+    # dispatch via ES super in the lowered JS, never the BEAM).
+    dispatchers =
+      if derived_from do
+        Extension.init_dispatcher_asts(derived_from) ++
+          Extension.action_dispatcher_asts(derived_from, Enum.map(spec.actions, & &1.name))
+      else
+        []
+      end
+
     quote do
       @tessera_compiled_spec unquote(Macro.escape(spec))
       unquote(body)
+      unquote_splicing(dispatchers)
+
+      # The canonical extension macro (EXTENSION-CONTRACT.md §5.3, D4): the
+      # vendor module IS the macro. `use ThisModule, tag: …` expands through the
+      # shared derivation layer — option validation, double-use/cycle guards,
+      # inherited-prop re-emission and the internal derivation-mode use.
+      @doc false
+      defmacro __using__(opts) do
+        Noizu.Tessera.Component.Extension.derive!(__tessera_spec__(), opts, __CALLER__)
+      end
+    end
+  end
+
+  # Fresh component: the author's accumulators are the whole spec.
+  defp compile_fresh!(env) do
+    attrs = attr_entries(env)
+    props = prop_entries(env)
+    events = event_entries(env)
+    slots = slot_entries(env)
+
+    css_properties =
+      accumulated(env.module, :tessera_css_properties) |> Enum.map(fn {_l, e} -> e end)
+
+    parts = accumulated(env.module, :tessera_parts) |> Enum.map(fn {_l, e} -> e end)
+    cys = accumulated(env.module, :tessera_cy)
+
+    validate_all!(attrs, props, events, slots, css_properties, parts, cys, env)
+
+    state = accumulated(env.module, :tessera_state) |> Enum.map(fn {_l, e} -> e end)
+    actions_raw = accumulated(env.module, :tessera_actions) |> Enum.map(fn {_l, e} -> e end)
+    templates = accumulated(env.module, :tessera_template)
+    lifecycle_raw = Module.get_attribute(env.module, :tessera_lifecycle) || %{}
+    template = assert_single_template!(templates, state, actions_raw, lifecycle_raw, env)
+
+    lit = lit_compile!(attrs, props, events, state, actions_raw, template, lifecycle_raw, env, false)
+
+    styles = accumulated(env.module, :tessera_styles) |> Enum.map(fn {_l, e} -> e end)
+
+    cy = cys != [] && elem(List.last(cys), 1)
+    {attrs, props, events, slots, css_properties, parts, cy, lit, styles}
+  end
+
+  # Derived component (`use Base, tag: …`): merge the base spec with the
+  # author's deltas, then validate + translate the MERGED declarations so
+  # inherited keys resolve in the derived template/actions (§5.5).
+  defp compile_derived!(env, base_module) do
+    base_spec = base_module.__tessera_spec__()
+
+    attrs = attr_entries(env)
+    props = prop_entries(env)
+    events = event_entries(env)
+    slots = slot_entries(env)
+
+    css_properties =
+      accumulated(env.module, :tessera_css_properties) |> Enum.map(fn {_l, e} -> e end)
+
+    parts = accumulated(env.module, :tessera_parts) |> Enum.map(fn {_l, e} -> e end)
+    cys = accumulated(env.module, :tessera_cy)
+
+    state = accumulated(env.module, :tessera_state) |> Enum.map(fn {_l, e} -> e end)
+    actions_raw = accumulated(env.module, :tessera_actions) |> Enum.map(fn {_l, e} -> e end)
+    lifecycle_raw = Module.get_attribute(env.module, :tessera_lifecycle) || %{}
+    styles = accumulated(env.module, :tessera_styles) |> Enum.map(fn {_l, e} -> e end)
+    template = author_template!(accumulated(env.module, :tessera_template), env)
+
+    deltas = %{
+      attrs: attrs,
+      props: props,
+      events: events,
+      slots: slots,
+      css_properties: css_properties,
+      parts: parts,
+      state: state,
+      actions: actions_raw,
+      template: template,
+      lifecycle: lifecycle_raw,
+      styles: styles,
+      cy: cys != [] && elem(List.last(cys), 1)
+    }
+
+    merged = Extension.merge_spec!(base_spec, deltas, env)
+
+    validate_all!(
+      merged.attrs,
+      merged.props,
+      merged.events,
+      merged.slots,
+      merged.css_properties,
+      merged.parts,
+      cys,
+      env
+    )
+
+    lit =
+      lit_compile!(
+        merged.attrs,
+        merged.props,
+        merged.events,
+        merged.state,
+        merged.actions,
+        merged.template,
+        merged.lifecycle,
+        env,
+        true,
+        MapSet.new(Enum.map(base_spec.actions, & &1.name))
+      )
+
+    {merged.attrs, merged.props, merged.events, merged.slots, merged.css_properties,
+     merged.parts, merged.cy, lit, merged.styles}
+  end
+
+  # The author's own template (0 or 1). A derived module may omit it and inherit
+  # the base's; the all-or-nothing element check is satisfied by the merge.
+  defp author_template!(templates, env) do
+    case templates do
+      [] -> nil
+      [{line, markup}] -> %{line: line, markup: markup}
+      many ->
+        raise CompileError,
+          file: env.file,
+          line: elem(hd(many), 0),
+          description:
+            "duplicate tessera template declaration (#{length(many)} times) — " <>
+              "a component has one template"
     end
   end
 
@@ -869,25 +1015,15 @@ defmodule Noizu.Tessera.Component do
 
   # -- SPIKE lit assembly (spike/elixir-to-lit) --------------------------------
 
-  # Translate the recorded state/action/template declarations into their spec
-  # shapes: action fn ASTs become JS bodies (restricted subset — anything
-  # outside raises CompileError naming the construct), the template markup
-  # becomes the pre-rendered lit-html render() string.
-  defp lit_compile!(attrs, props, events, env) do
-    state =
-      accumulated(env.module, :tessera_state) |> Enum.map(fn {_line, entry} -> entry end)
-
-    actions_raw =
-      accumulated(env.module, :tessera_actions) |> Enum.map(fn {_line, entry} -> entry end)
-
-    templates = accumulated(env.module, :tessera_template)
-
-    lifecycle_raw = Module.get_attribute(env.module, :tessera_lifecycle) || %{}
-
+  # Translate state/action/template declarations into their spec shapes: action
+  # fn ASTs become JS bodies (restricted subset — anything outside raises
+  # CompileError naming the construct), the template markup becomes the
+  # pre-rendered lit-html render() string. `derived?` enables the base_action
+  # down-call + state rebinding subset forms; inherited entries (marked by the
+  # merge) pass their already-translated JS through untouched.
+  defp lit_compile!(attrs, props, events, state, actions_raw, template, lifecycle_raw, env, derived?, base_action_names \\ MapSet.new()) do
     assert_no_duplicates!(:state, state, env)
     assert_no_action_duplicates!(actions_raw, env)
-
-    template = assert_single_template!(templates, state, actions_raw, lifecycle_raw, env)
 
     ctx = %Expr{
       state_keys: MapSet.new(Enum.map(state, & &1.name)),
@@ -895,6 +1031,8 @@ defmodule Noizu.Tessera.Component do
       props: Map.new(props, &{&1.name, &1.type}),
       events: MapSet.new(Enum.map(events, & &1.name)),
       actions: MapSet.new(Enum.map(actions_raw, & &1.name)),
+      derived?: derived?,
+      inherited_actions: base_action_names,
       module: env.module,
       file: env.file,
       line: 0
@@ -902,14 +1040,28 @@ defmodule Noizu.Tessera.Component do
 
     actions =
       Enum.map(actions_raw, fn entry ->
-        js = Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
-        %{name: entry.name, js: js, line: entry.line}
+        js =
+          if entry[:inherited] do
+            entry.js
+          else
+            Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
+          end
+
+        %{name: entry.name, js: js, fn_ast: entry[:fn_ast], line: entry.line}
+        |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)
       end)
 
     lifecycle =
       Map.new(lifecycle_raw, fn {hook, entry} ->
-        js = lifecycle_js(entry, %{ctx | line: entry.line || 0})
-        {hook, %{js: js, line: entry.line}}
+        js =
+          if entry[:inherited] do
+            entry.js
+          else
+            lifecycle_js(entry, %{ctx | line: entry.line || 0})
+          end
+
+        {hook, %{js: js, line: entry.line}
+         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)}
       end)
 
     template_entry =
