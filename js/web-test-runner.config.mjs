@@ -27,7 +27,17 @@ export default {
         "test/bus.test.mjs",
         "test/define.test.mjs",
         "test/index.test.mjs",
+        // Phase 4b conformance suite — Tier-1 FAST lane (behavior-defining
+        // core cases only; pending cases skipped, never green). The `.fast.mjs`
+        // suffix keeps the default full glob from double-running it.
+        "test/conformance.tier1.fast.mjs",
       ],
+    },
+    {
+      // Targeted full conformance run (`npm run test:conformance`): every
+      // Tier-1 case (fast + slow), pending skipped.
+      name: "conformance",
+      files: ["test/conformance.tier1.test.mjs"],
     },
   ],
   // Keep browsers/frames serialized: every file shares the document-level
