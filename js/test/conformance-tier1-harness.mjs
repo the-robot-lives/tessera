@@ -60,6 +60,8 @@ import {tag as TAKEOVER_TAG} from "./fixtures/conformance/tsr-conf-takeover.elem
 // spec ⇒ generated element declares `static formAssociated = true` and the
 // TesseraElement constructor attaches ElementInternals.
 import {tag as FORM_TAG, TsrConfForm} from "./fixtures/conformance/tsr-conf-form.element.generated.mjs";
+// X-13 (§6.6): the subclass fixture tag — hand-registered below via defineOnce.
+const STATE_SUB_TAG = "tsr-conf-state-sub";
 
 const COUNTER_TAG = "tsr-conf-counter";
 const PROPS_TAG = "tsr-conf-props";
@@ -169,6 +171,53 @@ class ConfFormRecording extends TsrConfForm {
   }
 }
 
+// X-13 subclass fixture (EXTENSION-CONTRACT §6.6) — a hand-written subclass
+// of the generated state element registered under its OWN tag
+// (`tsr-conf-state-sub`; a defined tag cannot be re-defined, so a fresh tag
+// is the only registration path). Every §6.6 ALLOWED hook is overridden with
+// a REAL super call and traced through the NON-reserved `x13Trace` array
+// (§6.8: `_`-prefixed members are tessera-internal); shouldUpdate is the
+// MAY-override row, permissive — never unconditionally false. The shared
+// subclassHooksBody asserts the CONTRACT behaviors on the instance; this
+// class is adapter wiring, mirroring the FM recording subclass (and the
+// Tier-2 host glue's LC/FormProbe subclasses).
+class ConfStateSub extends TsrConfState {
+  constructor() {
+    super();
+    this.x13Trace = [];
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.x13Trace.push("connected");
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this.x13Trace.push("disconnected");
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    super.attributeChangedCallback(name, oldValue, newValue);
+    if (name === "tsr-props") this.x13Trace.push("tsr-props");
+  }
+
+  firstUpdated(changed) {
+    super.firstUpdated?.(changed);
+    this.x13Trace.push("firstUpdated");
+  }
+
+  updated(changed) {
+    super.updated?.(changed);
+    this.x13Trace.push("updated");
+  }
+
+  // §6.6 MAY-override row: permissive — never unconditionally false.
+  shouldUpdate() {
+    return true;
+  }
+}
+
 // <tsr-conf-x21> — X-21 (brief 2e, §5.9/§5.10): a hand-written base with TWO
 // pre-define extendElement mixins, proving the JS registry composes at the
 // first defineOnce. Both mixins carry NO opts (empty module labels), so the
@@ -215,6 +264,10 @@ const FIXTURES = {
   // generated class — the shared fm_form.mjs bodies read el.tesseraFormSignals
   // and rely on the push-per-render setFormValue seam.
   form: {tag: FORM_TAG, ctor: ConfFormRecording},
+  // X-13 (§6.6): the subclass-hooks fixture — the state element subclassed
+  // under its own tag; the shared subclassHooksBody mounts it and proves the
+  // super-chains + reserved-member enforcement on the instance.
+  subclass: {tag: STATE_SUB_TAG, ctor: ConfStateSub},
 };
 
 let defined = false;
@@ -317,8 +370,8 @@ const SUPPORTED = new Set([
   "SD-01", "SD-02", "SD-03", "SD-04",
   "E-01", "E-02", "E-03",
   "FM-01", "FM-02", "FM-03",
-  "X-01", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
-  "X-11", "X-12", "X-14", "X-15", "X-17", "X-18", "X-19", "X-20", "X-21",
+  "X-01", "X-02", "X-03", "X-04", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10",
+  "X-11", "X-12", "X-13", "X-14", "X-15", "X-17", "X-18", "X-19", "X-20", "X-21",
 ]);
 
 /**

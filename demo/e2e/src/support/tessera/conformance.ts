@@ -61,6 +61,12 @@ const FIXTURES: Record<string, string> = {
   // new :reset action (X-16).
   takeover: "tsr-holo-takeover-probe",
   derived: "tsr-holo-takeover-derived",
+  // X-13 (§6.6): the subclass-hooks fixture — the SAME StateProbe module
+  // mounted through the glue's StateSubProbeElement subclass (every
+  // documented hook overridden with a real super call, traced into
+  // el.x13Trace). The shared subclassHooksBody mounts it and proves the
+  // super-chains + reserved-member enforcement on the instance.
+  subclass: "tsr-holo-state-sub",
 };
 
 let ctx: {win: Window} | null = null;
