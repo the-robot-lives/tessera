@@ -467,8 +467,6 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   # `Hologram.Reflection.list_elixir_modules/0` — which enumerates loaded
   # apps only — sees the stub pages and any third-party extension modules.
   # Without this the IR PLT skips them and the emitted defs are empty.
-  defp compile_extra_sources!([], _ebin_dir), do: :ok
-
   defp compile_extra_sources!(extra_sources, ebin_dir) do
     IO.puts("[tessera-holo] compiling #{length(extra_sources)} third-party extension source(s)")
 
