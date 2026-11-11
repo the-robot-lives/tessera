@@ -14,9 +14,13 @@ Framework-agnostic web components with first-class [Hologram](https://hologram.p
 
 Write a component once as a custom element. Ship it in a hex package. A Hologram app adds the dependency, runs `mix tessera.install` and drops the component into `~HOLO`. Component events reach Hologram actions with no hand-written JS glue. The same element works in plain HTML, React, or any other framework.
 
-## Status: **Phase 1 MVP**
+## Status: **0.2.0 — Lit-parity milestone** (pre-1.0; the API may still change)
 
-All three layers are live and integration-tested end to end: the Elixir spec DSL, the `@noizu/tessera-core` JS runtime, and the generated Hologram 0.10.1 adapter — plus example package, demos and a Cypress e2e suite (see `CHANGELOG.md`).
+- **Two engines, one contract.** Tier 1 compiles an Elixir subset (`state` / `~TSR` template / `action`, plus a styles DSL, property options, lifecycle hooks and directives) to a real `LitElement`. Tier 2 hosts a full Hologram component inside a custom element.
+- **Extension contract** on both tiers: `use Vendor.Element` derivation, same-tag takeover as layered extension (`tag: :inherit`, `priority:`), open actions, `el.state` / `dispatchAction` / `onAction`, `extendElement`, pinned `behaviors.add`. See `docs/EXTENSION-CONTRACT.md`.
+- **Tooling:** interactive component gallery (`mix tessera.gen.gallery`, CEM via `mix tessera.cem`) and a Lit→tessera converter (`mix tessera.from_lit`).
+- **Conformance suite** runs one shared test set on both tiers.
+- **Exactly what's covered, and what isn't:** `docs/notes/lit-parity.md` (parity declaration + matrix) and `docs/notes/gap-acceptance.md` (accepted gaps). Full Tier-2 Lit parity is not claimed; SSR/Declarative Shadow DOM is proven in a spike but not shipped.
 
 ## Quick start — consuming (Hologram app)
 
@@ -24,7 +28,7 @@ Add the hex package and run the installer:
 
 ```elixir
 # mix.exs
-{:noizu_tessera, "~> 0.1.0"},
+{:noizu_tessera, "~> 0.2.0"},
 {:your_kit, path: "..." }   # or any hex package with `use Noizu.Tessera.Package` components
 ```
 

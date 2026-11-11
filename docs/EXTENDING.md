@@ -70,15 +70,23 @@ bundles every `js_import` into each page bundle) don't double-warn. To own the
 tag you must evaluate before the package's element module does — import your
 subclass module first, or re-register via `defineOnce` from an
 earlier-bundled entry. If you cannot control load order, use behaviors (§1)
-instead of the element swap (§3, not yet implemented).
+or derivation / `extendElement` (§3) instead.
 
-## 3. Swapping the element via `use ..., element:` — Phase 2, NOT YET IMPLEMENTED
+## 3. Swapping the element via `use ..., element:` — NOT IMPLEMENTED (as of 0.2.0)
 
-**This option does not exist yet.** `use Noizu.Tessera.Component` reads only
-`tag:` and `js:`; an `element:` option is silently ignored today (planned for
-Phase 2 — tracked in the Phase 1 review, F-04). Do not write code against the
-sample below until this section says "implemented"; while it is missing, use
-§1 (behaviors) or §2 (subclass + `defineOnce`) to own the element.
+**This option does not exist.** `use Noizu.Tessera.Component` does not read an
+`element:` option; it is silently ignored (tracked as F-04). Do not write code
+against the sample below. To customize or replace a vendor element, use one of
+the shipped mechanisms instead:
+
+- §1 behaviors (`behaviors.add`, now with an API pin) or §2 subclass + `defineOnce`;
+- **derivation** — `use Vendor.Element, tag: "my-el"` (a new tag) or
+  `use Vendor.Element, tag: :inherit, priority: n` (same-tag takeover as a
+  layered extension), with `base_action/3` down-calls;
+- **`extendElement(tag, mixin)`** before the tag's first definition.
+
+All three are specified in `docs/EXTENSION-CONTRACT.md` (§5 derivation, §5.9
+takeover, §6 runtime API) and covered by the conformance suite.
 
 The planned shape, for reference:
 
@@ -140,7 +148,7 @@ any, stays private to the composer's internals.
 |---|---|
 | Attach DOM behavior/listeners to a shipped element | `behaviors.add` |
 | Override the template or lifecycle | subclass + `defineOnce` before the package loads |
-| Replace the element per host app, controlled from Elixir | `use ..., element:` — Phase 2, NOT yet implemented (§3) |
+| Replace the element per host app, controlled from Elixir | `use ..., element:` is NOT implemented — use derivation (`use Vendor.Element, tag: :inherit`) or `extendElement` (§3) |
 | Expose events from a tessera child nested in your shadow DOM | re-emit with `emit()` from the outer element (§4) |
 | React to contract events from outside the element | plain `addEventListener` — events are composed and bubble (§1 of the contract) |
 | Send component data to a backend | `BusClient` seam (`@noizu/tessera-core/bus`); without a transport every call resolves `{ok: false, reason: "no-transport"}` |
