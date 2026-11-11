@@ -14,8 +14,8 @@ defmodule Tessera.TestFixtures.Conformance.TakeoverExtBbb do
 
   event("conf-ext-bbb", detail: %{layer: :string})
 
-  action :select_item, fn state, params ->
+  action(:select_item, fn state, params ->
     emit("conf-ext-bbb", %{layer: "bbb"})
     base_action(:select_item, state, params)
-  end
+  end)
 end

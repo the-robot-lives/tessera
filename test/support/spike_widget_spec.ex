@@ -20,7 +20,14 @@ defmodule Tessera.TestFixtures.SpikeWidgetSpec do
       js: "spike_widget.mjs",
       cy: "spike-widget-root",
       attrs: [
-        %{name: :label, type: :string, default: "Count", attribute: "custom-label", reflect: true, line: 2}
+        %{
+          name: :label,
+          type: :string,
+          default: "Count",
+          attribute: "custom-label",
+          reflect: true,
+          line: 2
+        }
       ],
       props: [%{name: :items, type: :list, default: [], line: 7}],
       slots: [],

@@ -1234,20 +1234,25 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
       vendor = compile_tier2_vendor(id_a)
 
       compile_tier2_extender(vendor, id_a, ~s(tag: :inherit, priority: 5, overrides: [:inc]), """
-        def action(:inc, params, component) do
-          component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 10)
-          base_action(:inc, params, component)
-        end
-        """)
+      def action(:inc, params, component) do
+        component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 10)
+        base_action(:inc, params, component)
+      end
+      """)
 
       warning =
         capture_io(:stderr, fn ->
-          compile_tier2_extender(vendor, id_b, ~s(tag: :inherit, priority: 5, overrides: [:inc]), """
-          def action(:inc, params, component) do
-            component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 20)
-            base_action(:inc, params, component)
-          end
-          """)
+          compile_tier2_extender(
+            vendor,
+            id_b,
+            ~s(tag: :inherit, priority: 5, overrides: [:inc]),
+            """
+            def action(:inc, params, component) do
+              component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 20)
+              base_action(:inc, params, component)
+            end
+            """
+          )
         end)
 
       assert warning =~ "chain conflict"

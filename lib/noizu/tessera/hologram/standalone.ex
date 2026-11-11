@@ -494,7 +494,8 @@ defmodule Noizu.Tessera.Hologram.Standalone do
             %{file: file, position: pos, message: msg} -> "  #{file}:#{pos}: #{msg}"
           end)
 
-        raise RuntimeError, message: "tessera third-party component compilation failed:\n#{formatted}"
+        raise RuntimeError,
+          message: "tessera third-party component compilation failed:\n#{formatted}"
     end
 
     # Load the scratch app NOW so the freshly compiled modules exist when
@@ -607,7 +608,6 @@ defmodule Noizu.Tessera.Hologram.Standalone do
         {:error, reason} -> raise "cannot load scratch module #{m}: #{inspect(reason)}"
       end
     end)
-
   end
 
   defp stub_module_name(suffix) do
@@ -734,7 +734,11 @@ defmodule Noizu.Tessera.Hologram.Standalone do
           end
 
         if function_exported?(component, :__tsr_internal_actions__, 0) do
-          Map.put(base, "internalActions", Enum.map(component.__tsr_internal_actions__(), &Atom.to_string/1))
+          Map.put(
+            base,
+            "internalActions",
+            Enum.map(component.__tsr_internal_actions__(), &Atom.to_string/1)
+          )
         else
           base
         end
@@ -890,7 +894,9 @@ defmodule Noizu.Tessera.Hologram.Standalone do
     File.write!(Path.join(ctx.out_dir, "manifest.json"), Jason.encode!(manifest, pretty: true))
 
     Enum.each(files, fn f ->
-      IO.puts("[tessera-holo] #{String.pad_trailing(f["file"], 46)} #{f["raw"]} B raw / #{f["gzip"]} B gzip")
+      IO.puts(
+        "[tessera-holo] #{String.pad_trailing(f["file"], 46)} #{f["raw"]} B raw / #{f["gzip"]} B gzip"
+      )
     end)
 
     manifest

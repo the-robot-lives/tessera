@@ -319,6 +319,7 @@ defmodule Noizu.Tessera.Component.Extension do
   """
   @spec chain_depth(Spec.t()) :: non_neg_integer()
   def chain_depth(%Spec{derived_from: nil}), do: 0
+
   def chain_depth(%Spec{derived_from: mod}) when is_atom(mod),
     do: 1 + chain_depth(mod.__tessera_spec__())
 
@@ -401,8 +402,23 @@ defmodule Noizu.Tessera.Component.Extension do
     siblings = :persistent_term.get(key, [])
 
     for other <- siblings, other.depth == entry.depth, other.module != entry.module do
-      warn_chain_conflict(spec, entry, other, env, "action(s)", MapSet.intersection(entry.actions, other.actions))
-      warn_chain_conflict(spec, entry, other, env, "region(s)", MapSet.intersection(entry.regions, other.regions))
+      warn_chain_conflict(
+        spec,
+        entry,
+        other,
+        env,
+        "action(s)",
+        MapSet.intersection(entry.actions, other.actions)
+      )
+
+      warn_chain_conflict(
+        spec,
+        entry,
+        other,
+        env,
+        "region(s)",
+        MapSet.intersection(entry.regions, other.regions)
+      )
     end
 
     :persistent_term.put(key, siblings ++ [entry])
