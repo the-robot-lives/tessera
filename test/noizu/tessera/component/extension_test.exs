@@ -232,6 +232,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
 
   defp compile_base(id) do
     dir = Path.join(@tmp_dir, "tessera_ext_base_#{id}")
+    File.rm_rf!(dir)
     File.mkdir_p!(dir)
     path = Path.join(dir, "base_card.ex")
     mod = "Tessera.Ext.Base#{id}"
@@ -256,6 +257,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
 
   defp compile_derived(base_mod, id, opts, body \\ "") do
     dir = Path.join(@tmp_dir, "tessera_ext_derived_#{id}")
+    File.rm_rf!(dir)
     File.mkdir_p!(dir)
     path = Path.join(dir, "derived.ex")
     mod = "Tessera.Ext.Derived#{id}"
@@ -339,6 +341,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
       id = :erlang.unique_integer([:positive])
       {base, _dir} = compile_base(id)
       dir = Path.join(@tmp_dir, "tessera_ext_rev_#{id}")
+      File.rm_rf!(dir)
       File.mkdir_p!(dir)
 
       assert_raise CompileError, ~r/double use/, fn ->
@@ -679,6 +682,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
 
   defp compile_region_base(id) do
     dir = Path.join(@tmp_dir, "tessera_ext_rbase_#{id}")
+    File.rm_rf!(dir)
     File.mkdir_p!(dir)
     path = Path.join(dir, "base_region_#{id}.ex")
     mod = "Tessera.Ext.RBase#{id}"
@@ -805,6 +809,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
     test "slot_template on a fresh component is a CompileError" do
       id = :erlang.unique_integer([:positive])
       dir = Path.join(@tmp_dir, "tessera_ext_rfresh_#{id}")
+      File.rm_rf!(dir)
       File.mkdir_p!(dir)
 
       assert_raise CompileError, ~r/slot_template.*on a fresh component/, fn ->
@@ -824,6 +829,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
     test "{%super%} in a base template (outside any override) fails the compile" do
       id = :erlang.unique_integer([:positive])
       dir = Path.join(@tmp_dir, "tessera_ext_rsuper_#{id}")
+      File.rm_rf!(dir)
       File.mkdir_p!(dir)
 
       assert_raise CompileError, ~r/only valid inside a slot_template/, fn ->
@@ -842,6 +848,7 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
     test "region nesting beyond 8 fails the compile" do
       id = :erlang.unique_integer([:positive])
       dir = Path.join(@tmp_dir, "tessera_ext_rdeep_#{id}")
+      File.rm_rf!(dir)
       File.mkdir_p!(dir)
 
       body =
@@ -1029,6 +1036,286 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
           Tessera.TestFixtures.Conformance.TakeoverExtBbb,
           :erlang.unique_integer([:positive]),
           ~s(tag: "#{fresh}")
+        )
+      end
+    end
+  end
+
+  # -- brief 3f: the canonical Tier-2 macro (T2-9) ------------------------------
+  #
+  # Tier-2 derivation rides the SAME derivation layer (merge_spec!,
+  # action_dispatcher_asts, chain_order) as Tier 1 — the vendor does
+  # `use Hologram.Component` + `use Noizu.Tessera.Component.Extension,
+  # tag:, actions:, …` and extenders `use Vendor, tag: …`. These tests pin
+  # the Tier-2 expansion shape, the BEAM dispatch chain, and the two
+  # Tier-2-only compile guards (T2-6 cross-runtime U4, T2-7 type change).
+
+  defp compile_tier2_vendor(id, extra_body \\ "") do
+    dir = Path.join(@tmp_dir, "tessera_t2_vendor_#{id}")
+    File.rm_rf!(dir)
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "vendor.ex")
+    mod = "Tessera.T2.Vendor#{id}"
+
+    Code.compile_string(
+      """
+      defmodule #{mod} do
+        use Hologram.Component
+
+        use Noizu.Tessera.Component.Extension,
+          tag: "tsr-holo-t2-#{id}",
+          actions: [:inc],
+          props: [count: [type: :integer, default: 0]],
+          template: "<p>{@count}</p>"
+
+        def init(props, component) do
+          Hologram.Component.put_state(component, count: Map.get(props, :count, 0))
+        end
+
+        def __tessera_init__(props, component), do: init(props, component)
+        def __tessera_init__(props, component, _server), do: init(props, component)
+
+        def action(:inc, _params, component) do
+          Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 1)
+        end
+
+        #{extra_body}
+      end
+      """,
+      path
+    )
+
+    String.to_atom("Elixir." <> mod)
+  end
+
+  defp compile_tier2_extender(vendor_mod, id, opts, body \\ "") do
+    dir = Path.join(@tmp_dir, "tessera_t2_ext_#{id}")
+    File.rm_rf!(dir)
+    File.mkdir_p!(dir)
+    path = Path.join(dir, "extender.ex")
+    mod = "Tessera.T2.Ext#{id}"
+
+    Code.compile_string(
+      """
+      defmodule #{mod} do
+        use #{inspect(vendor_mod)}, #{opts}
+
+        #{body}
+      end
+      """,
+      path
+    )
+
+    String.to_atom("Elixir." <> mod)
+  end
+
+  defp fresh_component do
+    %{state: %{}, next_action: nil}
+  end
+
+  describe "Tier-2 canonical macro — vendor expansion (brief 3f)" do
+    test "vendor carries the spec, manifest, entry clauses and the generated __using__" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+
+      spec = vendor.__tessera_spec__()
+      assert spec.tag == "tsr-holo-t2-#{id}"
+      assert Enum.map(spec.actions, & &1.name) == [:inc]
+      assert spec.template.raw == "<p>{@count}</p>"
+      # Hologram-translated body: lexer recorded so the manifest + bundle
+      # pipeline treat the markup as Hologram, not Minimal
+      assert spec.template.lexer == :hologram
+      assert spec.form_associated == false
+
+      manifest = vendor.__tessera_manifest__()
+      assert manifest["actions"] == ["inc"]
+
+      # the canonical extension macro itself — extenders `use Vendor, …`
+      assert macro_exported?(vendor, :__using__, 1)
+
+      # the BEAM action entry dispatches into the author's action/3
+      result = vendor.__tessera_action__(:inc, %{}, fresh_component())
+      assert Map.get(result.state, :count) == 1
+    end
+
+    test "derive with a fresh tag merges the surface and delegates inherited actions" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+
+      ext =
+        compile_tier2_extender(vendor, id, ~s(tag: "tsr-holo-t2-d#{id}", actions: [:reset]), """
+        def action(:reset, _params, component) do
+          Hologram.Component.put_state(component, count: 0)
+        end
+        """)
+
+      spec = ext.__tessera_spec__()
+      assert spec.tag == "tsr-holo-t2-d#{id}"
+      assert spec.derived_from == vendor
+      # inherited + new, in merge order; the new action is NOT inherited
+      names = Enum.map(spec.actions, & &1.name)
+      assert :inc in names and :reset in names
+      assert length(names) == 2
+      assert Enum.count(spec.actions, & &1[:inherited]) == 1
+      refute Extension.takeover?(spec)
+
+      # inherited action dispatches through the extender's chain fallback
+      result = ext.__tessera_action__(:inc, %{}, fresh_component())
+      assert Map.get(result.state, :count) == 1
+      # the new action works
+      result = ext.__tessera_action__(:reset, %{}, %{fresh_component() | state: %{count: 7}})
+      assert Map.get(result.state, :count) == 0
+      # unknown names raise the boxed FunctionClauseError the shim maps to
+      # the §6.3 unknown-action result
+      assert_raise FunctionClauseError, fn ->
+        ext.__tessera_action__(:nope, %{}, fresh_component())
+      end
+    end
+
+    test "template survives the merge (re-wrapped into %Spec{} with raw + lexer)" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+      ext = compile_tier2_extender(vendor, id, ~s(tag: "tsr-holo-t2-t#{id}"))
+
+      spec = ext.__tessera_spec__()
+      # regression: merge_spec!/3 reshapes template internally; the derive
+      # path re-wraps so takeover?/manifest/record_takeover_layer! keep
+      # working and extenders re-emit the vendor markup, never empty
+      assert spec.template.raw == "<p>{@count}</p>"
+      assert spec.template.lexer == :hologram
+      assert ext.__tessera_manifest__()["tag"] == "tsr-holo-t2-t#{id}"
+    end
+
+    test "tag: :inherit takeover chain — author override first, base_action down-call, before_compile fallback last" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+
+      aaa =
+        compile_tier2_extender(vendor, id, ~s(tag: :inherit), """
+        def action(:inc, params, component) do
+          component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 10)
+          base_action(:inc, params, component)
+        end
+        """)
+
+      # a layer with NO author clauses: the inherited name must still ride
+      # the total action/3 fallback injected at __before_compile__
+      bbb = compile_tier2_extender(vendor, id + 1, ~s(tag: :inherit, priority: 10))
+
+      assert Extension.takeover?(aaa.__tessera_spec__())
+      assert Extension.chain_depth(aaa.__tessera_spec__()) == 1
+      assert aaa.__tessera_spec__().priority == 0
+      assert bbb.__tessera_spec__().priority == 10
+
+      # author override runs FIRST, then hands off through the STATIC
+      # base_action clause into the vendor body
+      result = aaa.__tessera_action__(:inc, %{}, fresh_component())
+      assert Map.get(result.state, :count) == 11
+
+      # no author clause ⇒ the before_compile chain fallback reaches vendor
+      result = bbb.__tessera_action__(:inc, %{}, fresh_component())
+      assert Map.get(result.state, :count) == 1
+
+      # the §5.9 comparator mirrors the wrapper: depth ASC, priority ASC,
+      # module ASC, first-registered outermost on a perfect tie
+      order =
+        Extension.chain_order([
+          %{depth: 1, priority: 0, module: "A.Aaa"},
+          %{depth: 1, priority: 10, module: "A.Bbb"},
+          %{depth: 2, priority: 0, module: "A.Ccc"}
+        ])
+
+      assert Enum.map(order, & &1.module) == ["A.Aaa", "A.Bbb", "A.Ccc"]
+    end
+
+    test "chain conflict: same-depth Tier-2 siblings overriding one action warn (§5.7)" do
+      id_a = :erlang.unique_integer([:positive])
+      id_b = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id_a)
+
+      compile_tier2_extender(vendor, id_a, ~s(tag: :inherit, priority: 5, overrides: [:inc]), """
+        def action(:inc, params, component) do
+          component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 10)
+          base_action(:inc, params, component)
+        end
+        """)
+
+      warning =
+        capture_io(:stderr, fn ->
+          compile_tier2_extender(vendor, id_b, ~s(tag: :inherit, priority: 5, overrides: [:inc]), """
+          def action(:inc, params, component) do
+            component = Hologram.Component.put_state(component, count: Map.get(component.state, :count, 0) + 20)
+            base_action(:inc, params, component)
+          end
+          """)
+        end)
+
+      assert warning =~ "chain conflict"
+      assert warning =~ "inc"
+      assert warning =~ "base_action/3"
+    end
+
+    test "`overrides:` naming an action the vendor does not declare raises" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+
+      assert_raise CompileError, ~r/does not declare/, fn ->
+        compile_tier2_extender(vendor, id, ~s(tag: :inherit, overrides: [:nope]))
+      end
+    end
+
+    test "prop retype of a base-read key on a Tier-2 derive is a CompileError (T2-7)" do
+      id = :erlang.unique_integer([:positive])
+      vendor = compile_tier2_vendor(id)
+      dir = Path.join(@tmp_dir, "tessera_t2_type_#{id}")
+      File.rm_rf!(dir)
+      File.mkdir_p!(dir)
+      path = Path.join(dir, "extender.ex")
+
+      # `props:` on a derive overrides-by-name through the shared merge; the
+      # vendor's template READS {@count}, so the type is load-bearing and the
+      # reference-graph guard must refuse the retype (§5.5)
+      assert_raise CompileError, ~r/type-change guard/, fn ->
+        Code.compile_string(
+          """
+          defmodule Tessera.T2.Type#{id} do
+            use #{inspect(vendor)},
+              tag: "tsr-holo-t2-x#{id}",
+              props: [count: [type: :string, default: "x"]]
+          end
+          """,
+          path
+        )
+      end
+    end
+
+    test "cross-runtime derivation is a CompileError (T2-6, U4): Tier-1 base under a Hologram host" do
+      # a Tier-1 base (fn-AST actions, no BEAM entry) + the Tier-2 derive
+      # path on a host where Hologram IS available — the base's action
+      # bodies would be stranded across the runtime boundary. derive_tier2!/3
+      # is invoked directly: routing a Tier-1 vendor through the Tier-2
+      # derive is exactly what the guard exists to forbid (never assert
+      # unverified capability — §5.10 U4). A Tier-1 vendor's own __using__
+      # expands derive_tier1!, so the direct call is the reachable form.
+      id = :erlang.unique_integer([:positive])
+      {tier1_base, _dir} = compile_base(id)
+      dir = Path.join(@tmp_dir, "tessera_t2_cross_#{id}")
+      File.rm_rf!(dir)
+      File.mkdir_p!(dir)
+      path = Path.join(dir, "extender.ex")
+
+      assert_raise CompileError, ~r/cross-runtime/, fn ->
+        Code.compile_string(
+          """
+          defmodule Tessera.T2.Cross#{id} do
+            Noizu.Tessera.Component.Extension.derive_tier2!(
+              #{inspect(tier1_base)},
+              [tag: "tsr-holo-t2-cross#{id}"],
+              __ENV__
+            )
+          end
+          """,
+          path
         )
       end
     end

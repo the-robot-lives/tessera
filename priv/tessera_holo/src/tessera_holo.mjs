@@ -970,7 +970,12 @@ function isUnknownActionError(error) {
 
     const message = bitstringText(Maps["get/2"](T.atom("message"), boxed));
 
-    return /\baction\/3\b/.test(String(message));
+    // Dispatcher name: stock Hologram components classify at `action/3`;
+    // canonical-macro (Noizu.Tessera.Component.Extension) modules rename the
+    // dispatcher to `__tessera_action__/3` — substring match covers both
+    // (still gated on a FunctionClauseError struct, so unrelated errors
+    // stay classified as "error").
+    return /action\/3/.test(String(message));
   } catch (_error) {
     return false;
   }

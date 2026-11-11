@@ -12,7 +12,7 @@ import {
   getDescriptor,
   toJs,
 } from "./tessera_holo.mjs";
-import {TesseraHoloElement, defineElement} from "./element.mjs";
+import {TesseraHoloElement, defineElement, extendElement} from "./element.mjs";
 
 export {
   initRuntime,
@@ -23,6 +23,7 @@ export {
   toJs,
   TesseraHoloElement,
   defineElement,
+  extendElement,
 };
 
 export function ensureRuntime() {
@@ -34,6 +35,7 @@ export function ensureRuntime() {
     mountComponent,
     setBus,
     defineElement,
+    extendElement,
     TesseraHoloElement,
   };
 }
