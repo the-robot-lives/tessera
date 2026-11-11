@@ -62,7 +62,8 @@ defmodule NoizuTessera.MixProject do
   defp package do
     [
       name: "noizu_tessera",
-      files: ~w(lib priv mix.exs README.md CHANGELOG.md docs),
+      licenses: ["MIT"],
+      files: ~w(lib priv mix.exs README.md CHANGELOG.md docs LICENSE),
       # priv/js ships the @noizu/tessera-core npm package dir; node_modules is
       # a local install artifact and must never enter the hex tarball.
       exclude_patterns: ["node_modules", "*.contract.generated.mjs"]
