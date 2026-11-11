@@ -6,6 +6,7 @@
  */
 
 export { defineOnce } from "./define.mjs";
+export { extendElement } from "./extend.mjs";
 export { emit, snakeKeysDeep, camelKeysDeep, snakeCaseKey, camelCaseKey } from "./events.mjs";
 export { getBridge, registerEvents, parseTsrOn } from "./bridge.mjs";
 export { behaviors } from "./behaviors.mjs";

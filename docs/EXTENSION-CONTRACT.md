@@ -292,8 +292,9 @@ Rules:
   next-inner layer's content (default content at the bottom of the chain) with
   a `{%super%}` marker; a body without the marker replaces the inner layers'
   content entirely. (`{%super%}` is a tessera template directive lowered per
-  tier — never a Hologram-IR `super`.) `[PENDING TIER-1: the {%super%} marker,
-  like regions themselves (T1-1, T1-10).]`
+  tier — never a Hologram-IR `super`.) Landed Tier 1: brief 2d lowers
+  `{%super%}` to a real ES `super.__region_<name>()` call; brief 2e composes
+  takeover chains in this order at the tag's first definition.
 - Whole-template replacement is allowed and discards all region structure;
   the compiler MUST then warn listing inherited events the new template no
   longer emits and regions that no longer exist. The derived CEM no longer
@@ -457,8 +458,9 @@ over the generated `defoverridable` chain, §5.3; JS: real ES `super`)
 reaches the next layer inward; after the last extension the vendor base
 implementation runs. Region overrides compose the same way
 (§5.4): an outer layer's `slot_template` body renders the next-inner content
-with a `{%super%}` marker, or replaces it entirely without one.
-`[PENDING TIER-1: the {%super%} region marker (T1-1, T1-10).]`
+with a `{%super%}` marker, or replaces it entirely without one. Landed
+Tier 1 (brief 2d): `{%super%}` lowers to `super.__region_<name>()` on the
+composed class chain.
 
 **Conflicts.** Two extensions overriding the same action body or the same
 template region resolve by chain order: the outer layer's body is the
@@ -473,9 +475,14 @@ order, never a hidden last-wins.
 - *Elixir (definition layer of both tiers).* Extensions compose at compile
   time when everything is in one app: the compiler builds the injected
   `base_action/3` dispatch chain in the order above, so the shipped element
-  already contains every layer. `[PENDING TIER-1: chain construction, the
-  priority: option, and the conflict warning — the spike has a
-  single-derivation path only (T1-10).]`
+  already contains every layer. Landed Tier 1 (brief 2e): chain depth walks
+  the `derived_from` spine (`Extension.chain_depth/1`), `priority:` rides the
+  spec, same-depth conflicts get the §5.7 warning from the compile-time
+  sibling registry (`Extension.record_takeover_layer!/2`), and the runtime
+  chain is `Extension.chain_order/1` (depth → priority → module name) —
+  mirrored byte-for-byte by the JS registry comparator. A fresh-tag
+  derivation FROM a takeover layer is a CompileError (layers ship as mixins
+  with no exported class; chain through `:inherit` instead).
 - *JS, pre-define.* A `customElements` tag cannot be redefined, so a JS
   extender layers onto the **definition**, not after it:
   `Tessera.extendElement(tag, mixin)` registers a mixin in a registry held
@@ -483,8 +490,16 @@ order, never a hidden last-wins.
   all registered mixins — **first-registered outermost**, the §6.4 onion
   order — into the single class that is then defined once. Registering for an
   already-defined tag is a dev-mode warn pointing at the post-define paths.
-  `[PENDING TIER-1: registry location on the bridge singleton, composition
-  helper, warn (T1-11).]`
+  Landed Tier 1 (brief 2e): `extendElement(tag, mixin, opts?)` exported from
+  `@noizu/tessera-core`; the queue lives on the bridge singleton
+  (`getBridge().extensions`, one registry across duplicate module copies) with
+  `{depth, priority, module, seq}` coordinates and duplicate-module dedupe;
+  `defineOnce` consumes it at the tag's FIRST definition
+  (`takeExtensionMixins`, innermost → outermost); post-define registration
+  returns `false` + warn-once pointing at behaviors/onAction. Generated
+  takeover layers (Elixir `tag: :inherit`) call `extendElement` with their
+  chain coordinates from the element module's `register()`; a takeover layer
+  exports no element class — the layer IS the mixin.
 - *JS, post-define.* behaviors (§6.5) and `onAction` interceptors (§6.4)
   remain the sanctioned post-define layering: they cannot replace the class,
   they wrap the pipeline and attach per-connection behaviour.
@@ -906,7 +921,7 @@ is confined to the runtime layer. Two rules make that checkable:
 | X-18 | tsr-props reserved-key and method-key skip warnings (existing behavior, pinned) |
 | X-19 | tag-extension chain (D1): a `tag: :inherit` extension registers under the base tag; chain order (dependency → `priority:` → module name) is deterministic; the down-chain dispatch (`base_action/3` on Elixir, ES `super` in JS) falls through every layer to the vendor base; the BASE tag's conformance suite passes on the extended element; two same-depth overrides of one action or region emit the chain-conflict warning |
 | X-20 | case normalization end-to-end (D3): `dispatchAction`/`onAction` accept camel and snake action names and param keys; Elixir receives snake_case; interceptors receive camelCase; a non-round-tripping state key fails compilation |
-| X-21 | JS tag extension: `extendElement(tag, mixin)` composes pre-define mixins first-registered outermost into the single definition; post-define registration warns and points at behaviors/onAction `[PENDING TIER-1]` |
+| X-21 | JS tag extension: `extendElement(tag, mixin)` composes pre-define mixins first-registered outermost into the single definition; post-define registration warns and points at behaviors/onAction — landed Tier 1 (brief 2e); the wrapper-side equivalent is `[PENDING TIER-2 SPIKE]` |
 
 Tier 1 runs the suite against compiled elements (WTR, as the spike does);
 Tier 2 runs it in the Hologram-in-element harness with its init wait. A
@@ -1006,7 +1021,7 @@ rides `extension_api` 2.0.0, not this document.
   names CompileError; unknown/nested-mismatch/duplicate overrides §5.7
   CompileErrors. Slot interaction: regions are compiled-in fragments that MAY
   contain `<slot>`s (not DOM slots themselves). Multi-layer chain composition
-  of overrides rides T1-10.
+  of overrides landed with T1-10 (brief 2e).
 - T1-2 — the Elixir override convention: the injected `base_action/3`
   dispatcher (name/arity confirmation — the working mechanism on Tier 2 per
   the 2026-11-11 spike finding, since Hologram's IR has no `super`);
@@ -1038,11 +1053,18 @@ rides `extension_api` 2.0.0, not this document.
 - T1-8 — form participation (`formAssociated`) implementation.
 - T1-9 — derived-element artifact set; whether `js:` may be omitted when the
   base wrapper is shareable.
-- T1-10 — extension-chain construction (D1): dependency order + `priority:`
-  + module-name tiebreak; the `{%super%}` region marker; chain-conflict
-  warnings; conformance re-run of the base tag on the extended element (§5.9).
-- T1-11 — `extendElement` registry: location beside `defineOnce`, pre-define
-  mixin composition (first-registered outermost), post-define warn (§5.9).
+- T1-10 — resolved (brief 2e): extension-chain construction (D1) — chain
+  depth from the `derived_from` spine, `priority:` on `use`, the module-name
+  tiebreak (`Extension.chain_order/1`, mirrored by the JS registry
+  comparator); `{%super%}` region composition rides the 2d class chain;
+  §5.7 chain-conflict warnings from the compile-time sibling registry
+  (`record_takeover_layer!/2`); the base tag's conformance suite re-run on
+  the extended element (X-19 replays the pipeline bodies verbatim on the
+  takeover fixture).
+- T1-11 — resolved (brief 2e): `extendElement` registry beside `defineOnce`
+  (queue on the bridge singleton), pre-define mixin composition
+  (first-registered outermost at the tag's first definition), post-define
+  warn-once pointing at behaviors/onAction (§5.9).
 
 **[PENDING TIER-2 SPIKE]** (the branch has the `Emit` host-bridge seam and two
 stock Hologram components; no wrapper runtime or notes yet):

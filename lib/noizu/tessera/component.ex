@@ -947,6 +947,15 @@ defmodule Noizu.Tessera.Component do
       region_overrides: (lit.template && lit.template[:region_overrides]) || []
     }
 
+    # Chain-conflict warning (§5.7, brief 2e): record this `tag: :inherit`
+    # layer beside its already-compiled same-tag siblings; a same-depth
+    # sibling overriding one of the same action bodies or template regions
+    # warns naming both modules and the §5.9 winner. Second sibling warns;
+    # compile order never hides the conflict.
+    if Extension.takeover?(spec) do
+      Extension.record_takeover_layer!(spec, env)
+    end
+
     body =
       if Adapter.available?() do
         Adapter.body_ast(spec, Path.dirname(env.file))

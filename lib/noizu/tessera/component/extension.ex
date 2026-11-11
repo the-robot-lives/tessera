@@ -20,6 +20,12 @@ defmodule Noizu.Tessera.Component.Extension do
       checks re-run over the MERGED spec (the caller runs `validate_all!`);
     * `check_pin!/3` — the §8 extension-api semver pin (major mismatch raises,
       minor-range mismatch warns);
+    * chain construction (§5.9, brief 2e) — `takeover?/1`, `chain_depth/1`,
+      `chain_order/1` (dependency depth → `priority:` → module name,
+      innermost first — the mirror of the JS registry comparator),
+      `record_takeover_layer!/2` (the app-wide sibling registry + the §5.7
+      chain-conflict warning), and `artifact_stem/1` so sibling takeover
+      layers never clobber each other's base-tag-keyed artifacts (§5.8);
     * dispatcher generation — `base_init/2,3` (init hooks) and the
       `base_action/3` scaffolding Tier 2 consumes. Hologram's IR has no
       `super`, so the Elixir down-call is an injected dispatcher, never
@@ -138,8 +144,13 @@ defmodule Noizu.Tessera.Component.Extension do
   end
 
   defp resolve_tag!(:inherit, base_spec, caller) do
-    # Single-level takeover: register under the base tag in the extending app.
-    # The full multi-layer chain (priority order, conflict warnings) is brief 2e.
+    # D1 tag takeover (§5.9): the extension registers under the BASE tag and
+    # is a LAYER of it, never a replacement. Layers compose deterministically
+    # (chain_depth → priority: → module name, `chain_order/1`); same-depth
+    # conflicts on one action/region name get the §5.7 warning from
+    # `record_takeover_layer!/2` (called by `Component.__before_compile__`),
+    # and the runtime chain is composed by the JS registry at the tag's first
+    # define (priv/js/src/extend.mjs). `priority:` orders same-depth siblings.
     guard_inherit_location!(base_spec, caller)
     {base_spec.tag, true}
   end
@@ -155,6 +166,21 @@ defmodule Noizu.Tessera.Component.Extension do
           "tessera derived tag #{inspect(tag)} equals the base tag — a fresh tag must " <>
             "differ from the base (EXTENSION-CONTRACT.md §5.9); use `tag: :inherit` " <>
             "for a tag takeover"
+    end
+
+    # A takeover layer compiles to a registry MIXIN (no exported class,
+    # §5.9/§5.8) — a fresh-tag derivation would emit an element module
+    # importing a class that does not exist. Chain takeover layers through
+    # `:inherit` (dependency order comes from the `use` spine, §5.9).
+    if takeover?(base_spec) do
+      raise CompileError,
+        file: caller.file,
+        line: caller.line,
+        description:
+          "tessera cannot mint a fresh tag from the tag-takeover layer " <>
+            "#{inspect(base_spec.module)} (which takes over #{inspect(base_spec.tag)}) — " <>
+            "takeover layers ship as mixins with no exported base class to extend " <>
+            "(EXTENSION-CONTRACT.md §5.9); derive from the vendor base module instead"
     end
 
     {tag, false}
@@ -200,9 +226,14 @@ defmodule Noizu.Tessera.Component.Extension do
   end
 
   # js defaults to the derived tag's snake wrapper. A fresh tag always gets its
-  # own wrapper; :inherit reuses the base tag's naming in the extending app.
-  defp resolve_js!(nil, tag, _base_spec, _inherit?, _caller),
+  # own wrapper; a takeover (:inherit) registers under the BASE tag, so every
+  # sibling's default would name the same file — suffix the declaring module
+  # to keep one wrapper per layer (§5.8; same suffix rule as `artifact_stem/1`).
+  defp resolve_js!(nil, tag, _base_spec, false, _caller),
     do: String.replace(tag, "-", "_") <> ".mjs"
+
+  defp resolve_js!(nil, tag, _base_spec, true, caller),
+    do: String.replace(tag, "-", "_") <> "_" <> module_slug(caller.module) <> ".mjs"
 
   defp resolve_js!(js, _tag, _base_spec, _inherit?, caller) when is_binary(js) do
     unless Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.mjs$/, js) do
@@ -264,6 +295,133 @@ defmodule Noizu.Tessera.Component.Extension do
 
   defp put_opt(opts, _key, nil), do: opts
   defp put_opt(opts, key, value), do: opts ++ [{key, value}]
+
+  # -- chain construction (brief 2e, EXTENSION-CONTRACT.md §5.9) ----------------
+
+  @doc """
+  True when `spec` is a `tag: :inherit` tag-takeover: it derives from another
+  module AND registers under the BASE tag. Fresh tags MUST differ from the
+  base tag (`resolve_tag!/3`), so `derived_from` + tag equality is exactly the
+  takeover condition — no extra spec field, and goldens/manifests for
+  fresh-tag specs are untouched.
+  """
+  @spec takeover?(Spec.t()) :: boolean()
+  def takeover?(%Spec{derived_from: nil}), do: false
+
+  def takeover?(%Spec{derived_from: mod, tag: tag}) when is_atom(mod) do
+    mod.__tessera_spec__().tag == tag
+  end
+
+  @doc """
+  Layers above the vendor base along the `derived_from` spine (§5.9 dependency
+  order): `0` for a fresh component, `1` for the first `:inherit` layer, and so
+  on. A cycle cannot reach here — `guard_cycle!/2` rejects it at expansion.
+  """
+  @spec chain_depth(Spec.t()) :: non_neg_integer()
+  def chain_depth(%Spec{derived_from: nil}), do: 0
+  def chain_depth(%Spec{derived_from: mod}) when is_atom(mod),
+    do: 1 + chain_depth(mod.__tessera_spec__())
+
+  @doc """
+  Sorts takeover-chain layer descriptors INNERMOST → OUTERMOST per §5.9:
+  dependency `depth` first, then `priority:` (higher sits further out), then
+  module name ascending (alphabetically-first sits closer to the base). The
+  outermost layer runs first and wins conflicts. Entries are maps with
+  `:depth`, `:priority` and `:module` (string). This is the compile-time
+  mirror of `priv/js/src/extend.mjs`'s comparator (which adds a
+  first-registered-outermost fallback for unlabelled hand-written mixins).
+  """
+  @spec chain_order([map()]) :: [map()]
+  def chain_order(entries),
+    do: Enum.sort_by(entries, fn e -> {e.depth, e.priority, e.module} end)
+
+  @doc """
+  The artifact filename STEM for a spec. Fresh and fresh-tag-derived specs
+  keep the plain tag (byte-stable goldens). A takeover layer registers under
+  the BASE tag (§5.8), and sibling layers would otherwise clobber each other's
+  base-tag-keyed element/contract files — so takeover artifacts carry the
+  declaring module: `<base-tag>__<module_snake>`.
+  """
+  @spec artifact_stem(Spec.t()) :: String.t()
+  def artifact_stem(%Spec{tag: tag} = spec) do
+    if takeover?(spec), do: tag <> "__" <> module_slug(spec.module), else: tag
+  end
+
+  @doc "snake form of `artifact_stem/1` (contract filenames)."
+  @spec snake_stem(Spec.t()) :: String.t()
+  def snake_stem(%Spec{} = spec), do: String.replace(artifact_stem(spec), "-", "_")
+
+  defp module_slug(mod) when is_atom(mod) do
+    case Module.split(mod) do
+      [] -> "ext"
+      parts -> parts |> List.last() |> Macro.underscore()
+    end
+  end
+
+  defp module_slug(_), do: "ext"
+
+  defp module_label(mod) when is_atom(mod) do
+    mod |> Module.split() |> Enum.join(".")
+  end
+
+  defp module_label(mod), do: inspect(mod)
+
+  @doc """
+  Records a compiled `tag: :inherit` layer in the app-wide sibling registry
+  and emits the §5.7 CHAIN-CONFLICT warning for every same-depth sibling that
+  overrides an action body or a template region this layer also overrides.
+  Called from `Component.__before_compile__/1` once the merged spec exists:
+  whichever sibling compiles SECOND sees the first and warns (compile order
+  never hides the conflict). The chain itself needs no re-ordering here —
+  depth/priority ride each spec + the JS registry entries, and the runtime
+  composition IS `chain_order/1` at define time.
+
+  The registry lives in `:persistent_term` keyed by the BASE TAG: it must
+  outlive any single module's compile (siblings expand in separate rounds)
+  and one re-compiling module never warns against itself.
+  """
+  @spec record_takeover_layer!(Spec.t(), Macro.Env.t()) :: :ok
+  def record_takeover_layer!(%Spec{} = spec, %Macro.Env{} = env) do
+    entry = %{
+      module: module_label(spec.module),
+      depth: chain_depth(spec),
+      priority: spec.priority || 0,
+      actions:
+        spec.actions
+        |> Enum.reject(& &1[:inherited])
+        |> Enum.map(&Atom.to_string(&1.name))
+        |> MapSet.new(),
+      regions: spec.region_overrides |> Enum.map(&Atom.to_string(&1)) |> MapSet.new()
+    }
+
+    key = {:tessera_takeover_layers, spec.tag}
+    siblings = :persistent_term.get(key, [])
+
+    for other <- siblings, other.depth == entry.depth, other.module != entry.module do
+      warn_chain_conflict(spec, entry, other, env, "action(s)", MapSet.intersection(entry.actions, other.actions))
+      warn_chain_conflict(spec, entry, other, env, "region(s)", MapSet.intersection(entry.regions, other.regions))
+    end
+
+    :persistent_term.put(key, siblings ++ [entry])
+    :ok
+  end
+
+  defp warn_chain_conflict(%Spec{tag: tag}, entry, other, env, label, names) do
+    unless MapSet.size(names) == 0 do
+      [inner, outer] = chain_order([entry, other])
+
+      IO.warn(
+        "[tessera] chain conflict on <#{tag}>: #{outer.module} and #{inner.module} (same depth " <>
+          "#{entry.depth}) override the same #{label}: #{names |> MapSet.to_list() |> Enum.sort() |> Enum.join(", ")} — " <>
+          "#{outer.module} sits outermost by §5.9 chain order and WINS; #{inner.module} stays " <>
+          "silent until the dispatch goes down-chain (`base_action/3` / JS `super`) " <>
+          "(EXTENSION-CONTRACT.md §5.7)",
+        Macro.Env.location(env)
+      )
+    end
+
+    :ok
+  end
 
   # -- merged spec -------------------------------------------------------------
 
