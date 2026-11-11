@@ -22,4 +22,17 @@ defmodule Tessera.TestFixtures.PersonaCard do
   slot("header")
   slot("footer")
   cy("persona-card-root")
+
+  # Styles DSL (spec-only component: flows to the manifest + CEM theming
+  # declarations; no generated element). Two tag-scoped var() reads pin the
+  # CEM cssCustomProperties shape; the shared entry pins the manifest shape.
+  styles([
+    ~CSS"""
+    :host {
+      color: var(--tsr-persona-card-accent, #6cf);
+      gap: var(--tsr-persona-card-gap, 4px);
+    }
+    """,
+    {:shared, "./persona_card_shared.mjs"}
+  ])
 end

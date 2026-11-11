@@ -8,6 +8,15 @@ import contract from "./spike_widget.contract.generated.mjs";
 // nil-safe interpolation helper (renders nothing for null/undefined).
 const __t = (v) => (v == null ? undefined : v);
 
+// Tessera base styles — the fixed :host defaults every element inherits
+// (first entry of the composed static styles array).
+const baseStyles = css`
+:host {
+  display: block;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+`;
+
 class SpikeWidget extends TesseraElement(LitElement, contract) {
   static properties = {
       count: { type: Number },
@@ -15,17 +24,18 @@ class SpikeWidget extends TesseraElement(LitElement, contract) {
       items: { type: Object },
     };
 
-  static styles = css`
-  :host {
-    display: block;
-    font-family: system-ui, -apple-system, sans-serif;
-  }
-  `;
+  static styles = [baseStyles];
 
   constructor() {
     super();
         this.count = 0;
         this.label = "Count";
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    // Theming contract (EXTENSION-CONTRACT.md §7): the host exposes a root part.
+    this.setAttribute("part", "root");
   }
 
   // Snapshot of the declared state keys (actions read state, return the

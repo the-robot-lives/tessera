@@ -2,10 +2,13 @@ defmodule SpikeKit do
   @moduledoc """
   SpikeKit — SPIKE component package (`spike/elixir-to-lit`).
 
-  Both components are defined **fully in Elixir** — `state` + `template
-  ~TSR` + `action` — and compiled at `mix compile` time into real Lit
-  custom elements (`*.element.generated.mjs`) plus their contract modules
-  and `:js` entry wrappers. No hand-written JS anywhere in this package.
+  All components are defined **fully in Elixir** — `state` + `template
+  ~TSR` + `action` (and `styles` for the styles-DSL fixture) — and compiled
+  at `mix compile` time into real Lit custom elements
+  (`*.element.generated.mjs`) plus their contract modules and `:js` entry
+  wrappers. No hand-written JS anywhere in this package (the shared style
+  module `shared_styles.mjs` is the one deliberate exception — it is the
+  Lit shared-styles pattern the DSL imports).
 
   Hosts depend on this package and run `mix tessera.install` once (same
   flow as PersonaKit); the elements also load directly as ESM or UMD in
@@ -15,5 +18,5 @@ defmodule SpikeKit do
   """
 
   use Noizu.Tessera.Package,
-    components: [SpikeKit.Counter, SpikeKit.ToggleChip]
+    components: [SpikeKit.Counter, SpikeKit.ToggleChip, SpikeKit.StylesPanel]
 end

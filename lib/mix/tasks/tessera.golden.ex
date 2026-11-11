@@ -7,7 +7,9 @@ defmodule Mix.Tasks.Tessera.Golden do
 
     * `persona_card.contract.golden.mjs` — the generated JS contract module
       (CONTRACT.md §2), the wire interface every consumer compiles against;
-    * `persona_card.cem.json` — the Custom Elements Manifest golden.
+    * `persona_card.cem.json` — the Custom Elements Manifest golden;
+    * `spike_widget.element.golden.mjs` — the generated Lit element module
+      (from the same hand-built spec LitCodegenTest pins).
 
   The ExUnit suite compares generator output against these files byte-for-byte
   and FAILS when they are missing or stale — it never bootstraps them (a
@@ -31,11 +33,13 @@ defmodule Mix.Tasks.Tessera.Golden do
   use Mix.Task
 
   alias Noizu.Tessera.Codegen
+  alias Noizu.Tessera.Component.LitCodegen
 
-  # The fixture spec lives in test/support (test env only), so this module
-  # compiles in :dev with the fixture undefined — suppress the static-call
-  # warning and rely on the runtime guard below for a friendly error.
+  # The fixture specs live in test/support (test env only), so this module
+  # compiles in :dev with the fixtures undefined — suppress the static-call
+  # warnings and rely on the runtime guard below for a friendly error.
   @compile {:no_warn_undefined, Tessera.TestFixtures.PersonaCard}
+  @compile {:no_warn_undefined, Tessera.TestFixtures.SpikeWidgetSpec}
 
   @switches [check: :boolean]
 
@@ -57,19 +61,24 @@ defmodule Mix.Tasks.Tessera.Golden do
     dir = Path.expand("test/fixtures", File.cwd!())
     contract_path = Path.join(dir, "persona_card.contract.golden.mjs")
     cem_path = Path.join(dir, "persona_card.cem.json")
+    element_path = Path.join(dir, "spike_widget.element.golden.mjs")
 
     contract = Codegen.contract_module(spec)
     cem = Jason.encode!(Codegen.cem([spec]), pretty: true) <> "\n"
+    element = LitCodegen.element_module(Tessera.TestFixtures.SpikeWidgetSpec.spec())
 
     if opts[:check] do
       check_golden(contract_path, contract, "contract module")
       check_golden(cem_path, cem, "CEM")
+      check_golden(element_path, element, "element module")
     else
       File.write!(contract_path, contract)
       File.write!(cem_path, cem)
+      File.write!(element_path, element)
 
       Mix.shell().info("tessera: regenerated #{contract_path}")
       Mix.shell().info("tessera: regenerated #{cem_path}")
+      Mix.shell().info("tessera: regenerated #{element_path}")
 
       Mix.shell().info(
         "tessera: REVIEW the diff against CONTRACT.md §2 before committing — " <>

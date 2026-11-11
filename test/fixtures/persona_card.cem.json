@@ -19,6 +19,16 @@
               }
             }
           ],
+          "cssCustomProperties": [
+            {
+              "default": "#6cf",
+              "name": "--tsr-persona-card-accent"
+            },
+            {
+              "default": "4px",
+              "name": "--tsr-persona-card-gap"
+            }
+          ],
           "customElements": false,
           "description": "tessera component persona-card (spec: Tessera.TestFixtures.PersonaCard)",
           "events": [
@@ -75,6 +85,7 @@
             }
           ],
           "name": "persona-card",
+          "parts": [],
           "slots": [
             {
               "name": "header"

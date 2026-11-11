@@ -275,6 +275,131 @@ defmodule Noizu.Tessera.ComponentTest do
     end
   end
 
+  describe "styles DSL" do
+    @styles_opts ~s(tag: "styles-probe", js: "styles_probe.mjs")
+
+    test "records a single plain-string entry" do
+      mod = compile_source(@styles_opts, ~s(styles ":host { color: red; }"))
+
+      assert [%{kind: :css, value: ":host { color: red; }", line: line}] =
+               mod.__tessera_spec__().styles
+
+      assert is_integer(line)
+    end
+
+    test "records a ~CSS sigil block" do
+      mod =
+        compile_source(
+          @styles_opts,
+          ~s|styles ~CSS":host{color:var(--tsr-styles-probe-accent, #6cf)}"|
+        )
+
+      assert [%{kind: :css, value: ":host{color:var(--tsr-styles-probe-accent, #6cf)}"}] =
+               mod.__tessera_spec__().styles
+    end
+
+    test "composes a static list in declaration order (css, string, shared)" do
+      mod =
+        compile_source(
+          @styles_opts,
+          ~s(styles [~CSS"a{}", "b{}", {:shared, "./shared_styles.mjs"}])
+        )
+
+      assert Enum.map(mod.__tessera_spec__().styles, &{&1.kind, &1.value}) == [
+               {:css, "a{}"},
+               {:css, "b{}"},
+               {:shared, "./shared_styles.mjs"}
+             ]
+    end
+
+    test "repeated styles declarations append in order" do
+      mod =
+        compile_source(@styles_opts, """
+        styles "a{}"
+        styles [{:shared, "./s.mjs"}, "b{}"]
+        """)
+
+      assert Enum.map(mod.__tessera_spec__().styles, & &1.value) == ["a{}", "./s.mjs", "b{}"]
+    end
+
+    test "manifest exposes the styles entries" do
+      mod =
+        compile_source(@styles_opts, ~s(styles [~CSS"a{}", {:shared, "./s.mjs"}]))
+
+      assert mod.__tessera_manifest__()["styles"] == [
+               %{"kind" => "css", "value" => "a{}"},
+               %{"kind" => "shared", "value" => "./s.mjs"}
+             ]
+    end
+
+    test "styles without a template compile (spec-only theming declarations)" do
+      mod = compile_source(@styles_opts, ~s(styles "a{}"))
+      spec = mod.__tessera_spec__()
+      assert spec.template == nil
+      assert [%{kind: :css}] = spec.styles
+    end
+
+    test "styles with a template reach the generated element module" do
+      mod =
+        compile_source(@styles_opts, """
+        styles [~CSS".x{color:var(--tsr-styles-probe-accent, #6cf)}", {:shared, "./shared_styles.mjs"}]
+        template ~TSR"<div class=\\\"x\\\"></div>"
+        """)
+
+      spec = mod.__tessera_spec__()
+      dir = Path.dirname(spec.file)
+      element = File.read!(Path.join(dir, "styles-probe.element.generated.mjs"))
+
+      assert element =~ "static styles = ["
+      assert element =~ "baseStyles"
+      assert element =~ ".x{color:var(--tsr-styles-probe-accent, #6cf)}"
+      assert element =~ ~s|import { styles as __tsrSharedStyles0 } from "./shared_styles.mjs";|
+      assert element =~ ~s|this.setAttribute("part", "root");|
+    end
+
+    test "non-literal styles entries raise with a pointed message" do
+      assert_raise CompileError, ~r/styles entries must be/, fn ->
+        compile_source(@styles_opts, "some_var = \"a{}\"\nstyles some_var")
+      end
+    end
+
+    test "an empty css string raises" do
+      assert_raise CompileError, ~r/non-empty string/, fn ->
+        compile_source(@styles_opts, ~s(styles ""))
+      end
+    end
+
+    test "an empty styles list raises" do
+      assert_raise CompileError, ~r/styles list is empty/, fn ->
+        compile_source(@styles_opts, "styles []")
+      end
+    end
+
+    test "a tag-scoped var() read without a fallback raises, naming the property" do
+      assert_raise CompileError, ~r/--tsr-styles-probe-accent.*must carry a fallback/s, fn ->
+        compile_source(@styles_opts, ~s|styles ~CSS"a{color:var(--tsr-styles-probe-accent)}"|)
+      end
+    end
+
+    test "an unbalanced var( raises a line-accurate CompileError" do
+      assert_raise CompileError, ~r/unbalanced var/, fn ->
+        compile_source(@styles_opts, ~s|styles ~CSS"a{color:var(--tsr-styles-probe-a, 1px}"|)
+      end
+    end
+
+    test "a non-string shared path raises" do
+      assert_raise CompileError, ~r/styles entries must be/, fn ->
+        compile_source(@styles_opts, "styles {:shared, 123}")
+      end
+    end
+
+    test "an unknown entry shape raises" do
+      assert_raise CompileError, ~r/styles entries must be/, fn ->
+        compile_source(@styles_opts, "styles :nope")
+      end
+    end
+  end
+
   describe "package macro" do
     test "exposes components/0 and manifest/0" do
       assert Tessera.TestFixtures.Package.components() == [Tessera.TestFixtures.PersonaCard]
