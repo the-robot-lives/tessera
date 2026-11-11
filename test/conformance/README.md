@@ -75,8 +75,16 @@ Handle = {
   win,         // the host window (customElements, document, Hologram stub…)
   waitFor(fn, timeout?),              // poll until fn() is truthy
   nextEvent(name, node?, timeout?),   // resolve the next event's detail
+  settle(),                           // await the committed re-render
 }
 ```
+
+`settle()` is the tier-agnostic render fence (EXTENSION-CONTRACT §9): the
+shared X-family bodies never touch `el.updateComplete` (a Lit affordance) or
+Lit class fields directly — Tier 1 awaits `updateComplete`, Tier 2 flushes a
+microtask + macrotask (its commit point renders synchronously inside
+dispatch). Bodies also avoid snapshot KEY ORDER (§6.2 does not mandate it —
+compare sorted) and read state through `el.state`, never element properties.
 
 Fixtures: `counter` (both tiers — Tier-1 `tsr-conf-counter`, Tier-2
 `tsr-holo-counter`; identical surface: `holo-counter-inc`/`-count` hooks,
@@ -85,10 +93,15 @@ Fixtures: `counter` (both tiers — Tier-1 `tsr-conf-counter`, Tier-2
 with the feature briefs.
 
 **Compiled-DSL fixtures (Tier-1 only, brief 4b case-fill):** `state`,
-`template`, `styles`, `slots` — REAL Lit elements generated from the Elixir
+`template`, `styles`, `slots`, `pipeline` — REAL Lit elements generated from the Elixir
 element DSL (`test/support/conformance/*.ex` → `LitCodegen`), committed under
 `js/test/fixtures/conformance/`. They exercise the landed Tier-1 surface
-(reactive state, template expressions, the styles DSL, shadow slots).
+(reactive state, template expressions, the styles DSL, shadow slots, the §6
+action pipeline). `pipeline` ALSO has a Tier-2 mount: `HoloKit.Components.
+PipelineProbe` (`<tsr-holo-pipeline-probe>`, examples/holo_kit) is the
+behavioral mirror — same state keys, same `bump`/`select_item`/`seed_cache
+(internal: true)` semantics — so the shared X-05…X-11/X-20 bodies run on both
+engines (§9). The other four stay Tier-1-only until their Tier-2 fixtures land.
 Regenerate after a DSL/codegen change, then review the diff:
 
 ```bash

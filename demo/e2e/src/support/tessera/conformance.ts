@@ -7,7 +7,7 @@
 // priv/tessera_holo runtime.
 //
 // Mount handle contract (identical to Tier 1 — see test/conformance/README.md):
-//   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?) }
+//   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?), settle() }
 //
 // Case bodies are pure DOM + awaited plain promises (no cy commands inside a
 // case), so the shared Tier-1 bodies run here unchanged. The window is captured
@@ -26,13 +26,20 @@ export type ConformanceHandle = {
   win: Window;
   waitFor: (fn: () => boolean, timeout?: number) => Promise<void>;
   nextEvent: (name: string, node?: EventTarget, timeout?: number) => Promise<any>;
+  settle: () => Promise<void>;
 };
 
-// Tier-2 fixture tags. Only the counter fixture is wired today; the props /
-// events fixtures (and the rest of the surface) land with the feature briefs,
-// so those cases are adapter-pending on Tier 2.
+// Tier-2 fixture tags. The shared counter (C/T/E family) + the state probe
+// (extension-contract X-03) + the pipeline probe (HoloKit.Components.
+// PipelineProbe — the exact Hologram mirror of the Tier-1 `tsr-conf-pipeline`
+// fixture: same state keys, same bump/select_item/seed_cache semantics, same
+// internal: annotation) — the shared X-05…X-11/X-20 bodies mount "pipeline".
+// Cases outside these fixtures are adapter-pending on Tier 2 (their fixtures
+// land with the remaining feature briefs).
 const FIXTURES: Record<string, string> = {
   counter: "tsr-holo-counter",
+  state: "tsr-holo-state-probe",
+  pipeline: "tsr-holo-pipeline-probe",
 };
 
 let ctx: {win: Window} | null = null;
@@ -105,7 +112,21 @@ export function mount(spec: {fixture: string; attrs?: Record<string, string>}): 
     const wait = () => {
       const sr = el.shadowRoot;
       if (sr) {
-        resolve({el, tag, shadowRoot: sr, win, waitFor: makeWaitFor(win), nextEvent: makeNextEvent(win)});
+        // Tier-agnostic settle (§9): Tier 2 renders SYNCHRONOUSLY at the
+        // commit point (after Hologram.render() in #processActionResult), so
+        // a microtask + macrotask flush is the equivalent of Tier 1 awaiting
+        // el.updateComplete.
+        const settle = () =>
+          new Promise<void>((resolve) => win.setTimeout(() => void resolve(), 0));
+        resolve({
+          el,
+          tag,
+          shadowRoot: sr,
+          win,
+          waitFor: makeWaitFor(win),
+          nextEvent: makeNextEvent(win),
+          settle,
+        });
       } else if (Date.now() - start > 15_000) {
         reject(new Error(`conformance: <${tag}> never mounted a shadow root`));
       } else {

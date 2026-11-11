@@ -11,7 +11,7 @@
 // land with the feature briefs; until then those cases are pending.
 //
 // Mount handle contract (both tiers satisfy it — see test/conformance/README.md):
-//   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?) }
+//   { el, tag, shadowRoot, win, waitFor(fn, timeout?), nextEvent(name, node?, timeout?), settle() }
 
 import {expect} from "@open-wc/testing";
 import {TesseraElement} from "../../priv/js/src/element.mjs";
@@ -190,6 +190,12 @@ export async function mount(spec) {
     win: window,
     waitFor,
     nextEvent,
+    // Tier-agnostic settle (§9): Lit re-renders are scheduled — await
+    // updateComplete so DOM assertions see the committed state.
+    settle: async () => {
+      if (el.updateComplete) await el.updateComplete;
+      await Promise.resolve();
+    },
   };
 }
 
