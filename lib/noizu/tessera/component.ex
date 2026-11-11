@@ -51,6 +51,9 @@ defmodule Noizu.Tessera.Component do
   `template/0` — do not define them by hand.
   """
 
+  alias Noizu.Tessera.Component.Expr
+  alias Noizu.Tessera.Component.LitCodegen
+  alias Noizu.Tessera.Component.Template
   alias Noizu.Tessera.Hologram.Adapter
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Spec
@@ -86,6 +89,12 @@ defmodule Noizu.Tessera.Component do
       Module.register_attribute(__MODULE__, :tessera_parts, accumulate: true)
       Module.register_attribute(__MODULE__, :tessera_cy, accumulate: true)
 
+      # SPIKE (spike/elixir-to-lit): element-DSL accumulators — `state`,
+      # `action` and the single `template ~TSR` declaration.
+      Module.register_attribute(__MODULE__, :tessera_state, accumulate: true)
+      Module.register_attribute(__MODULE__, :tessera_actions, accumulate: true)
+      Module.register_attribute(__MODULE__, :tessera_template, accumulate: true)
+
       # Hologram component plumbing (hologram mode only): `use Hologram.JS`
       # registers the @__js_imports__ accumulator; the import RESTATES
       # js_import/1-2 alongside call/2 because a second only-import of the
@@ -111,12 +120,32 @@ defmodule Noizu.Tessera.Component do
       css: 1,
       css: 2,
       part: 1,
-      cy: 1
+      cy: 1,
+      state: 2,
+      state: 3,
+      template: 1,
+      action: 2,
+      sigil_TSR: 2
     ]
 
   defp import_list(true),
     # prop/2-3 come from Hologram.Component's import when Hologram is loaded.
-    do: [attr: 2, attr: 3, event: 1, event: 2, slot: 1, css: 1, css: 2, part: 1, cy: 1]
+    do: [
+      attr: 2,
+      attr: 3,
+      event: 1,
+      event: 2,
+      slot: 1,
+      css: 1,
+      css: 2,
+      part: 1,
+      cy: 1,
+      state: 2,
+      state: 3,
+      template: 1,
+      action: 2,
+      sigil_TSR: 2
+    ]
 
   defp hologram_asts(false, _mjs_path), do: []
 
@@ -177,6 +206,89 @@ defmodule Noizu.Tessera.Component do
   defmacro cy(hook) do
     record_ast(:cy, hook, nil, [], __CALLER__)
   end
+
+  # -- SPIKE element DSL (spike/elixir-to-lit) ---------------------------------
+  #
+  # `state` / `template ~TSR` / `action` extend the wire-contract DSL into a
+  # full element definition: state keys become reactive properties, the
+  # template compiles to a lit-html `render()`, and actions are translated
+  # from a restricted Elixir subset to JS at compile time (never compiled
+  # into the BEAM — Hologram's call-graph transpiler never sees them).
+  # docs/notes/spike-elixir-to-lit.md.
+
+  @doc false
+  @spec state(Macro.t(), Macro.t(), Macro.t()) :: Macro.t()
+  defmacro state(name, type, opts \\ []) do
+    record_ast(:state, name, type, opts, __CALLER__)
+  end
+
+  @doc false
+  # Accepts a ~TSR sigil call (macros receive the sigil's UNEXPANDED call
+  # AST), a plain string literal or a bare binary (literals are their own
+  # AST). The markup is recorded as DATA, unescaped: it is parsed at
+  # __before_compile__, never evaluated.
+  #
+  # `~TSR"""..."""` arrives in macro arguments as the UNEXPANDED
+  # `sigil_TSR/2` call AST whose binary arg is a {:<<>>, _, [s]} node (the
+  # ~ sigil sugar desugars before expansion). The shared body lives in
+  # template_record_ast/2, a plain defp that BUILDS the quote — a defmacrop
+  # called from another macro's body would expand at definition time
+  # instead of invocation time.
+  @spec template(Macro.t()) :: Macro.t()
+  defmacro template({:sigil_TSR, _, [{:<<>>, _, [markup]}, modifiers]})
+           when is_binary(markup) and modifiers == [],
+           do: template_record_ast(__CALLER__, markup)
+
+  defmacro template(markup) when is_binary(markup),
+    do: template_record_ast(__CALLER__, markup)
+
+  defmacro template({:<<>>, _meta, [markup]}) when is_binary(markup),
+    do: template_record_ast(__CALLER__, markup)
+
+  defmacro template(other) do
+    caller = __CALLER__
+
+    raise CompileError,
+      file: caller.file,
+      line: caller.line,
+      description:
+        "tessera template must be a ~TSR literal (or plain string literal), got: " <>
+          Macro.to_string(other)
+  end
+
+  defp template_record_ast(%Macro.Env{} = caller, markup) when is_binary(markup) do
+    quote bind_quoted: [consumer: caller.module, markup: markup, line: caller.line, file: caller.file] do
+      Noizu.Tessera.Component.record(consumer, :template, markup, nil, [], line, file, false)
+    end
+  end
+
+  @doc false
+  # The fn AST is escaped as DATA (Macro.escape) — at __before_compile__ it is
+  # translated to JS by Noizu.Tessera.Component.Expr, never evaluated.
+  @spec action(Macro.t(), Macro.t()) :: Macro.t()
+  defmacro action(name, fn_ast) do
+    caller = __CALLER__
+
+    quote bind_quoted: [
+            consumer: caller.module,
+            name: name,
+            fn_ast: Macro.escape(fn_ast),
+            line: caller.line,
+            file: caller.file
+          ] do
+      Noizu.Tessera.Component.record(consumer, :action, name, fn_ast, [], line, file, false)
+    end
+  end
+
+  @doc false
+  # `~TSR"""..."""` — raw tessera template markup (HOLO-like `{expr}` /
+  # `{%if}` / `{%for}` / `$event={:action}`), passed through verbatim to
+  # `template/1`. Deliberately NOT `~HOLO`: that sigil is imported by
+  # `use Hologram.Component` for the page-level Hologram template, and a
+  # second import of the same name in a component module would collide.
+  @spec sigil_TSR({:<<>>, list(), [String.t()]}, list()) :: Macro.t()
+  defmacro sigil_TSR({:<<>>, _meta, [markup]}, _modifiers) when is_binary(markup), do: markup
+  defmacro sigil_TSR(markup, _modifiers) when is_binary(markup), do: markup
 
   # Expansion-time builder shared by the DSL macros. A plain function (not a
   # defmacrop) so the AST arguments are ordinary call arguments. Returns code
@@ -304,6 +416,54 @@ defmodule Noizu.Tessera.Component do
     :ok
   end
 
+  # SPIKE (spike/elixir-to-lit): element-DSL sinks. `state` validates like an
+  # attr (snake_case atom + known type, JSON-safe default); `template` /
+  # `action` only record their payload here — translation happens in
+  # __before_compile__ so errors carry the declaration's line.
+  def record(consumer, :state, name, type, opts, line, file, _hologram?) do
+    opts = eval_opts!(opts, :state, name, file, line)
+    Spec.validate!(:state, name, %{type: type}, file, line)
+    assert_json_safe_default!(opts[:default], :state, name, file, line)
+
+    entry = %{name: name, type: type, default: opts[:default], line: line}
+    Module.put_attribute(consumer, :tessera_state, {line, entry})
+    :ok
+  end
+
+  def record(consumer, :template, markup, _type, _opts, line, file, _hologram?) do
+    unless is_binary(markup) and markup != "" do
+      raise CompileError,
+        file: file,
+        line: line,
+        description: "tessera template must be a non-empty ~TSR literal string"
+    end
+
+    Module.put_attribute(consumer, :tessera_template, {line, markup})
+    :ok
+  end
+
+  def record(consumer, :action, name, fn_ast, _opts, line, file, _hologram?) do
+    unless is_atom(name) and Regex.match?(Naming.snake_regex(), Atom.to_string(name)) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description: "tessera action name #{inspect(name)} must be a snake_case atom (e.g. :increment)"
+    end
+
+    unless match?({:fn, _, [{:->, _, [args, _body]}]} when length(args) == 2, fn_ast) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera action #{inspect(name)} must be a single-clause fn with exactly two " <>
+            "arguments — `fn state, params -> ... end` (the restricted subset, " <>
+            "docs/notes/spike-elixir-to-lit.md)"
+    end
+
+    Module.put_attribute(consumer, :tessera_actions, {line, %{name: name, fn_ast: fn_ast, line: line}})
+    :ok
+  end
+
   def record(_consumer, kind, _name, _type, _opts, line, file, _hologram?) do
     raise CompileError,
       file: file,
@@ -329,6 +489,11 @@ defmodule Noizu.Tessera.Component do
 
     validate_all!(attrs, props, events, slots, css_properties, parts, cys, env)
 
+    # SPIKE: translate state/actions/template into the spec (JS strings + the
+    # pre-rendered lit-html render()). Raises CompileError with the DSL
+    # declaration's line on any subset violation.
+    lit = lit_compile!(attrs, props, events, env)
+
     spec = %Spec{
       version: @contract_version,
       tag: Module.get_attribute(env.module, :tessera_tag),
@@ -341,7 +506,10 @@ defmodule Noizu.Tessera.Component do
       events: events,
       slots: slots,
       css_properties: css_properties,
-      parts: parts
+      parts: parts,
+      state: lit.state,
+      actions: lit.actions,
+      template: lit.template
     }
 
     body =
@@ -370,8 +538,12 @@ defmodule Noizu.Tessera.Component do
   @doc false
   defmacro __after_compile__(env, _beam) do
     case Module.get_attribute(env.module, :tessera_compiled_spec) do
-      nil -> :ok
-      %Spec{} = spec -> Adapter.write_contract_next_to_mjs(spec)
+      nil ->
+        :ok
+
+      %Spec{} = spec ->
+        Adapter.write_contract_next_to_mjs(spec)
+        write_lit_modules!(spec, Path.dirname(env.file))
     end
 
     quote(do: :ok)
@@ -407,6 +579,149 @@ defmodule Noizu.Tessera.Component do
 
   defp slot_entries(env) do
     accumulated(env.module, :tessera_slots) |> Enum.map(fn {_line, entry} -> entry end)
+  end
+
+  # -- SPIKE lit assembly (spike/elixir-to-lit) --------------------------------
+
+  # Translate the recorded state/action/template declarations into their spec
+  # shapes: action fn ASTs become JS bodies (restricted subset — anything
+  # outside raises CompileError naming the construct), the template markup
+  # becomes the pre-rendered lit-html render() string.
+  defp lit_compile!(attrs, props, events, env) do
+    state =
+      accumulated(env.module, :tessera_state) |> Enum.map(fn {_line, entry} -> entry end)
+
+    actions_raw =
+      accumulated(env.module, :tessera_actions) |> Enum.map(fn {_line, entry} -> entry end)
+
+    templates = accumulated(env.module, :tessera_template)
+
+    assert_no_duplicates!(:state, state, env)
+    assert_no_action_duplicates!(actions_raw, env)
+
+    template = assert_single_template!(templates, state, actions_raw, env)
+
+    ctx = %Expr{
+      state_keys: MapSet.new(Enum.map(state, & &1.name)),
+      attrs: Map.new(attrs, &{&1.name, &1.type}),
+      props: Map.new(props, &{&1.name, &1.type}),
+      events: MapSet.new(Enum.map(events, & &1.name)),
+      actions: MapSet.new(Enum.map(actions_raw, & &1.name)),
+      module: env.module,
+      file: env.file,
+      line: 0
+    }
+
+    actions =
+      Enum.map(actions_raw, fn entry ->
+        js = Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
+        %{name: entry.name, js: js, line: entry.line}
+      end)
+
+    template_entry =
+      template &&
+        (with {:ok, tree} <- Template.parse(template.markup) do
+           %{
+             raw: template.markup,
+             lexer: Template.lexer(),
+             render_js: Template.to_lit_render(tree, %{ctx | line: template.line}),
+             line: template.line
+           }
+         else
+           {:error, msg} ->
+             raise CompileError,
+               file: env.file,
+               line: template.line,
+               description: "tessera template: " <> msg
+         end)
+
+    %{state: state, actions: actions, template: template_entry}
+  end
+
+  defp assert_single_template!(templates, state, actions_raw, env) do
+    case templates do
+      [] ->
+        if state != [] or actions_raw != [] do
+          raise CompileError,
+            file: env.file,
+            line: 0,
+            description:
+              "tessera state/action declarations require a matching template ~TSR declaration " <>
+                "(the element DSL is all-or-nothing: state + actions + template)"
+        end
+
+        nil
+
+      [{line, markup}] ->
+        js = Module.get_attribute(env.module, :tessera_js)
+
+        if is_nil(js) do
+          raise CompileError,
+            file: env.file,
+            line: line,
+            description:
+              "tessera template requires the :js option (the generated wrapper entry that " <>
+                "bundles the Lit element into Hologram page bundles)"
+        end
+
+        %{line: line, markup: markup}
+
+      many ->
+        raise CompileError,
+          file: env.file,
+          line: elem(hd(many), 0),
+          description:
+            "duplicate tessera template declaration (#{length(many)} times) — " <>
+              "a component has one template"
+    end
+  end
+
+  defp assert_no_action_duplicates!(actions_raw, env) do
+    actions_raw
+    |> Enum.group_by(& &1.name)
+    |> Enum.each(fn {name, group} ->
+      if length(group) > 1 do
+        raise CompileError,
+          file: env.file,
+          line: hd(Enum.map(group, & &1.line)),
+          description:
+            "duplicate tessera action #{inspect(name)} (declared at lines " <>
+              "#{inspect(Enum.map(group, & &1.line))})"
+      end
+    end)
+  end
+
+  # The generated Lit element + its :js entry wrapper, next to the component's
+  # .ex (and contract module). Failures warn (same posture as the contract
+  # write) — a broken write should not kill the compile of unrelated hosts.
+  defp write_lit_modules!(%Spec{template: nil}, _dir), do: :ok
+
+  defp write_lit_modules!(%Spec{} = spec, dir) do
+    case LitCodegen.write_element_module(spec, dir) do
+      {:error, reason} ->
+        IO.warn("[tessera] could not write #{spec.tag}.element.generated.mjs: #{inspect(reason)}", [])
+
+      _ ->
+        :ok
+    end
+
+    case LitCodegen.write_wrapper_module(spec, dir) do
+      {:error, reason} ->
+        IO.warn("[tessera] could not write #{spec.js}: #{inspect(reason)}", [])
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp assert_json_safe_default!(default, kind, name, file, line) do
+    Spec.json_literal(default)
+  rescue
+    e ->
+      raise CompileError,
+        file: file,
+        line: line,
+        description: "tessera #{kind} #{inspect(name)} default: #{Exception.message(e)}"
   end
 
   # Accumulate attributes come out newest-first; reverse so spec entries keep

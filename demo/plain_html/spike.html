@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tessera spike — plain HTML (UMD)</title>
+    <!-- SPIKE (spike/elixir-to-lit): the whole integration is two <script>
+         tags. Each UMD bundle inlines lit + @noizu/tessera-core, merges its
+         exports into window.Tessera.<Component>, and auto-defines the
+         element on load (top-level register() inside the factory). -->
+    <script src="./dist/spike-counter.umd.js"></script>
+    <script src="./dist/spike-toggle-chip.umd.js"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .panel { margin-bottom: 1.5rem; }
+      #spike-log { background: #f4f4f5; border: 1px solid #d4d4d8; border-radius: 6px; padding: 8px 12px; min-height: 1.5rem; }
+      .chip-row { display: flex; gap: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1 data-cy="spike-title">tessera spike — plain HTML (UMD)</h1>
+    <p data-cy="spike-umd-ns">window.Tessera exports:
+      <span id="umd-ns" data-cy="spike-umd-ns-list"></span>
+    </p>
+
+    <div class="panel" data-cy="spike-counter-panel">
+      <h2>spike-counter (Elixir DSL → generated Lit element)</h2>
+      <spike-counter label="Hits" step="2"></spike-counter>
+    </div>
+
+    <div class="panel" data-cy="spike-chips-panel">
+      <h2>spike-toggle-chip (props in, chip-select out)</h2>
+      <div class="chip-row">
+        <spike-toggle-chip chip-id="persona-1" label="Ada"></spike-toggle-chip>
+        <spike-toggle-chip chip-id="persona-7" label="Grace"></spike-toggle-chip>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>vanilla event log</h2>
+      <div id="spike-log" data-cy="spike-log"></div>
+    </div>
+
+    <script>
+      // window.Tessera.<Component> — the UMD namespace the bundles merged into.
+      document.getElementById("umd-ns").textContent =
+        Object.keys(window.Tessera).sort().join(", ");
+
+      // Vanilla consumers: tessera events are ordinary composed CustomEvents —
+      // plain addEventListener is the whole integration story. The detail keys
+      // cross the wire camelCased (chipId) exactly as the DSL declared them.
+      const log = (name, detail) => {
+        const line = document.createElement("div");
+        line.setAttribute("data-cy", "plain-log-line");
+        line.textContent = `${name} → ${JSON.stringify(detail)}`;
+        document.getElementById("spike-log").appendChild(line);
+      };
+
+      document.addEventListener("count-change", (event) => log("count-change", event.detail));
+      document.addEventListener("chip-select", (event) => log("chip-select", event.detail));
+    </script>
+  </body>
+</html>

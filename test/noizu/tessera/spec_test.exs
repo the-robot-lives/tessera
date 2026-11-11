@@ -291,7 +291,10 @@ defmodule Noizu.Tessera.SpecTest do
                "cssProperties" => [
                  %{"name" => "--persona-card-accent", "default" => "#6366f1"}
                ],
-               "parts" => ["select-button"]
+               "parts" => ["select-button"],
+               "state" => [],
+               "actions" => [],
+               "template" => nil
              }
 
       # Must be JSON-encodable (the manifest task writes it verbatim).
