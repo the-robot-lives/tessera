@@ -1,9 +1,11 @@
 /**
  * Tier 2 spike — Hologram-host glue.
  *
- * js_import'ed by HoloRuntimePage and invoked via Hologram.JS.call in the
- * page's init/3 (replayed client-side after mount as a pending JS interop
- * action — script tags don't execute under Hologram's snabbdom patching).
+ * js_import'ed by HoloRuntimePage; the page bundle loads this module
+ * eagerly on page load (initial SSR load AND client-side navigation), so
+ * the bootstrap is a MODULE SIDE EFFECT below. (Hologram 0.10.1's JS.call
+ * is a server-side pass-through when run in init/3 — client JS interop only
+ * executes inside action handlers — so it cannot seed the bootstrap.)
  *
  * Loads the PREBUILT standalone bundles from /tessera/ with dynamic
  * imports (non-analyzable specifiers so Hologram's page esbuild leaves
@@ -36,9 +38,9 @@ export function loadHoloRuntime() {
     const rt = await import(BASE + BUNDLE);
 
     await import(BASE + "counter.esm.js");
-    await import(BASE + "editable-list.esm.js");
-    await import(BASE + "fancy-list.esm.js");
-    await import(BASE + "tidy-list.esm.js");
+    await import(BASE + "editable_list.esm.js");
+    await import(BASE + "fancy_list.esm.js");
+    await import(BASE + "tidy_list.esm.js");
 
     rt.defineElement("tsr-holo-counter", "HoloKit.Components.Counter");
     // takeover first: markup elements upgrade against the layered module
@@ -55,3 +57,9 @@ export function loadHoloRuntime() {
 
   return loadPromise;
 }
+
+// Module side effect: the page bundle executes this module on page load
+// (initial load and every client-side navigation back onto the page — the
+// ES-module registry caches it, so the bootstrap runs at most once per
+// document, and custom-element definitions persist across navigations).
+loadHoloRuntime();

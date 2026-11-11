@@ -758,6 +758,10 @@ defmodule Noizu.Tessera.Hologram.Standalone do
   end
 
   defp esbuild!(paths, args) do
+    # TESSERA_NO_MINIFY=1 builds readable bundles (spike debugging: real
+    # function names / line numbers in browser stack traces).
+    args = if System.get_env("TESSERA_NO_MINIFY"), do: List.delete(args, "--minify"), else: args
+
     case System.cmd(paths.esbuild, args,
            env: [{"NODE_PATH", paths.node_modules}],
            stderr_to_stdout: true
@@ -778,9 +782,9 @@ defmodule Noizu.Tessera.Hologram.Standalone do
       } else if (typeof define === "function" && define.amd) {
         define([], factory);
       } else {
-        root.TesseraHolo = root.TesseraHolo || {};
+        root.#{global_name} = root.#{global_name} || {};
         var api = factory();
-        for (var key in api) root.TesseraHolo[key] = api[key];
+        for (var key in api) root.#{global_name}[key] = api[key];
       }
     })(typeof self !== "undefined" ? self : this, function () {
     #{iife_payload}

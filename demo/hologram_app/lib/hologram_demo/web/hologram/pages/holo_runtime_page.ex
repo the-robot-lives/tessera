@@ -6,8 +6,9 @@ defmodule HologramDemo.Web.Hologram.Pages.HoloRuntimePage do
 
   * `<tsr-holo-counter>` / `<tsr-holo-editable-list>` / `<fancy-list>` are
     plain unknown tags in this template — upgraded by the glue module
-    (`holo_runtime_glue.js`, js_import'ed + `JS.call` in `init/3`, replayed
-    client-side after mount).
+    (`holo_runtime_glue.js`, js_import'ed; its module side effect runs when
+    the page bundle loads — Hologram 0.10.1's JS.call is a server-side
+    pass-through in init/3 and cannot seed it).
   * Element emits cross the shadow boundary as composed CustomEvents and
     reach this page's actions through the standard `data-tsr-on` bridge
     (snake_cased detail keys) — the same contract as Tier 1 elements.
@@ -35,8 +36,6 @@ defmodule HologramDemo.Web.Hologram.Pages.HoloRuntimePage do
   ]
 
   def init(_params, page, server) do
-    JS.call(:loadHoloRuntime, [])
-
     page =
       put_state(page,
         saved_name: "—",
@@ -79,13 +78,23 @@ defmodule HologramDemo.Web.Hologram.Pages.HoloRuntimePage do
     </div>
 
     <div class="panel" data-cy="panel-hr-list">
-      <h2>editable list — base element</h2>
+      <h2>editable list — vendor element (alias tag)</h2>
       <p data-cy="hr-saved">
         saved: <strong data-cy="hr-saved-name">{@saved_name}</strong>
         (<span data-cy="hr-saved-index">{@saved_index}</span>)
       </p>
-      <tsr-holo-editable-list
+      <plain-list
         title="Planets"
+        tsr-props={@planets_json}
+        data-tsr-on="item-saved:saved@page"
+      ></plain-list>
+    </div>
+
+    <div class="panel" data-cy="panel-hr-tidy">
+      <h2>editable list — same-tag layered extension (item A, §5.9)</h2>
+      <p>typing <code>EARTH</code> here saves as <code>earth</code> — vendor tag taken over by ThirdParty.TidyList, vendor save/validation/emit still run underneath</p>
+      <tsr-holo-editable-list
+        title="Tidy planets"
         tsr-props={@planets_json}
         data-tsr-on="item-saved:saved@page"
       ></tsr-holo-editable-list>

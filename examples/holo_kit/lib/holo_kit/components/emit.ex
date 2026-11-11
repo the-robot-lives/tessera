@@ -27,10 +27,11 @@ defmodule HoloKit.Emit do
   @host_suffix "$h"
 
   @doc """
-  Call from `init/2`. Stores the synthetic host-bridge cid derived from the
-  component's `cid` prop under the reserved `:__tessera_host__` state key.
+  Call from `init/2` as `component |> HoloKit.Emit.mount(props)`. Stores the
+  synthetic host-bridge cid derived from the component's `cid` prop under
+  the reserved `:__tessera_host__` state key.
   """
-  def mount(props, component) do
+  def mount(component, props) do
     cid = Map.get(props, :cid, "")
     host = cid <> @host_suffix
 

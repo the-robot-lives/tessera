@@ -233,7 +233,12 @@ export function defineElement(tagName, moduleName, elementClass = TesseraHoloEle
   if (!customElements.get(tagName)) {
     // elementClass lets host JS register a SUBCLASS (extension item B:
     // `class X extends customElements.get(tag)` overriding a documented
-    // hook) under a new tag of its own.
-    customElements.define(tagName, elementClass);
+    // hook) under a new tag of its own. Each tag gets its own anonymous
+    // subclass regardless — the registry REJECTS a constructor that was
+    // already used for another tag (NotSupportedError).
+    const Base = elementClass;
+    const TagClass = class extends Base {};
+
+    customElements.define(tagName, TagClass);
   }
 }

@@ -27,7 +27,7 @@
 // wins — the manifest records the compiled hologram version for a
 // handshake check.
 
-import {init as snabbdomInit} from "snabbdom";
+import {init as snabbdomInit, h} from "snabbdom";
 // snabbdom 3.6.4 publishes everything under build/ (no "exports" map), so
 // the modules resolve via their full subpath:
 import {attributesModule} from "snabbdom/build/modules/attributes.js";
@@ -36,6 +36,12 @@ import {eventListenersModule} from "snabbdom/build/modules/eventlisteners.js";im
 import {takeQueuedComponents} from "./register.mjs";
 
 const HOST_SUFFIX = "$h";
+
+// Hologram 0.10.1 boxed bitstrings carry `.text` (+ bytes/hex), NOT `.value`
+// — reading `.value` on one yields undefined. Always go through Bitstring.
+function bitstringText(value) {
+  return RT.deps.Bitstring.toText(value);
+}
 
 let RT = null;
 let bus = null;
@@ -55,6 +61,12 @@ export function initRuntime(runtime) {
 
   RT = runtime;
 
+  // The stock runtime reads globalThis.Hologram.isProfilingEnabled around
+  // every delegated call (interpreter.mjs) and toggles it in executeAction —
+  // on non-Hologram hosts that object does not exist, so provide a minimal
+  // stub. On a Hologram host the HOST's object is already there and wins.
+  globalThis.Hologram ??= {isProfilingEnabled: false};
+
   RT.defineManuallyPortedFunctions();
 
   patchExecuteAction();
@@ -70,7 +82,11 @@ export function isRuntimeReady() {
 }
 
 export function getDescriptor(moduleName) {
-  return descriptors.get(moduleName) || null;
+  // Component bundles register descriptors under the full alias
+  // ("Elixir.…") but hosts may pass the bare module name — accept both.
+  const prefixed = moduleName.startsWith("Elixir.") ? moduleName : "Elixir." + moduleName;
+
+  return descriptors.get(prefixed) || descriptors.get(moduleName) || null;
 }
 
 function applyQueuedComponents() {
@@ -96,8 +112,8 @@ function patchExecuteAction() {
     const target = Maps["get/2"](T.atom("target"), action);
 
     // 1. emit bridge: actions targeted at the synthetic host cid
-    if (!T.isNil(target) && T.isBitstring(target) && target.value.endsWith(HOST_SUFFIX)) {
-      return emitDomEvent(target.value, action);
+    if (!T.isNil(target) && T.isBitstring(target) && bitstringText(target).endsWith(HOST_SUFFIX)) {
+      return emitDomEvent(bitstringText(target), action);
     }
 
     // 2. per-instance onAction hooks (spike item B). Action names are
@@ -105,8 +121,8 @@ function patchExecuteAction() {
     //    actions are open — no allowlist. Multiple hooks on the same action
     //    compose in registration order (middleware chain); skipping next()
     //    swallows the action.
-    if (!T.isNil(target) && T.isBitstring(target) && instances.has(target.value)) {
-      const instance = instances.get(target.value);
+    if (!T.isNil(target) && T.isBitstring(target) && instances.has(bitstringText(target))) {
+      const instance = instances.get(bitstringText(target));
       const name = Maps["get/2"](T.atom("name"), action).value;
       const chain = instance.hooks.get(normalizeActionName(name));
 
@@ -181,8 +197,10 @@ function patchSendCommand() {
 }
 
 function commandContext(command) {
-  const target = globalThis.Erlang_Maps["get/2"](RT.Type.atom("target"), command);
-  const cid = !RT.Type.isNil(target) && target.value ? String(target.value) : null;
+  const T = RT.Type;
+  const target = globalThis.Erlang_Maps["get/2"](T.atom("target"), command);
+  const cid =
+    !T.isNil(target) && (T.isBitstring(target) ? bitstringText(target) : target.value) || null;
 
   return {instance: instances.get(cid) || null, element: instances.get(cid)?.element || null};
 }
@@ -299,7 +317,9 @@ function renderInstance(instance) {
   const R = RT.Renderer;
 
   const moduleAlias = "Elixir." + instance.moduleName;
-  const moduleProxy = I.moduleProxy(instance.moduleName);
+  // moduleProxy(alias) resolves globalThis[moduleJsName(alias)] — a BARE
+  // name would land in the Erlang_* namespace and read as "not registered".
+  const moduleProxy = I.moduleProxy(moduleAlias);
 
   if (!moduleProxy) {
     throw new Error(
@@ -323,8 +343,20 @@ function renderInstance(instance) {
 
   const dom = T.tuple([T.atom("component"), moduleAlias, propsDom, T.list([])]);
 
-  const context = I.buildContext({module: moduleAlias, vars: {}});
-  const vnode = R.renderDom(dom, context, T.keywordList([]), T.bitstring("page"), null);
+  // renderDom's `context` is the EMITTED-CONTEXT boxed map (stock passes
+  // pageEmittedContext from #renderPageInsideLayout) — NOT a buildContext
+  // object; renderStatefulComponent feeds it straight into :maps.merge/2.
+  // A standalone instance has no context providers, so it starts empty.
+  // defaultTarget is overridden by #renderStatefulComponent with the
+  // component cid, so template event bindings target this instance.
+  const context = T.map();
+  const content = R.renderDom(dom, context, T.keywordList([]), T.bitstring("page"), null);
+
+  // renderDom returns a FLAT ARRAY of vnodes/text for a list-root template
+  // (#renderNodes). Stock patches a single vnode (renderPage wraps the array
+  // in html/body vnodes); snabbdom cannot patch an array — wrap in a div
+  // matching the hostDiv selector so patch updates it in place.
+  const vnode = Array.isArray(content) ? h("div", {}, content) : content;
 
   if (!instance.patch) {
     instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
@@ -452,7 +484,7 @@ export function toJs(value) {
   const T = RT.Type;
 
   if (T.isNil(value)) return null;
-  if (T.isBitstring(value)) return value.value;
+  if (T.isBitstring(value)) return bitstringText(value);
   if (T.isAtom(value)) return value.value;
 
   switch (value.type) {
@@ -480,7 +512,7 @@ export function toJs(value) {
 }
 
 function keyText(key) {
-  return key.value;
+  return RT.Type.isBitstring(key) ? bitstringText(key) : key.value;
 }
 
 export function camel(key) {
