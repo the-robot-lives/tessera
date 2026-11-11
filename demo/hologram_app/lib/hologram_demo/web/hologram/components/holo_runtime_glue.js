@@ -39,6 +39,7 @@ export function loadHoloRuntime() {
 
     await import(BASE + "counter.esm.js");
     await import(BASE + "state_probe.esm.js");
+    await import(BASE + "pipeline_probe.esm.js");
     await import(BASE + "editable_list.esm.js");
     await import(BASE + "fancy_list.esm.js");
     await import(BASE + "tidy_list.esm.js");
@@ -47,6 +48,9 @@ export function loadHoloRuntime() {
     // Tier-2 conformance fixture for the extension-contract state/action
     // surface (brief 3d; mirrors the Tier-1 `state` fixture behaviorally).
     rt.defineElement("tsr-holo-state-probe", "HoloKit.Components.StateProbe");
+    // Tier-2 mirror of the Tier-1 `tsr-conf-pipeline` fixture — the shared
+    // tier-agnostic X-05…X-11/X-20 bodies mount this tag.
+    rt.defineElement("tsr-holo-pipeline-probe", "HoloKit.Components.PipelineProbe");
     // takeover first: markup elements upgrade against the layered module
     rt.defineElement("tsr-holo-editable-list", "ThirdParty.TidyList");
     // the untouched vendor element stays mountable under an explicit alias

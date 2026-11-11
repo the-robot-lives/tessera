@@ -45,6 +45,12 @@ const RESERVED_ATTRS = new Set(["tsr-props", "module", "class", "id", "style", "
 
 const tagModules = new Map();
 
+// internal: registration warn-once (EXTENSION-CONTRACT §6.4, D2/§10) — the
+// SAME global set as the Tier-1 mixin (`Symbol.for`), so both tiers dedupe
+// identically per tag+action and the advisory message matches on substring.
+const WARNED_INTERNAL_KEY = Symbol.for("tessera.warned-internal");
+const warnedInternalActions = (globalThis[WARNED_INTERNAL_KEY] ??= new Set());
+
 export class TesseraHoloElement extends HTMLElement {
   static get observedAttributes() {
     return ["tsr-props"];
@@ -142,6 +148,34 @@ export class TesseraHoloElement extends HTMLElement {
   // {ok:false, reason:"error"}) after onActionError observes it.
   onAction(actionName, hook) {
     const key = normalizeActionName(actionName);
+
+    // `internal: true` is ADVISORY, never access control (D2/§10): the
+    // action stays open (dispatch + interception work); registering against
+    // one fires a dev-mode warn ONCE per tag+action (§6.4, X-07 pins the
+    // count). The manifest list arrives via the component_manifest's
+    // `internalActions` key — absent ⇒ no warn (Tier-1 parity).
+    const moduleName =
+      this.__moduleName || this.getAttribute("module") || tagModules.get(this.tagName.toUpperCase());
+    const manifest = moduleName ? getDescriptor(moduleName) : null;
+    const internalSet = new Set(
+      (Array.isArray(manifest?.internalActions) ? manifest.internalActions : [])
+        .filter((n) => typeof n === "string"),
+    );
+
+    if (internalSet.has(key)) {
+      const tag = this.tagName.toLowerCase();
+      const dedupe = `${tag}:${key}`;
+
+      if (!warnedInternalActions.has(dedupe)) {
+        warnedInternalActions.add(dedupe);
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[tessera-holo] <${tag}> interceptor registered against internal action "${key}" — ` +
+            "the internal: annotation is advisory (EXTENSION-CONTRACT.md §6.4); the interception works",
+        );
+      }
+    }
+
     const chain = this.__tesseraHooks.get(key) || [];
 
     const wrapped = (params, next) => {

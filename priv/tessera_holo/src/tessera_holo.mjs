@@ -162,7 +162,14 @@ function patchExecuteAction() {
               delay: Maps["get/3"](T.atom("delay"), action, T.integer(0)),
             });
 
-            return runOriginal(original, rebuilt);
+            openCommit(instance, name);
+
+            try {
+              return runOriginal(original, rebuilt);
+            } catch (error) {
+              consumeCommit(instance);
+              throw error; // outer stage try classifies (ctx) / warns (internal)
+            }
           }
 
           // Overrides reach downstream stages projected to camelCase (§6.4
@@ -192,15 +199,33 @@ function patchExecuteAction() {
     // No chain — the stock interpreter runs the action. Register the terminal
     // for the dispatch wrapper (a no-hook dispatch is a commit when it runs).
     if (ctx) ctx.ranTerminal = true;
+    if (instance) openCommit(instance, Maps["get/2"](T.atom("name"), action).value);
 
     try {
       return runOriginal(original, action);
     } catch (error) {
+      if (instance) consumeCommit(instance);
       if (ctx) throw error; // dispatch wrapper classifies (unknown-action vs error)
       if (instance) emitActionError(instance, Maps["get/2"](T.atom("name"), action).value, error);
       return undefined;
     }
   };
+}
+
+// §6.2 Tier-2 commit context — opened exactly when the TERMINAL action runs
+// (a veto or a pre-terminal throw never reaches it). The render that follows
+// the action carries the snake-canonical action name into the
+// `tsr-state-change` detail AND turns a zero-change commit into its exactly
+// one `keys: []` event (X-06 "a transition that changed nothing still
+// fires"); renders without an open commit only fire on a real key change,
+// so prop-update renders stay silent like they are on Tier 1. A throw
+// CONSUMES the context so a failed action can never label a later render.
+function openCommit(instance, name) {
+  instance.__commit = {action: normalizeActionName(String(name)), fired: false};
+}
+
+function consumeCommit(instance) {
+  if (instance.__commit && !instance.__commit.fired) instance.__commit = null;
 }
 
 function runOriginal(original, action) {
@@ -428,9 +453,13 @@ function renderInstance(instance) {
   // tsr-state-change commit point (EXTENSION-CONTRACT §6.2, Tier-2 spike
   // resolution): fired AFTER the re-render, once per transition, with the
   // camelCase keys the transition changed and the post-transition snapshot.
-  // The first render only seeds the baseline (mount is not a transition);
-  // disconnected instances never fire it. Not bridge traffic — it is a direct
-  // element event and MUST NOT be routed through data-tsr-on.
+  // An OPEN commit context (a dispatched/template action just ran its
+  // terminal) fires even when nothing changed — exactly one event, keys: [],
+  // detail.action = the snake-canonical name; renders without one fire only
+  // on a real change (prop updates are not transitions). The first render
+  // only seeds the baseline (mount is not a transition); disconnected
+  // instances never fire it. Not bridge traffic — it is a direct element
+  // event and MUST NOT be routed through data-tsr-on.
   const snap = stateSnapshot(instance);
 
   if (snap) {
@@ -438,13 +467,23 @@ function renderInstance(instance) {
 
     if (prevState) {
       const keys = changedKeys(prevState, snap);
+      const commit = instance.__commit && !instance.__commit.fired ? instance.__commit : null;
 
-      if (keys.length > 0 && instance.element && instance.element.isConnected) {
+      if ((keys.length > 0 || commit) && instance.element && instance.element.isConnected) {
+        if (commit) {
+          commit.fired = true;
+          instance.__commit = null;
+        }
+
+        const detail = {keys, state: snap};
+
+        if (commit) detail.action = commit.action;
+
         instance.element.dispatchEvent(
           new CustomEvent("tsr-state-change", {
             bubbles: true,
             composed: true,
-            detail: {keys, state: snap},
+            detail,
           }),
         );
       }
@@ -536,11 +575,17 @@ function dispatchComponentAction(instance, actionName, params) {
   const clean = sanitizeDispatchParams(params || {});
 
   if (clean.rejected) {
-    // Function-valued params are rejected before the pipeline runs (§6.3).
+    // Function-valued params are rejected before the pipeline runs (§6.3) —
+    // a dev warn AND the §6.4 error surface (tsr-action-error), identical to
+    // Tier 1's normalizeParams rejection path (X-20).
     // eslint-disable-next-line no-console
     console.warn(
       `[tessera-holo] dispatchAction('${snakeName}'): function-valued params are rejected`,
     );
+
+    emitActionError(instance, snakeName, new Error(
+      "tessera: action params must be data-only (function values are rejected)",
+    ));
 
     return {ok: false, reason: "error"};
   }
@@ -575,12 +620,17 @@ function dispatchComponentAction(instance, actionName, params) {
     return {ok: false, reason: "error"};
   };
 
-  const settle = () => {
+  const settle = (terminalReturn) => {
     instance.__dispatch = null;
 
     // Stale-resolution drop: an async stage that applied nothing after
-    // disconnect reports as vetoed (U6 — no new enum value).
-    if (ctx.stale || !ctx.ranTerminal) return {ok: false, reason: "vetoed"};
+    // disconnect reports as vetoed (U6 — no new enum value), NO value.
+    if (ctx.stale) return {ok: false, reason: "vetoed"};
+
+    // VETO (§6.4, U1): a stage returned without calling next — the vetoing
+    // stage's return value becomes the DispatchResult value. terminalReturn
+    // is the stage's return (sync) or the chain's resolution (async).
+    if (!ctx.ranTerminal) return {ok: false, reason: "vetoed", value: terminalReturn};
 
     // U1: value = the post-transition snapshot (fresh per §6.2).
     return {ok: true, value: stateSnapshot(instance) || EMPTY_SNAPSHOT};
@@ -602,7 +652,7 @@ function dispatchComponentAction(instance, actionName, params) {
     return result.then(settle, fail);
   }
 
-  return settle();
+  return settle(result);
 }
 
 // Params are untrusted (§6.3, tsr-props reserved-key guard applied to
@@ -693,13 +743,52 @@ function stateSnapshot(instance) {
 // freeze ONLY: nested values are shared references (never deep-frozen — a
 // deep freeze here diverged from Tier 1). `_`-prefixed keys are tessera
 // internals (§6.8, e.g. the __tessera_host__ bridge slot) and never surface.
+//
+// The top-level boxed map is walked term-by-term (not rebuilt through toJs):
+// an action merge creates a NEW map whose untouched values still reference
+// the SAME boxed terms, so nested plain objects are rebuilt once per term
+// and cached in a WeakMap — X-05's `s2.meta === s1.meta` and X-06's
+// zero-change `keys: []` both depend on that reference identity (Tier 1
+// gets it for free from Lit property values).
+const nestedPlainCache = new WeakMap();
+
+function snapshotValue(boxed) {
+  if (boxed === null || boxed === undefined || typeof boxed !== "object") return toJs(boxed);
+
+  const type = boxed.type;
+
+  if (type === "map" || type === "list" || type === "tuple") {
+    let cached = nestedPlainCache.get(boxed);
+
+    if (cached === undefined) {
+      cached = toJs(boxed);
+      nestedPlainCache.set(boxed, cached);
+    }
+
+    return cached;
+  }
+
+  return toJs(boxed);
+}
+
 function makeSnapshot(boxedState) {
-  const plain = toJs(boxedState); // already camelCases map keys — don't double-convert
   const snap = {};
 
-  for (const [k, v] of Object.entries(plain)) {
-    if (k.startsWith("_")) continue;
-    snap[k] = v;
+  if (boxedState && boxedState.type === "map") {
+    for (const [, [k, v]] of Object.entries(boxedState.data || {})) {
+      const name = camel(keyText(k));
+      if (name.startsWith("_")) continue;
+      snap[name] = snapshotValue(v);
+    }
+  } else {
+    const plain = toJs(boxedState); // already camelCases map keys — don't double-convert
+
+    if (plain && typeof plain === "object") {
+      for (const [k, v] of Object.entries(plain)) {
+        if (k.startsWith("_")) continue;
+        snap[k] = v;
+      }
+    }
   }
 
   for (const k of Object.keys(snap)) {
