@@ -259,6 +259,26 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
 
+    test "non-round-tripping state name raises (X-20 compile guard)" do
+      assert_raise CompileError, ~r/tessera state :col_2_width.*Rename it/s, fn ->
+        compile_source("state :col_2_width, :integer, default: 0")
+      end
+    end
+
+    test "action internal: annotation lands on the spec entry only when set (D2 advisory)" do
+      mod =
+        compile_source("""
+        template ~TSR"<div></div>"
+        action :plain, fn state, _params -> state end
+        action :cached, fn state, _params -> state end, internal: true
+        """)
+
+      [plain, cached] = mod.__tessera_spec__().actions
+      # common entry shape stays byte-identical (no :internal key at all)
+      refute Map.has_key?(plain, :internal)
+      assert cached.internal == true
+    end
+
     test "non-literal DSL opts raise with a clear message" do
       assert_raise CompileError, ~r/must be compile-time literals/, fn ->
         compile_source("""

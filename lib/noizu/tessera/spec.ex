@@ -105,6 +105,7 @@ defmodule Noizu.Tessera.Spec do
           required(:js) => String.t(),
           optional(:fn_ast) => Macro.t(),
           optional(:inherited) => boolean(),
+          optional(:internal) => boolean(),
           optional(:line) => non_neg_integer()
         }
 

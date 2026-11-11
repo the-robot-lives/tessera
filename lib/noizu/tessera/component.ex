@@ -164,6 +164,7 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      action: 3,
       should_update: 1,
       will_update: 1,
       first_updated: 1,
@@ -189,6 +190,7 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      action: 3,
       should_update: 1,
       will_update: 1,
       first_updated: 1,
@@ -321,18 +323,24 @@ defmodule Noizu.Tessera.Component do
   @doc false
   # The fn AST is escaped as DATA (Macro.escape) — at __before_compile__ it is
   # translated to JS by Noizu.Tessera.Component.Expr, never evaluated.
-  @spec action(Macro.t(), Macro.t()) :: Macro.t()
-  defmacro action(name, fn_ast) do
+  #
+  # `internal: true` is the EXTENSION-CONTRACT.md §5.3 ADVISORY annotation —
+  # it groups the action under internal docs in the CEM and makes the runtime
+  # warn once when an interceptor registers against it. It NEVER restricts
+  # dispatch or interception (open surface, D2/§10).
+  @spec action(Macro.t(), Macro.t(), Macro.t()) :: Macro.t()
+  defmacro action(name, fn_ast, opts \\ []) do
     caller = __CALLER__
 
     quote bind_quoted: [
             consumer: caller.module,
             name: name,
             fn_ast: Macro.escape(fn_ast),
+            opts: opts,
             line: caller.line,
             file: caller.file
           ] do
-      Noizu.Tessera.Component.record(consumer, :action, name, fn_ast, [], line, file, false)
+      Noizu.Tessera.Component.record(consumer, :action, name, fn_ast, opts, line, file, false)
     end
   end
 
@@ -630,7 +638,9 @@ defmodule Noizu.Tessera.Component do
     :ok
   end
 
-  def record(consumer, :action, name, fn_ast, _opts, line, file, _hologram?) do
+  def record(consumer, :action, name, fn_ast, opts, line, file, _hologram?) do
+    opts = eval_opts!(opts, :action, name, file, line)
+
     unless is_atom(name) and Regex.match?(Naming.snake_regex(), Atom.to_string(name)) do
       raise CompileError,
         file: file,
@@ -649,11 +659,12 @@ defmodule Noizu.Tessera.Component do
             "docs/notes/spike-elixir-to-lit.md)"
     end
 
-    Module.put_attribute(
-      consumer,
-      :tessera_actions,
-      {line, %{name: name, fn_ast: fn_ast, line: line}}
-    )
+    entry = %{name: name, fn_ast: fn_ast, line: line}
+    # `internal:` annotation (EXTENSION-CONTRACT.md §5.3) — carried only when
+    # set, so the common entry shape stays byte-identical for goldens.
+    entry = if opts[:internal], do: Map.put(entry, :internal, true), else: entry
+
+    Module.put_attribute(consumer, :tessera_actions, {line, entry})
 
     :ok
   end
@@ -1047,7 +1058,11 @@ defmodule Noizu.Tessera.Component do
             Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
           end
 
+        # `internal:` rides the translated entry (advisory CEM grouping + the
+        # runtime's warn-on-interception); carried from inherited entries so a
+        # redeclaration MAY flip it (§5.3, §8.2).
         %{name: entry.name, js: js, fn_ast: entry[:fn_ast], line: entry.line}
+        |> then(fn e -> if entry[:internal], do: Map.put(e, :internal, true), else: e end)
         |> then(fn e -> if entry[:inherited], do: Map.put(e, :inherited, true), else: e end)
       end)
 

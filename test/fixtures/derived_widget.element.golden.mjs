@@ -10,7 +10,7 @@ import { WidgetBase } from "./widget-base.element.generated.mjs";
 // nil-safe interpolation helper (renders nothing for null/undefined).
 const __t = (v) => (v == null ? undefined : v);
 
-class DerivedWidget extends TesseraElement(WidgetBase, contract) {
+class DerivedWidget extends TesseraElement(WidgetBase, contract, {state: ["count","extra"], actions: ["increment","bump"], internalActions: []}) {
   static properties = {
       extra: { type: Number },
       badge: { type: String },
