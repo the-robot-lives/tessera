@@ -6,8 +6,10 @@
  */
 
 export { defineOnce } from "./define.mjs";
-export { emit, snakeKeysDeep, camelKeysDeep } from "./events.mjs";
+export { extendElement } from "./extend.mjs";
+export { emit, snakeKeysDeep, camelKeysDeep, snakeCaseKey, camelCaseKey } from "./events.mjs";
 export { getBridge, registerEvents, parseTsrOn } from "./bridge.mjs";
 export { behaviors } from "./behaviors.mjs";
 export { TesseraElement } from "./element.mjs";
+export { makeSnapshot, normalizeActionName, normalizeParams, runPipeline } from "./pipeline.mjs";
 export { BusClient, noneTransport, envelope } from "./bus.mjs";

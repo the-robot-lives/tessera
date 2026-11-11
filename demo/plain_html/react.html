@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tessera spike — React host (shared runtime)</title>
+    <!-- SPIKE (spike/elixir-to-lit): minimal React host. React 18 UMD from a
+         pinned CDN; the tessera elements load as the shared-runtime ESM
+         VARIANT — one import map points `lit` (bare + the `lit/directives/*.js`
+         subpaths) + `@noizu/tessera-core` at the
+         same dist/tessera-runtime.esm.js module (one instance, one defineOnce
+         registry), so both components amortize a single lit copy. -->
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "lit": "./dist/tessera-runtime.esm.js",
+          "lit/directives/class-map.js": "./dist/tessera-runtime.esm.js",
+          "lit/directives/style-map.js": "./dist/tessera-runtime.esm.js",
+          "lit/directives/if-defined.js": "./dist/tessera-runtime.esm.js",
+          "@noizu/tessera-core": "./dist/tessera-runtime.esm.js"
+        }
+      }
+    </script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .panel { margin-bottom: 1.5rem; }
+      #react-log { background: #f4f4f5; border: 1px solid #d4d4d8; border-radius: 6px; padding: 8px 12px; min-height: 1.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1 data-cy="react-title">tessera spike — React host</h1>
+    <div id="root" data-cy="react-root"></div>
+
+    <script type="module">
+      // importing the runtime variants is all the setup they need (each has a
+      // load-bearing top-level register()); `lit` / `@noizu/tessera-core`
+      // resolve through the import map to the single shared runtime module.
+      import "./dist/spike-counter.runtime.esm.js";
+      import "./dist/spike-toggle-chip.runtime.esm.js";
+
+      const { createElement: h, useEffect, useRef, useState } = React;
+
+      // tessera events cross as composed CustomEvents — attach the listener on
+      // a ref'd wrapper (React 18 has no custom-event prop binding for
+      // non-standard event names without a wrapper lib).
+      function ChipList() {
+        const ref = useRef(null);
+        const [last, setLast] = useState("(none)");
+        const [count, setCount] = useState(0);
+
+        useEffect(() => {
+          const onChip = (ev) => {
+            setLast(ev.detail.chipId + (ev.detail.selected ? " ✓" : " ✗"));
+          };
+          const onCount = (ev) => setCount(ev.detail.count);
+          ref.current.addEventListener("chip-select", onChip);
+          ref.current.addEventListener("count-change", onCount);
+          return () => {
+            ref.current.removeEventListener("chip-select", onChip);
+            ref.current.removeEventListener("count-change", onCount);
+          };
+        }, []);
+
+        return h("div", { ref, className: "panel" },
+          h("h2", null, "React-rendered spike elements"),
+          h("spike-counter", { label: "From React", step: "1" }),
+          h("div", null,
+            h("spike-toggle-chip", { "chip-id": "r-1", label: "React chip" })),
+          h("p", { "data-cy": "react-last-chip" }, `last chip-select: ${last}`),
+          h("p", { "data-cy": "react-count" }, `counter count-change count: ${count}`),
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(h(ChipList));
+    </script>
+  </body>
+</html>

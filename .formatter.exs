@@ -12,6 +12,9 @@
     event: 1,
     event: 2,
     slot: 1,
+    css: 1,
+    css: 2,
+    part: 1,
     cy: 1
   ]
 ]

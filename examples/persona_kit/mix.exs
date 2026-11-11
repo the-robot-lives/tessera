@@ -12,7 +12,22 @@ defmodule PersonaKit.MixProject do
       name: "PersonaKit",
       description:
         "tessera example component package: persona-card and persona-picker web components.",
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
+    ]
+  end
+
+  # `mix test.fast` is an alias — pin :test so it runs from any caller without
+  # an explicit MIX_ENV (see ../../mix.exs cli/0).
+  def cli do
+    [preferred_envs: ["test.fast": :test]]
+  end
+
+  # Fast per-change lane excludes :slow/:nightly; `mix test` runs everything.
+  # See ../../docs/notes/test-tiering.md.
+  defp aliases do
+    [
+      "test.fast": ["test --exclude slow --exclude nightly"]
     ]
   end
 

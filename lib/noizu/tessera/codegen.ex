@@ -17,6 +17,8 @@ defmodule Noizu.Tessera.Codegen do
   `test/fixtures/` pin their exact output.
   """
 
+  alias Noizu.Tessera.Component.Extension
+  alias Noizu.Tessera.Component.Styles
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Spec
 
@@ -98,10 +100,17 @@ defmodule Noizu.Tessera.Codegen do
     end
   end
 
-  @doc "Path of the generated contract module for a spec, under `dir`."
+  @doc """
+  Path of the generated contract module for a spec, under `dir`.
+
+  Fresh and fresh-tag-derived specs name by `<snake_tag>`; a `tag: :inherit`
+  takeover layer is keyed by the BASE tag like every other artifact, so its
+  stem carries the declaring module too (`Extension.snake_stem/1`, §5.8) —
+  sibling layers never clobber one another's contract.
+  """
   @spec contract_path(Spec.t(), String.t()) :: String.t()
   def contract_path(%Spec{} = spec, dir),
-    do: Path.join(dir, snake_tag(spec) <> ".contract.generated.mjs")
+    do: Path.join(dir, Extension.snake_stem(spec) <> ".contract.generated.mjs")
 
   @doc "snake_case form of the tag (`persona-card` → `persona_card`)."
   @spec snake_tag(Spec.t()) :: String.t()
@@ -110,6 +119,14 @@ defmodule Noizu.Tessera.Codegen do
   @doc """
   A Custom Elements Manifest (schemaVersion #{@cem_schema_version}) covering
   `specs`, as a JSON-encodable map with string keys.
+
+  Per component declaration: `tagName`, `attributes` (kebab name, type,
+  required flag, JSON-literal default), `members` (camelCase property fields
+  with type, `json` flag and JSON-literal default), `events` (name +
+  camelCase detail schema), `slots`, `cssProperties` (name + default) and
+  `cssParts` — the last two fed by the spec DSL's `css`/`part` declarations.
+  Each module carries the §8.3 custom field `tessera: {extensionApi, actions}`
+  — the extension-api version axis and every declared action name (D2).
   """
   @spec cem([Spec.t()]) :: map()
   def cem(specs) when is_list(specs) do
@@ -152,6 +169,64 @@ defmodule Noizu.Tessera.Codegen do
 
   defp inline_list(entries), do: "[#{Enum.join(entries, ", ")}]"
 
+  # Theming surface (EXTENSION-CONTRACT.md §7), unified from BOTH declaration
+  # mechanisms: explicit `css`/`part` DSL entries (from-lit / gallery metadata,
+  # declaration order first) plus the styles DSL's scanned author-CSS reads
+  # and template parts. Explicit declarations win on a name collision — they
+  # are the author's deliberate statement; scanned additions follow sorted by
+  # name for byte determinism. Reads inside {:shared, …} modules are JS-side
+  # and not scanned — declare those explicitly or in the component's own
+  # styles block.
+  defp cem_css_properties(%Spec{} = spec) do
+    explicit =
+      Enum.map(spec.css_properties, fn c ->
+        base = %{"name" => c.name}
+        if c[:default] != nil, do: Map.put(base, "default", c.default), else: base
+      end)
+
+    explicit_names = MapSet.new(spec.css_properties, & &1.name)
+
+    scanned =
+      if spec.tag do
+        spec.styles
+        |> Enum.filter(&(&1.kind == :css))
+        |> Enum.flat_map(&Styles.custom_property_reads(&1.value, spec.tag))
+        |> Enum.reject(&MapSet.member?(explicit_names, &1.name))
+        |> Enum.uniq_by(& &1.name)
+        |> Enum.sort_by(& &1.name)
+        |> Enum.map(fn
+          %{name: name, default: nil} -> %{"name" => name}
+          %{name: name, default: default} -> %{"name" => name, "default" => default}
+        end)
+      else
+        []
+      end
+
+    explicit ++ scanned
+  end
+
+  # The generated element exposes a `root` part on the host plus every part
+  # declared in the template markup; explicit `part` DSL declarations come
+  # first. Spec-only components (no template) have no generated DOM to claim
+  # a root part for — their explicit declarations still stand.
+  defp cem_css_parts(%Spec{} = spec) do
+    explicit = Enum.map(spec.parts, &%{"name" => &1.name})
+    explicit_names = MapSet.new(spec.parts, & &1.name)
+
+    generated =
+      case spec.template do
+        nil -> []
+        template -> ["root" | Styles.parts(template.raw)]
+      end
+
+    rest =
+      generated
+      |> Enum.reject(&MapSet.member?(explicit_names, &1))
+      |> Enum.map(&%{"name" => &1})
+
+    Enum.uniq_by(explicit ++ rest, & &1["name"])
+  end
+
   defp cem_module(%Spec{} = spec) do
     path = if spec.js, do: spec.js, else: snake_tag(spec) <> ".ex"
 
@@ -184,7 +259,11 @@ defmodule Noizu.Tessera.Codegen do
               "type" => %{"text" => Atom.to_string(p.type)}
             }
 
-            if p[:json], do: Map.put(member, "json", true), else: member
+            member = if p[:json], do: Map.put(member, "json", true), else: member
+
+            if p[:default] != nil,
+              do: Map.put(member, "default", Spec.json_literal(p[:default])),
+              else: member
           end),
         "events" =>
           Enum.map(spec.events, fn e ->
@@ -198,10 +277,43 @@ defmodule Noizu.Tessera.Codegen do
                 end)
             }
           end),
-        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end)
+        # Action docs (EXTENSION-CONTRACT.md §5.3): declared names in
+        # declaration order; `internal: true` only on the advisory-annotated
+        # subset (grouping under internal docs — NEVER access control, §10).
+        "actions" =>
+          Enum.map(spec.actions, fn a ->
+            base = %{"name" => Atom.to_string(a.name)}
+            if a[:internal], do: Map.put(base, "internal", true), else: base
+          end),
+        "slots" => Enum.map(slot_names(spec), fn name -> %{"name" => name} end),
+        "cssProperties" => cem_css_properties(spec),
+        "cssParts" => cem_css_parts(spec)
       }
     ]
 
-    %{"kind" => "javascript-module", "path" => path, "declarations" => declarations}
+    # §8.3 per-module custom field `tessera`: the extension-api axis (defaulted
+    # to the first stable 1.0.0 when the spec declares none) plus EVERY action
+    # name in declaration order (D2 — the open surface; `internal:` annotation
+    # lives in the declaration-level doc entries above). CEM consumers ignore
+    # unknown keys by convention. §6.7 (brief 2f): `formAssociated` rides ONLY
+    # when the spec declares it (same put-if-declared rule as the manifest) —
+    # there is no declared "form value shape" to emit, because the form value
+    # is the author-managed internals value (FM-02), not a spec-declared type.
+    tessera_field =
+      %{
+        "extensionApi" => spec.extension_api || Spec.default_extension_api(),
+        "actions" => Enum.map(spec.actions, &Atom.to_string(&1.name))
+      }
+      |> put_tessera_opt("formAssociated", if(spec.form_associated, do: true, else: nil))
+
+    %{
+      "kind" => "javascript-module",
+      "path" => path,
+      "declarations" => declarations,
+      "tessera" => tessera_field
+    }
   end
+
+  defp put_tessera_opt(map, _key, nil), do: map
+  defp put_tessera_opt(map, key, value), do: Map.put(map, key, value)
 end

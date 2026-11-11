@@ -10,7 +10,14 @@
  *
  * CONTRACT.md §4: if the tag is taken, warn once and return the existing
  * constructor; otherwise define and return the constructor.
+ *
+ * §5.9 (brief 2e): at the tag's FIRST definition, the `extendElement` registry
+ * (extend.mjs) is consulted and every queued mixin is composed into the
+ * defined class — innermost → outermost. A tag with no queued mixins defines
+ * `ctor` untouched, byte-identical to the pre-2e behavior.
  */
+
+import {takeExtensionMixins} from "./extend.mjs";
 
 // Which `<tag>` duplicates have already warned lives on globalThis (its own
 // symbol, not the bridge — defineOnce must work with no bridge around), so
@@ -31,13 +38,17 @@ function warnedTags() {
 
 /**
  * Register `ctor` as `tag` unless the tag is taken (or there is no registry,
- * e.g. SSR / workers — then this is a no-op).
+ * e.g. SSR / workers — then this is a no-op). Mixins queued via
+ * `extendElement` BEFORE this first definition are composed into the class
+ * that gets defined (§5.9, innermost → outermost); the registry for `tag` is
+ * consumed here and never re-applied to a duplicate copy.
  *
  * @param {string} tag
  * @param {CustomElementConstructor} ctor
  * @returns {CustomElementConstructor | undefined} the constructor that now
- *   owns the tag: `ctor` when freshly defined, the pre-existing one when the
- *   tag was already taken, `undefined` when no `customElements` global exists.
+ *   owns the tag: the (possibly composed) class freshly defined here, the
+ *   pre-existing one when the tag was already taken, `undefined` when no
+ *   `customElements` global exists.
  */
 export function defineOnce(tag, ctor) {
   const registry = (globalThis ?? {}).customElements;
@@ -55,6 +66,8 @@ export function defineOnce(tag, ctor) {
     }
     return existing;
   }
-  registry.define(tag, ctor);
-  return ctor;
+  let composed = ctor;
+  for (const mixin of takeExtensionMixins(tag)) composed = mixin(composed);
+  registry.define(tag, composed);
+  return composed;
 }

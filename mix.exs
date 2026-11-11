@@ -1,7 +1,7 @@
 defmodule NoizuTessera.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
 
   def project do
     [
@@ -20,7 +20,26 @@ defmodule NoizuTessera.MixProject do
       homepage_url: "https://tessera.noizu.com",
       deps: deps(),
       package: package(),
-      docs: docs()
+      docs: docs(),
+      aliases: aliases()
+    ]
+  end
+
+  # `mix test.fast` is an alias, so Mix does not auto-switch it to :test the
+  # way the built-in `mix test` does — pin the env so it runs the test suite
+  # from any caller (local runner, CI) without an explicit MIX_ENV.
+  def cli do
+    [preferred_envs: ["test.fast": :test]]
+  end
+
+  # Test tiering (docs/notes/test-tiering.md). The fast per-change lane runs
+  # `mix test.fast`, which excludes anything tagged `:slow` or `:nightly`;
+  # plain `mix test` still runs the WHOLE suite (integration + nightly lanes).
+  # No current test carries those tags — the whole ExUnit suite is sub-second —
+  # so the alias is the convention hook the Phase 4b conformance matrices use.
+  defp aliases do
+    [
+      "test.fast": ["test --exclude slow --exclude nightly"]
     ]
   end
 

@@ -5,6 +5,9 @@
 /assets/
 # Hologram compiler output (page bundles + runtime bundle).
 /priv/static/hologram/
+# tessera component-bundle compiler output (tier 2 spike) — served copies.
+/priv/static/tessera-holo/
+/priv/static/tessera/
 erl_crash.dump
 *.ez
 .DS_Store

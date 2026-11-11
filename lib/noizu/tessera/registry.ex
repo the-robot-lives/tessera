@@ -31,6 +31,63 @@ defmodule Noizu.Tessera.Registry do
     |> Enum.sort()
   end
 
+  @doc "Modules of `app` that `use Noizu.Tessera.Package` (export `__tessera_package__/0`), sorted."
+  @spec package_modules(atom()) :: [module()]
+  def package_modules(app) when is_atom(app) do
+    app_modules(app)
+    |> Enum.filter(&package_module?/1)
+    |> Enum.sort()
+  end
+
+  @doc "All tessera package modules across every considered app, sorted."
+  @spec all_package_modules() :: [module()]
+  def all_package_modules do
+    tessera_apps()
+    |> Enum.flat_map(&package_modules/1)
+    |> Enum.sort()
+  end
+
+  @doc "The current Mix project's app name (nil outside a project)."
+  @spec current_app() :: atom() | nil
+  def current_app do
+    Mix.Project.get() && Mix.Project.config()[:app]
+  end
+
+  @doc """
+  Resolves one package module for the mix tasks: an explicit module name, or
+  the current project's single package. Returns `{:ok, module}` or
+  `{:error, message}` (the tasks turn the message into `Mix.raise`).
+  """
+  @spec resolve_package(String.t() | nil) :: {:ok, module()} | {:error, String.t()}
+  def resolve_package(name) when is_binary(name) do
+    mod = Module.concat([name])
+
+    if load(mod) and function_exported?(mod, :__tessera_package__, 0) do
+      {:ok, mod}
+    else
+      {:error,
+       "#{name} is not a loaded tessera package — it must `use Noizu.Tessera.Package` " <>
+         "and be compiled (run `mix compile` first)"}
+    end
+  end
+
+  def resolve_package(nil) do
+    case package_modules(current_app()) do
+      [mod] ->
+        {:ok, mod}
+
+      [] ->
+        {:error,
+         "no tessera package found in the current project — declare one with " <>
+           "`use Noizu.Tessera.Package, components: [...]`, compile, and re-run"}
+
+      mods ->
+        {:error,
+         "multiple tessera packages in the current project " <>
+           "(#{Enum.map_join(mods, ", ", &inspect/1)}) — pass --package Module"}
+    end
+  end
+
   @doc "`priv/js/package.json` of a dep app, when the app ships a JS runtime."
   @spec app_js_package(atom()) :: {String.t(), String.t()} | nil
   def app_js_package(app) when is_atom(app) do
@@ -62,8 +119,8 @@ defmodule Noizu.Tessera.Registry do
     load(mod) and function_exported?(mod, :__tessera_manifest__, 0)
   end
 
-  defp current_app do
-    Mix.Project.get() && Mix.Project.config()[:app]
+  defp package_module?(mod) do
+    load(mod) and function_exported?(mod, :__tessera_package__, 0)
   end
 
   # Beam dirs, in preference order: the current project's compile path, a dep's

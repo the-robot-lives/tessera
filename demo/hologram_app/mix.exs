@@ -13,7 +13,22 @@ defmodule HologramDemo.MixProject do
       # priv/static/hologram (part of `mix compile`).
       compilers: Mix.compilers() ++ [:hologram],
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps()
+    ]
+  end
+
+  # Tier-2 serving bundles. The /holo_runtime glue (holo_runtime_glue.js)
+  # dynamic-imports /tessera/tessera-runtime.esm.js + the four component
+  # bundles, served by the endpoint's Plug.Static from priv/static/tessera.
+  # `mix tessera.install` only wires assets/npm — it does NOT emit these
+  # bundles; without this step every page whose bundle carries the glue
+  # 404s on the runtime (the e2e-smoke RED bug). CI + scripts/acceptance.sh
+  # run `mix tessera.bundles` BEFORE booting the demo.
+  defp aliases do
+    [
+      "tessera.bundles":
+        "tessera.compile_component HoloKit.Components.EditableList HoloKit.Components.Counter HoloKit.Components.StateProbe HoloKit.Components.PipelineProbe HoloKit.Components.SlotProbe HoloKit.Components.FormProbe HoloKit.Components.TakeoverProbe HoloKit.Components.TakeoverProbeExtAaa HoloKit.Components.TakeoverProbeExtBbb HoloKit.Components.TakeoverProbeExtCcc HoloKit.Components.TakeoverProbeDerived ThirdParty.FancyList ThirdParty.TidyList --out priv/static/tessera"
     ]
   end
 
@@ -28,9 +43,15 @@ defmodule HologramDemo.MixProject do
       {:bandit, "~> 1.5"},
       {:jason, "~> 1.4"},
       {:hologram, "~> 0.10.1"},
-      # The tessera component package under examples/ — which itself path-deps
-      # on the tessera library two levels up.
-      {:persona_kit, path: "../../examples/persona_kit"}
+      # The tessera component packages under examples/ — which themselves
+      # path-dep on the tessera library two levels up.
+      {:persona_kit, path: "../../examples/persona_kit"},
+      # SPIKE (spike/elixir-to-lit): the element-DSL package — state/template/
+      # action compiled into generated Lit elements (docs/notes/spike-elixir-to-lit.md).
+      {:spike_kit, path: "../../examples/spike_kit"},
+      # Tier 2 spike: ordinary Hologram components compiled to standalone
+      # tessera bundles (mix tessera.compile_component).
+      {:holo_kit, path: "../../examples/holo_kit"}
     ]
   end
 end

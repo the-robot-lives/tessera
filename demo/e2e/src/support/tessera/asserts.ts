@@ -93,4 +93,27 @@ export const tesseraAsserts = {
       .eq(index)
       .should("contain", expected);
   },
+
+  // — component gallery (mix tessera.gen.gallery) ——
+
+  /** The gallery lists `tag` with a live, upgraded demo element. */
+  galleryLists(tag: string): void {
+    cy.get(`[data-cy="gallery-component"][data-tag="${tag}"]`).within(() => {
+      cy.get('[data-cy="gallery-component-tag"]').should("contain", `<${tag}>`);
+      cy.get(`[data-cy="gallery-demo"] ${tag}`).should("exist");
+    });
+    cy.window({ log: false }).then((win) => {
+      expect(
+        (win as WinWithBucket & { customElements: CustomElementRegistry }).customElements.get(tag),
+        `${tag} upgraded`,
+      ).to.not.eq(null);
+    });
+  },
+
+  /** A line in `tag`'s gallery event log (name + camelCase detail JSON). */
+  galleryLogLine(tag: string, index: number, expected: string): void {
+    cy.get(`[data-cy="gallery-component"][data-tag="${tag}"] [data-cy="gallery-log-line"]`)
+      .eq(index)
+      .should("contain", expected);
+  },
 };

@@ -1,39 +1,14 @@
-import { expect, nextFrame } from "@open-wc/testing";
-import { LitElement, html } from "lit";
+import { expect } from "@open-wc/testing";
 import { TesseraElement } from "../../priv/js/src/element.mjs";
 import { defineOnce } from "../../priv/js/src/define.mjs";
 import { behaviors } from "../../priv/js/src/behaviors.mjs";
 import { getBridge } from "../../priv/js/src/bridge.mjs";
+import { PLAIN_TAG, plainContract, captureWarns } from "./helpers.mjs";
 
-const PLAIN_TAG = "tsr-el-plain";
-const LIT_TAG = "tsr-el-lit";
-
-const plainContract = {
-  version: 1,
-  tag: PLAIN_TAG,
-  attrs: [
-    { name: "display-name", key: "displayName", type: "string", required: true, default: null },
-    { name: "count", key: "count", type: "integer", default: 0 },
-    { name: "ratio", key: "ratio", type: "float" },
-    { name: "active", key: "active", type: "boolean" },
-  ],
-  props: [{ name: "tagList", type: "list", json: true, default: [] }],
-  events: [{ name: "plain-select", detail: { personaId: "string" } }],
-  slots: ["default"],
-  cy: "plain-el-root",
-};
-
-function captureWarns(fn) {
-  const warns = [];
-  const original = console.warn;
-  console.warn = (msg) => warns.push(String(msg));
-  try {
-    fn();
-  } finally {
-    console.warn = original;
-  }
-  return warns;
-}
+// FAST group: TesseraElement over plain HTMLElement — the behavior-defining
+// core (attribute coercion, tsr-props apply/clear, behaviors, bridge wiring).
+// The Lit-host matrix and cross-module-copy redundancy live in the FULL group
+// (element.lit.test.mjs / element.copies.test.mjs). docs/notes/test-tiering.md.
 
 describe("TesseraElement over plain HTMLElement", () => {
   before(() => {
@@ -98,6 +73,41 @@ describe("TesseraElement over plain HTMLElement", () => {
     const el = make({ count: "not-a-number", ratio: "x" });
     expect(el.count).to.equal(0); // contract default
     expect(el.ratio).to.equal(null);
+    el.remove();
+  });
+
+  it("coerces map/list attributes through JSON (Lit Object/Array parity, C-06/#21)", () => {
+    const JSON_TAG = "tsr-el-json";
+    const jsonContract = {
+      version: 1,
+      tag: JSON_TAG,
+      attrs: [
+        { name: "payload", key: "payload", type: "map" },
+        { name: "tags", key: "tags", type: "list" },
+      ],
+      props: [],
+      events: [],
+      slots: [],
+    };
+    class JsonEl extends TesseraElement(HTMLElement, jsonContract) {}
+    defineOnce(JSON_TAG, JsonEl);
+
+    const el = document.createElement(JSON_TAG);
+    el.setAttribute("payload", '{"a":1}');
+    el.setAttribute("tags", '["x","y"]');
+    document.body.appendChild(el);
+    expect(el.payload).to.deep.equal({ a: 1 });
+    expect(el.tags).to.deep.equal(["x", "y"]);
+
+    // live updates parse too; parse failure keeps the raw string (Lit parity)
+    el.setAttribute("payload", '{"b":2}');
+    expect(el.payload).to.deep.equal({ b: 2 });
+    el.setAttribute("payload", "not-json");
+    expect(el.payload).to.equal("not-json");
+
+    // removal ⇒ null
+    el.removeAttribute("tags");
+    expect(el.tags).to.equal(null);
     el.remove();
   });
 
@@ -300,146 +310,175 @@ describe("TesseraElement over plain HTMLElement", () => {
   });
 });
 
-describe("TesseraElement over LitElement", () => {
-  const litContract = {
-    version: 1,
-    tag: LIT_TAG,
-    attrs: [{ name: "card-title", key: "cardTitle", type: "string" }],
-    props: [{ name: "tagList", type: "list", json: true }],
-    events: [{ name: "lit-select" }],
+// Action surface (EXTENSION-CONTRACT.md §6, brief 2a): statics, el.state,
+// onAction registration semantics, dispatchAction results + events. The full
+// onion/async/stale pipeline is pinned in pipeline.test.mjs (pure) and the
+// conformance X-family cases (end-to-end against a compiled fixture).
+describe("TesseraElement action surface", () => {
+  const ACT_TAG = "tsr-el-act";
+  const actContract = {
+    version: 2,
+    tag: ACT_TAG,
+    attrs: [],
+    props: [],
+    events: [{ name: "act-ping", detail: {} }],
+    slots: [],
+    cy: null,
+  };
+  const actExtension = {
+    state: ["count", "selected_id"],
+    actions: ["bump", "select_item", "sneaky", "thrower"],
+    internalActions: ["sneaky"],
   };
 
   before(() => {
-    class LitEl extends TesseraElement(LitElement, litContract) {
-      static properties = {
-        items: { type: Array },
-      };
-      render() {
-        return html`<span data-cy="lit-tags">${(this.tagList ?? []).length}</span>`;
+    class ActEl extends TesseraElement(HTMLElement, actContract, actExtension) {
+      constructor() {
+        super();
+        this.count = 0;
+        this.selected_id = "none";
+      }
+      __action_bump(params = {}) {
+        return { count: this.count + (params.step ?? 1), selected_id: this.selected_id };
+      }
+      __action_select_item(params = {}) {
+        return { count: this.count, selected_id: params.item_name };
+      }
+      __action_sneaky() {
+        return { count: this.count + 100, selected_id: this.selected_id };
+      }
+      __action_thrower() {
+        throw new Error("action exploded");
       }
     }
-    defineOnce(LIT_TAG, LitEl);
+    defineOnce(ACT_TAG, ActEl);
   });
 
-  it("observedAttributes merge Lit reactive props, contract attrs and tsr-props", () => {
-    const observed = customElements.get(LIT_TAG).observedAttributes;
-    expect(observed).to.include.members(["items", "card-title", "tsr-props"]);
-  });
-
-  it("attribute coercion works over Lit", async () => {
-    const el = document.createElement(LIT_TAG);
-    el.setAttribute("card-title", "Ada");
+  function makeAct() {
+    const el = document.createElement(ACT_TAG);
     document.body.appendChild(el);
-    expect(el.cardTitle).to.equal("Ada");
-    el.remove();
+    return el;
+  }
+
+  it("contract statics: tesseraTag / tesseraContractVersion / tesseraActions", () => {
+    const ctor = customElements.get(ACT_TAG);
+    expect(ctor.tesseraTag).to.equal(ACT_TAG);
+    expect(ctor.tesseraContractVersion).to.equal(2);
+    // OPEN surface (D2): every declared name, snake canonical, internal included
+    expect(ctor.tesseraActions).to.deep.equal(["bump", "select_item", "sneaky", "thrower"]);
   });
 
-  it("tsr-props assignment triggers a Lit reactive render", async () => {
-    const el = document.createElement(LIT_TAG);
-    el.setAttribute("tsr-props", JSON.stringify({ tagList: ["a", "b", "c"] }));
+  it("descriptorless component: frozen empty state + contract-tag statics", () => {
+    const el = document.createElement(PLAIN_TAG);
     document.body.appendChild(el);
-    await el.updateComplete;
-    await nextFrame();
-    const text = el.shadowRoot?.querySelector("[data-cy=lit-tags]")?.textContent;
-    expect(text).to.equal("3", "requestUpdate flows through Lit's reactive render");
-    el.remove();
-  });
-
-  it("bad tsr-props JSON warns and never throws over Lit", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    const warns = captureWarns(() => {
-      el.setAttribute("tsr-props", "not-json");
-    });
-    await el.updateComplete;
-    expect(warns.some((w) => w.includes("tsr-props"))).to.equal(true);
-    el.remove();
-  });
-
-  it("tsr-props skips function-valued keys (requestUpdate) over Lit and warns once", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    const seen = [];
-    const original = console.warn;
-    console.warn = (msg) => seen.push(String(msg));
     try {
-      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 1 }));
-      el.setAttribute("tsr-props", JSON.stringify({ requestUpdate: 2 }));
+      expect(el.state).to.deep.equal({});
+      expect(Object.isFrozen(el.state)).to.equal(true);
+      const ctor = customElements.get(PLAIN_TAG);
+      expect(ctor.tesseraTag).to.equal(PLAIN_TAG);
+      expect(ctor.tesseraActions).to.deep.equal([]);
     } finally {
-      console.warn = original;
+      el.remove();
     }
-    expect(typeof el.requestUpdate, "the method survives").to.equal("function");
-    await el.updateComplete;
-    expect(seen.filter((w) => w.includes('"requestUpdate"'))).to.have.lengthOf(1, "warned once per key");
-    // The render pipeline is untouched: a reactive prop change still renders.
-    el.setAttribute("card-title", "Grace");
-    await el.updateComplete;
-    expect(el.cardTitle).to.equal("Grace");
-    el.remove();
   });
 
-  it("removal resets accessor-backed Lit reactive props through the setter", async () => {
-    const el = document.createElement(LIT_TAG);
-    document.body.appendChild(el);
-    await el.updateComplete;
-    // `items` is declared in Lit `static properties` — assigning it goes
-    // through Lit's accessor, so there is no own property to delete; the
-    // reset must ride the setter instead.
-    el.setAttribute("tsr-props", JSON.stringify({ items: ["x"] }));
-    await el.updateComplete;
-    expect(el.items).to.deep.equal(["x"]);
-
-    el.removeAttribute("tsr-props");
-    await el.updateComplete;
-    expect(el.items).to.be.undefined;
-    el.remove();
+  it("dispatchAction commits a transition, fires tsr-state-change, value = post snapshot (U1/Q3)", () => {
+    const el = makeAct();
+    const seen = [];
+    const listener = (ev) => seen.push(ev.detail);
+    document.addEventListener("tsr-state-change", listener);
+    try {
+      const r = el.dispatchAction("select_item", { itemName: "x1" }); // camel key ok
+      expect(r.ok).to.equal(true);
+      expect(r.value.selectedId).to.equal("x1");
+      expect(Object.isFrozen(r.value)).to.equal(true);
+      expect(seen.length).to.equal(1);
+      expect(seen[0].keys).to.deep.equal(["selectedId"]);
+      expect(seen[0].state.selectedId).to.equal("x1");
+      expect(el.count).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-state-change", listener);
+      el.remove();
+    }
   });
-});
 
-describe("skipped-prop warn-once across module copies", () => {
-  const WARNED_KEY = Symbol.for("tessera.warned-props");
-  const COPY2_TAG = "tsr-el-plain-copy2";
-  const PROBE_KEY = "_cross-copy-warn-probe";
+  it("unknown action: warn, ok:false, no throw, no state, no event", () => {
+    const el = makeAct();
+    let events = 0;
+    const listener = () => (events += 1);
+    document.addEventListener("tsr-state-change", listener);
+    try {
+      const warns = captureWarns(() => {
+        const r = el.dispatchAction("does_not_exist");
+        expect(r).to.deep.equal({ ok: false, reason: "unknown-action" });
+        expect(el.dispatchAction(42)).to.deep.equal({ ok: false, reason: "unknown-action" });
+      });
+      expect(warns.filter((w) => w.includes("does_not_exist")).length).to.equal(1);
+      expect(el.count).to.equal(0);
+      expect(events).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-state-change", listener);
+      el.remove();
+    }
+  });
 
-  it("two module copies share one globalThis warn set — a skipped key warns once per document", async () => {
-    const element1 = await import("../../priv/js/src/element.mjs");
-    // Cache-busting query: a SECOND instance of the module, exactly what
-    // Hologram's per-page esbuild bundles produce.
-    const element2 = await import("../../priv/js/src/element.mjs?copy=2");
-    expect(element2.TesseraElement).to.not.equal(
-      element1.TesseraElement,
-      "precondition: two distinct module instances",
-    );
-
-    class Copy2El extends element2.TesseraElement(HTMLElement, plainContract) {}
-    // Defined under a UNIQUE tag (one definition per tag per document) with
-    // the SAME contract: the dedupe key is `${contract.tag}:${key}`, so this
-    // is exactly the duplicate-bundle scenario the global set exists for.
-    defineOnce(COPY2_TAG, Copy2El);
-
-    const dedupe = `${PLAIN_TAG}:${PROBE_KEY}`;
-    globalThis[WARNED_KEY]?.delete(dedupe);
-
-    const el1 = document.createElement(PLAIN_TAG);
-    const el2 = document.createElement(COPY2_TAG);
-    document.body.appendChild(el1);
-    document.body.appendChild(el2);
-
-    const warns = captureWarns(() => {
-      el1.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 1 }));
-      el2.setAttribute("tsr-props", JSON.stringify({ [PROBE_KEY]: 2 }));
-    });
-
-    expect(warns.filter((w) => w.includes(`"${PROBE_KEY}"`))).to.have.lengthOf(
-      1,
-      "the second copy's skipped-key application must NOT re-warn (shared globalThis set)",
-    );
-    expect(globalThis[WARNED_KEY], "the set lives on globalThis under the Symbol.for key").to.exist;
-    expect(globalThis[WARNED_KEY].has(dedupe)).to.equal(true);
-
-    el1.remove();
+  it("internal action: dispatches normally; onAction warns ONCE per tag+action but works (D2)", () => {
+    const el = makeAct();
+    let hits = 0;
+    const warns1 = captureWarns(() => el.onAction("sneaky", (p, next) => { hits += 1; return next(); }));
+    expect(warns1.filter((w) => w.includes("internal action")).length).to.equal(1);
+    // dedupe is GLOBAL per tag+action — a second instance's registration stays quiet
+    const el2 = makeAct();
+    const again = captureWarns(() => el2.onAction("sneaky", (p, next) => next()));
+    expect(again.length).to.equal(0);
+    expect(el2.dispatchAction("sneaky").ok).to.equal(true);
+    expect(el.dispatchAction("sneaky").ok).to.equal(true);
+    expect(hits).to.equal(1); // el's interceptor fired on el's dispatch only
+    expect(el.count).to.equal(100); // open surface — internal dispatch still commits
+    expect(el2.count).to.equal(100);
+    el.remove();
     el2.remove();
+  });
+
+  it("throwing action: ok:false reason error + tsr-action-error, state untouched", () => {
+    const el = makeAct();
+    const errs = [];
+    const listener = (ev) => errs.push(ev.detail);
+    document.addEventListener("tsr-action-error", listener);
+    try {
+      const r = el.dispatchAction("thrower");
+      expect(r).to.deep.equal({ ok: false, reason: "error" });
+      expect(errs.length).to.equal(1);
+      expect(errs[0].action).to.equal("thrower");
+      expect(errs[0].message).to.include("action exploded");
+      expect(el.count).to.equal(0);
+    } finally {
+      document.removeEventListener("tsr-action-error", listener);
+      el.remove();
+    }
+  });
+
+  it("onAction: TypeError on non-function; unsubscribe removes the interceptor", () => {
+    const el = makeAct();
+    expect(() => el.onAction("bump", "not-a-function")).to.throw(TypeError);
+    let hits = 0;
+    const off = el.onAction("bump", (p, next) => { hits += 1; return next(); });
+    el.dispatchAction("bump");
+    expect(hits).to.equal(1);
+    off();
+    el.dispatchAction("bump");
+    expect(hits).to.equal(1);
+    expect(el.count).to.equal(2);
+    el.remove();
+  });
+
+  it("interceptors are per-instance — a sibling element is untouched", () => {
+    const a = makeAct();
+    const b = makeAct();
+    a.onAction("bump", () => ({ vetoed: "only-a" }));
+    expect(a.dispatchAction("bump").ok).to.equal(false);
+    expect(b.dispatchAction("bump").ok).to.equal(true);
+    a.remove();
+    b.remove();
   });
 });

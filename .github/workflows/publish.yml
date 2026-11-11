@@ -1,6 +1,13 @@
-# Publish to hex.pm — tag-driven.
+# Publish to hex.pm — MANUAL ONLY (workflow_dispatch).
 #
-# Push a `v*` tag (from main, at the release commit) and this workflow:
+# Tag-triggered publishing is DISABLED (owner decision 2026-11-12): the
+# HEX_API_KEY repo secret is not valid, and releases are published by hand
+# with `mix hex.publish` (2FA) from a clean checkout at the tag. Pushing a
+# `v*` tag no longer runs this workflow. Re-enable `push: tags` once a valid
+# key / trusted publishing is configured.
+#
+# When run by hand (Actions → "Publish to hex.pm" → Run workflow, choosing the
+# `v*` tag as the ref), this workflow:
 #   1. guards that the tag equals the `@version` in mix.exs,
 #   2. runs the library test suite,
 #   3. runs `mix hex.publish --yes` with HEX_API_KEY from the repo secret.
@@ -13,8 +20,7 @@
 name: Publish to hex.pm
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read

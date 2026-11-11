@@ -76,16 +76,35 @@ grammar `event:action@target`, re-emit pattern, byte-exact round trips):
 
 ```sh
 # Hologram host — pages for stateless/cid/picker/behaviors scenarios + Link nav
-cd demo/hologram_app && mix deps.get && mix tessera.install && mix holo
+# HOLOGRAM_START=1 must gate the WHOLE chain (boot hazard, see below)
+cd demo/hologram_app && export HOLOGRAM_START=1 && mix deps.get && mix tessera.install && mix holo
 # → http://localhost:5586  (+ /second)
 
 # Plain HTML host — vanilla addEventListener, zero framework
 cd demo/plain_html && npm install && npm run build && npm run serve
 # → http://localhost:5587
 
-# Cypress e2e for both (servers must be running)
+# Component gallery — CEM-driven live demos + typed attr/prop/slot/CSS editors
+# + event log, generated from the package (mix tessera.gen.gallery)
+cd examples/persona_kit && mix compile && mix tessera.gen.gallery
+npm install                          # package root: lit + @noizu/tessera-core
+cd gallery && npm install && npm run build && npm run serve
+# → http://localhost:5588
+
+# Cypress e2e for all three (servers must be running)
 cd demo/e2e && npm ci && npx cypress run --spec "src/e2e/*.cy.ts"
 ```
+
+> **Boot hazard — export `HOLOGRAM_START=1` for the whole boot chain.** In a
+> fresh Linux environment the canonical `mix deps.get && mix tessera.install
+> && mix holo` chain can **hang indefinitely**: `mix deps.get` compiles path
+> deps immediately, and if that compile runs *without* `HOLOGRAM_START=1`, the
+> later `mix holo` (which sets it) finds the Hologram compiler already
+> registered and loops forever on `Hologram: compiler already running,
+> waiting...` — hologram 0.10.1 never times out. Observed twice in an
+> elixir:1.18-otp-27 container, never on macOS. Exporting `HOLOGRAM_START=1`
+> before `mix deps.get` (as CI does) avoids it. Details:
+> `docs/CONSUMING.md` §2 and `docs/notes/e2e-linux-ci.md`.
 
 ## Docs
 

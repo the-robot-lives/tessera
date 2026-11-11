@@ -8,6 +8,8 @@ defmodule HologramDemo.Web.Hologram.Layouts.RootLayout do
   use Hologram.Component
 
   alias Hologram.UI.Link
+  alias HologramDemo.Web.Hologram.Layouts.RootLayout
+  alias HologramDemo.Web.Hologram.Pages.HoloRuntimePage
   alias HologramDemo.Web.Hologram.Pages.MainPage
   alias HologramDemo.Web.Hologram.Pages.SecondPage
 
@@ -27,6 +29,7 @@ defmodule HologramDemo.Web.Hologram.Layouts.RootLayout do
         <nav data-cy="demo-nav">
           <span data-cy="nav-main"><Link to={MainPage}>main</Link></span>
           <span data-cy="nav-second"><Link to={SecondPage}>second</Link></span>
+          <span data-cy="nav-holo-runtime"><Link to={HoloRuntimePage}>holo runtime</Link></span>
         </nav>
         <main><slot /></main>
       </body>

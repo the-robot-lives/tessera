@@ -4,8 +4,10 @@
   "type": "module",
   "description": "Web Test Runner harness for @noizu/tessera-core (dev tooling only — the shipped package has no devDependencies).",
   "scripts": {
-    "test": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs",
-    "test:watch": "wtr --config web-test-runner.config.mjs --watch"
+    "test": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs --group default",
+    "test:fast": "node scripts/assert-no-lit.mjs && wtr --config web-test-runner.config.mjs --group fast",
+    "test:conformance": "wtr --config web-test-runner.config.mjs --group conformance",
+    "test:watch": "wtr --config web-test-runner.config.mjs --group default --watch"
   },
   "devDependencies": {
     "@open-wc/testing": "^4.0.0",

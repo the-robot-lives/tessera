@@ -1,24 +1,28 @@
-# tessera CI — Phase 1 MVP
+# tessera CI — tiered for fast turnaround (docs/notes/test-tiering.md)
 #
-# Jobs:
-#   exunit     — format check, warnings-as-errors compile, ExUnit for the
-#                library and the persona_kit example package
-#   js         — @noizu/tessera-core WTR suite (incl. the assert-no-lit guard)
-#                + persona_kit component WTR suite
-#   e2e-smoke  — BLOCKING: boots both demos and runs the Cypress legs that are
-#                green on Linux (plain_html, hologram_nav, hologram_main leg
-#                (b)). This is the hard gate behind the "integration-tested
-#                end to end" claim for shadow events on the primary CI
-#                platform.
-#   e2e-full   — NON-BLOCKING (continue-on-error): the remaining hologram_main
-#                legs (a)/(c)/(d), which fail on ubuntu runners while passing
-#                on macOS. TODO(tessera-e2e-linux): make blocking once the
-#                Linux failure mode is fixed — docs/notes/e2e-linux-ci.md.
+# FAST lane (the per-change gate): pushes to feature/** and epic.** branches,
+#   and PRs into epic.**/develop/stage/main. Runs the fast ExUnit subset
+#   (`mix test.fast`, excludes :slow/:nightly), the fast WTR group
+#   (`npm run test:fast`), and the BLOCKING e2e-smoke core claim (Cypress
+#   @fast). Target: well under 2 minutes — the two core-claim demos boot in
+#   parallel, deps/_build + node_modules are cached, and the gallery (:5588,
+#   not core claim) is covered by the nightly full suite instead.
+# INTEGRATION lane: push to develop/stage/main (the epic→develop regular
+#   merge). Full ExUnit + full WTR (core host-matrix + persona_kit) + the
+#   blocking e2e-smoke.
+# NIGHTLY lane: nightly.yml (schedule) — e2e-full (all hosts incl. the
+#   currently-red Linux legs, continue-on-error) + coverage. The weekly
+#   upstream-drift canary stays in canary.yml.
 #
-# No job in this workflow depends on another (`needs:` is unused) — house
-# rule: GitHub skips propagate through `needs`, so if a deploy-type job is
-# ever added it MUST gate on `!cancelled() && needs.<job>.result == 'success'`
-# rather than a bare `needs:`, or a skipped dependency would silently skip it.
+# The blocking core-claim smoke (shadow-DOM event → dispatchAction → Hologram
+# action → re-render) runs in BOTH the fast and integration lanes — it is never
+# gated away. e2e-smoke has no `if:` so every in-scope push/PR carries it.
+#
+# No job depends on another (`needs:` is unused) — house rule: GitHub skips
+# propagate through `needs`, so a deploy-type job added later MUST gate on
+# `!cancelled() && needs.<job>.result == 'success'` rather than a bare `needs:`.
+# Lane selection uses `if:` on event/ref instead; a skipped lane job never
+# silently skips a gate.
 #
 # Elixir 1.18.x / OTP 27: hologram 0.10.1 supports ~> 1.15; 1.18 avoids the
 # Elixir 1.20+ "redundant init/3 clause" type warning that would fail the
@@ -28,9 +32,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [develop, stage, main]
+    branches: [develop, stage, main, "epic.**"]
   push:
-    branches: [develop, stage, main]
+    branches: [develop, stage, main, "epic.**", "feature/**"]
 
 permissions:
   contents: read
@@ -40,7 +44,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  exunit:
+  # ---------------------------------------------------------------- FAST lane
+  exunit-fast:
+    if: >-
+      github.event_name == 'pull_request' ||
+      startsWith(github.ref, 'refs/heads/feature/') ||
+      startsWith(github.ref, 'refs/heads/epic.')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,14 +68,245 @@ jobs:
           key: mix-${{ runner.os }}-${{ hashFiles('mix.lock', 'examples/persona_kit/mix.lock') }}
           restore-keys: mix-${{ runner.os }}-
 
-      - name: Library — format, compile, test
+      - name: Library — format, compile, FAST test
+        run: |
+          mix deps.get
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test.fast
+
+      - name: persona_kit — format, compile, FAST test
+        working-directory: examples/persona_kit
+        run: |
+          mix deps.get
+          mix format --check-formatted
+          mix compile --warnings-as-errors
+          mix test.fast
+
+  js-fast:
+    if: >-
+      github.event_name == 'pull_request' ||
+      startsWith(github.ref, 'refs/heads/feature/') ||
+      startsWith(github.ref, 'refs/heads/epic.')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Cache js core node_modules
+        uses: actions/cache@v4
+        with:
+          path: js/node_modules
+          key: js-${{ runner.os }}-${{ hashFiles('js/package-lock.json') }}
+
+      # Core WTR imports priv/js/src directly — no BEAM/contract codegen needed
+      # for the fast group (persona_kit's contract modules are integration-only).
+      - name: tessera-core FAST WTR group (incl. assert-no-lit)
+        working-directory: js
+        run: npm ci && npm run test:fast
+
+  # ------------------------------------------- BLOCKING core claim (both lanes)
+  # Core claim = shadow-DOM event → dispatchAction → Hologram action →
+  # re-render, on the Hologram (:5586) + plain-HTML (:5587) hosts. The gallery
+  # (:5588) is a component vitrine, NOT part of the core claim — its e2e moved
+  # to the nightly full suite (gallery.cy.ts @slow) so the fast gate boots two
+  # demos, in PARALLEL, and reuses one boot for every @fast spec.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `mix holo` boots Hologram.LiveReload in dev, whose file_system worker
+      # hard-crashes the whole app on Linux runners without inotify-tools
+      # (Hologram 0.10.1 MatchErrors on the :ignore instead of degrading).
+      - name: Install inotify-tools (file_system / LiveReload)
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # Cold-compile shrink: the demo's deps/_build (incl. the :hologram
+      # compiler output) restore incrementally — mix recompiles only what
+      # changed. Keyed on every lockfile in the demo's path-dep closure.
+      - name: Cache Hologram demo deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            demo/hologram_app/deps
+            demo/hologram_app/_build
+          key: mix-demo-${{ runner.os }}-${{ hashFiles('demo/hologram_app/mix.lock', 'mix.lock', 'examples/persona_kit/mix.lock', 'examples/spike_kit/mix.lock', 'examples/holo_kit/mix.lock') }}
+          restore-keys: mix-demo-${{ runner.os }}-
+
+      # esbuild resolves bare specifiers ("lit") from each importing file's
+      # node_modules chain, and the components live in examples/persona_kit —
+      # so that package's own deps must be installed even though the bundle
+      # is built from demo/plain_html (fresh CI checkouts lack it; local
+      # checkouts usually have it from WTR development, masking the gap).
+      # Prerequisite of BOTH boot chains, so it runs before they fan out.
+      - name: Cache persona_kit node_modules
+        id: pk-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: examples/persona_kit/node_modules
+          key: pk-js-${{ runner.os }}-${{ hashFiles('examples/persona_kit/package-lock.json') }}
+
+      - name: Install persona_kit npm deps (lit resolves from importer path)
+        if: steps.pk-npm-cache.outputs.cache-hit != 'true'
+        working-directory: examples/persona_kit
+        run: npm ci --no-audit --no-fund
+
+      # The plain-HTML build imports persona_kit components, and each imports
+      # its contract.generated.mjs sibling — an Elixir-compiler artifact. The
+      # old SERIAL Hologram boot emitted these as a side effect before the
+      # plain build; with PARALLEL boots that is a race, so compile persona_kit
+      # explicitly BEFORE the fan-out (the demo's own compile re-emits them
+      # idempotently).
+      - name: Cache persona_kit deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            examples/persona_kit/deps
+            examples/persona_kit/_build
+          key: mix-pk-${{ runner.os }}-${{ hashFiles('examples/persona_kit/mix.lock', 'mix.lock') }}
+          restore-keys: mix-pk-${{ runner.os }}-
+
+      - name: Generate persona_kit contract modules (mix compile)
+        working-directory: examples/persona_kit
+        run: mix deps.get && mix compile
+
+      - name: Cache plain-HTML demo node_modules
+        id: plain-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: demo/plain_html/node_modules
+          key: plain-js-${{ runner.os }}-${{ hashFiles('demo/plain_html/package-lock.json') }}
+
+      - name: Cache e2e node_modules + Cypress binary
+        id: e2e-npm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            demo/e2e/node_modules
+            ~/.cache/Cypress
+          key: e2e-js-${{ runner.os }}-${{ hashFiles('demo/e2e/package-lock.json') }}
+
+      # The two demo boots are independent — run the install→build→boot→
+      # readiness chains CONCURRENTLY (wall = max, not sum). Each chain logs
+      # to its own file; a failed chain tails its log and fails the step.
+      - name: Boot Hologram :5586 + plain-HTML :5587 (parallel)
+        run: |
+          boot_holo() {
+            cd demo/hologram_app || return 1
+            # Gate the WHOLE chain on HOLOGRAM_START: the deps.get path-dep
+            # compile registers Hologram compiler state, and a later `mix holo`
+            # can stall forever on "compiler already running, waiting" if the
+            # earlier compile ran un-gated (observed flaky in a Linux repro).
+            export HOLOGRAM_START=1
+            mix deps.get || return 1
+            mix tessera.install || return 1
+            # `mix tessera.bundles` shells out to Hologram's OWN esbuild
+            # (deps/hologram/assets/node_modules/.bin/esbuild), which `mix holo`
+            # would install later but the bundles step needs first — without
+            # this CI died with :enoent on open_port. The hex tarball ships no
+            # package-lock.json, so this must be `npm install`, not `npm ci`.
+            npm install --prefix deps/hologram/assets --no-audit --no-fund || return 1
+            # Emit the Tier-2 serving bundles into priv/static/tessera BEFORE
+            # boot — the /holo_runtime glue imports tessera-runtime.esm.js +
+            # counter/editable_list/fancy_list/tidy_list from /tessera/. Without
+            # this the runtime 404s and the core-claim specs fail on the
+            # console-error assertion (the e2e-smoke RED bug).
+            mix tessera.bundles || return 1
+            nohup mix holo > /tmp/holo.log 2>&1 &
+            for i in $(seq 1 120); do
+              curl -sf -o /dev/null http://localhost:5586/ && return 0
+              sleep 2
+            done
+            echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; return 1
+          }
+          boot_plain() {
+            cd demo/plain_html || return 1
+            if [ "${{ steps.plain-npm-cache.outputs.cache-hit }}" != "true" ]; then
+              npm ci --no-audit --no-fund || return 1
+            fi
+            npm run build || return 1
+            nohup npm run serve > /tmp/plain.log 2>&1 &
+            for i in $(seq 1 60); do
+              curl -sf -o /dev/null http://localhost:5587/ && return 0
+              sleep 1
+            done
+            echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; return 1
+          }
+          boot_holo & HOLO_PID=$!
+          boot_plain & PLAIN_PID=$!
+          H=0; P=0
+          wait "$HOLO_PID" || H=$?
+          wait "$PLAIN_PID" || P=$?
+          if [ "$H" -ne 0 ] || [ "$P" -ne 0 ]; then
+            echo "::error::demo boot failed (holo=$H plain=$P)"; exit 1
+          fi
+
+      # @fast = the Linux-green core-claim legs: plain_html, conformance_tier2
+      # (fast lane), hologram_nav, hologram_main_smoke (leg b). grepFilterSpecs
+      # loads only these specs. This is the hard gate behind the shadow-event
+      # core claim — BLOCKING in both lanes. Gallery is @slow (nightly).
+      - name: Cypress FAST smoke (blocking core claim, @fast)
+        working-directory: demo/e2e
+        run: |
+          if [ "${{ steps.e2e-npm-cache.outputs.cache-hit }}" != "true" ]; then
+            npm ci --no-audit --no-fund
+          fi
+          npm run test:fast
+
+      - name: Upload cypress screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-screenshots-smoke
+          path: demo/e2e/cypress/screenshots
+          if-no-files-found: ignore
+
+  # --------------------------------------------------------- INTEGRATION lane
+  exunit-integration:
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' ||
+       github.ref == 'refs/heads/stage' ||
+       github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27.x"
+          elixir-version: "1.18.x"
+
+      - name: Restore deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('mix.lock', 'examples/persona_kit/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - name: Library — format, compile, FULL test
         run: |
           mix deps.get
           mix format --check-formatted
           mix compile --warnings-as-errors
           mix test
 
-      - name: persona_kit — format, compile, test
+      - name: persona_kit — format, compile, FULL test
         working-directory: examples/persona_kit
         run: |
           mix deps.get
@@ -74,7 +314,12 @@ jobs:
           mix compile --warnings-as-errors
           mix test
 
-  js:
+  js-integration:
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/develop' ||
+       github.ref == 'refs/heads/stage' ||
+       github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +343,7 @@ jobs:
           path: js/node_modules
           key: js-${{ runner.os }}-${{ hashFiles('js/package-lock.json') }}
 
-      - name: tessera-core WTR suite (incl. assert-no-lit)
+      - name: tessera-core FULL WTR suite (incl. assert-no-lit + host matrix)
         working-directory: js
         run: npm ci && npm test
 
@@ -115,143 +360,3 @@ jobs:
       - name: persona_kit WTR suite
         working-directory: examples/persona_kit
         run: npm ci && npm test
-
-  # Shared demo-boot steps for the two e2e jobs (duplicated deliberately —
-  # GH Actions has no YAML anchors, and both jobs must be hermetic).
-  e2e-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # `mix holo` boots Hologram.LiveReload in dev, whose file_system worker
-      # hard-crashes the whole app on Linux runners without inotify-tools
-      # (Hologram 0.10.1 MatchErrors on the :ignore instead of degrading).
-      - name: Install inotify-tools (file_system / LiveReload)
-        run: sudo apt-get update && sudo apt-get install -y inotify-tools
-
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "27.x"
-          elixir-version: "1.18.x"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Boot Hologram demo on :5586
-        working-directory: demo/hologram_app
-        run: |
-          # Gate the WHOLE chain on HOLOGRAM_START: the deps.get path-dep
-          # compile registers Hologram compiler state, and a later `mix holo`
-          # can stall forever on "compiler already running, waiting" if the
-          # earlier compile ran un-gated (observed flaky in a Linux repro).
-          export HOLOGRAM_START=1
-          mix deps.get
-          mix tessera.install
-          nohup mix holo > /tmp/holo.log 2>&1 &
-          for i in $(seq 1 120); do
-            curl -sf -o /dev/null http://localhost:5586/ && exit 0
-            sleep 2
-          done
-          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
-
-      # esbuild resolves bare specifiers ("lit") from each importing file's
-      # node_modules chain, and the components live in examples/persona_kit —
-      # so that package's own deps must be installed even though the bundle
-      # is built from demo/plain_html (fresh CI checkouts lack it; local
-      # checkouts usually have it from WTR development, masking the gap).
-      - name: Install persona_kit npm deps (lit resolves from importer path)
-        working-directory: examples/persona_kit
-        run: npm ci
-
-      - name: Boot plain-HTML demo on :5587
-        working-directory: demo/plain_html
-        run: |
-          npm install
-          npm run build
-          nohup npm run serve > /tmp/plain.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5587/ && exit 0
-            sleep 1
-          done
-          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
-
-      - name: Cypress smoke suite (blocking legs)
-        working-directory: demo/e2e
-        run: |
-          npm ci
-          npx cypress run --spec "src/e2e/plain_html.cy.ts,src/e2e/hologram_nav.cy.ts,src/e2e/hologram_main_smoke.cy.ts"
-
-      - name: Upload cypress screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cypress-screenshots-smoke
-          path: demo/e2e/cypress/screenshots
-          if-no-files-found: ignore
-
-  e2e-full:
-    runs-on: ubuntu-latest
-    # TODO(tessera-e2e-linux): drop continue-on-error once the Linux failure
-    # mode below is fixed — see docs/notes/e2e-linux-ci.md (component-own
-    # shadow updates are lost under the Hologram host on ubuntu runners while
-    # all specs pass on macOS; toolchain + Linux browser both ruled out).
-    # A red run must still be triaged, it just does not block.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install inotify-tools (file_system / LiveReload)
-        run: sudo apt-get update && sudo apt-get install -y inotify-tools
-
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "27.x"
-          elixir-version: "1.18.x"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Boot Hologram demo on :5586
-        working-directory: demo/hologram_app
-        run: |
-          export HOLOGRAM_START=1
-          mix deps.get
-          mix tessera.install
-          nohup mix holo > /tmp/holo.log 2>&1 &
-          for i in $(seq 1 120); do
-            curl -sf -o /dev/null http://localhost:5586/ && exit 0
-            sleep 2
-          done
-          echo "::error::Hologram demo did not come up on :5586"; tail -50 /tmp/holo.log; exit 1
-
-      - name: Install persona_kit npm deps (lit resolves from importer path)
-        working-directory: examples/persona_kit
-        run: npm ci
-
-      - name: Boot plain-HTML demo on :5587
-        working-directory: demo/plain_html
-        run: |
-          npm install
-          npm run build
-          nohup npm run serve > /tmp/plain.log 2>&1 &
-          for i in $(seq 1 60); do
-            curl -sf -o /dev/null http://localhost:5587/ && exit 0
-            sleep 1
-          done
-          echo "::error::plain demo did not come up on :5587"; tail -20 /tmp/plain.log; exit 1
-
-      - name: "Cypress full suite (non-blocking legs: hologram_main a/c/d)"
-        working-directory: demo/e2e
-        run: |
-          npm ci
-          npx cypress run --spec "src/e2e/hologram_main.cy.ts"
-
-      - name: Upload cypress screenshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cypress-screenshots-full
-          path: demo/e2e/cypress/screenshots
-          if-no-files-found: ignore
