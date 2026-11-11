@@ -18,5 +18,5 @@ defmodule SpikeKit do
   """
 
   use Noizu.Tessera.Package,
-    components: [SpikeKit.Counter, SpikeKit.ToggleChip, SpikeKit.StylesPanel]
+    components: [SpikeKit.Counter, SpikeKit.ToggleChip, SpikeKit.StylesPanel, SpikeKit.PropsPanel]
 end

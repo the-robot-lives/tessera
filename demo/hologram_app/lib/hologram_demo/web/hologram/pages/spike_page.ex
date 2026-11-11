@@ -1,11 +1,12 @@
 defmodule HologramDemo.Web.Hologram.Pages.SpikePage do
   @moduledoc """
   SPIKE (`spike/elixir-to-lit`): the element-DSL components in a Hologram
-  host. `<SpikeKit.Counter>` and `<SpikeKit.ToggleChip>` are defined entirely
-  in Elixir (`state` / `template ~TSR` / `action`) and compiled by
-  `mix compile` into generated Lit elements — there is no hand-written JS for
-  either component. The Hologram integration is the same js_import + bridge
-  story as persona_kit: `chip-select` crosses with camelCase detail keys
+  host. `<SpikeKit.Counter>`, `<SpikeKit.ToggleChip>` and
+  `<SpikeKit.StylesPanel>` are defined entirely in Elixir (`state` /
+  `template ~TSR` / `action` / `styles`) and compiled by `mix compile` into
+  generated Lit elements — there is no hand-written JS for any of them. The
+  Hologram integration is the same js_import + bridge story as persona_kit:
+  `chip-select` crosses with camelCase detail keys
   (`chipId`), the `data-tsr-on` bridge snake-cases them back, and
   `on_chip_select={:chose}` lands in the page action with `params.chip_id` —
   the easiest hookup an Elixir author could ask for (docs/notes/spike-elixir-to-lit.md).
@@ -15,6 +16,7 @@ defmodule HologramDemo.Web.Hologram.Pages.SpikePage do
 
   alias HologramDemo.Web.Hologram.Layouts.RootLayout
   alias SpikeKit.Counter
+  alias SpikeKit.StylesPanel
   alias SpikeKit.ToggleChip
 
   route "/spike"
@@ -60,6 +62,11 @@ defmodule HologramDemo.Web.Hologram.Pages.SpikePage do
       <p data-cy="spike-chose">page chose: <strong>{@chose}</strong> (<span data-cy="spike-chose-count">{@chose_count}</span>)</p>
       <ToggleChip chip_id="holo-1" label="Ada" on_chip_select={:chose} />
       <ToggleChip chip_id="holo-7" label="Grace" on_chip_select={:chose} />
+    </div>
+
+    <div class="panel" data-cy="spike-styles-panel">
+      <h2>spike-styles-panel — composed styles + slot (non-void grammar)</h2>
+      <StylesPanel tone="dark" />
     </div>
     """
   end

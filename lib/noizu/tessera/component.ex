@@ -34,6 +34,13 @@ defmodule Noizu.Tessera.Component do
 
       styles ~CSS":host { border-color: var(--tsr-persona-card-accent, #6cf); }"
 
+  Element DSL (template-bearing components): `state`, `action`, the lifecycle
+  hooks `should_update` / `will_update` / `first_updated` / `updated` (each
+  `fn state, changed -> ... end`), and `?attr={expr}` boolean attribute
+  bindings in the template. `attr`/`prop`/`state` accept Lit property options
+  `attribute: "custom-name" | false` and `reflect: true`; `:list` types emit
+  Lit's `Array` converter.
+
   Naming rules (CONTRACT.md §1): attr/prop/detail names are snake_case atoms;
   `attr` names reach the DOM kebab-cased, `prop` names camelCased; event
   names are kebab-case strings matching `^[a-z][a-z0-9]*(-[a-z0-9]+)+$`. Each
@@ -103,6 +110,10 @@ defmodule Noizu.Tessera.Component do
       # static styles array).
       Module.register_attribute(__MODULE__, :tessera_styles, accumulate: true)
 
+      # Lifecycle DSL (lit-parity 1c): one map keyed by hook — each hook may be
+      # declared at most once (duplicate → CompileError at record time).
+      Module.register_attribute(__MODULE__, :tessera_lifecycle, accumulate: false)
+
       # Hologram component plumbing (hologram mode only): `use Hologram.JS`
       # registers the @__js_imports__ accumulator; the import RESTATES
       # js_import/1-2 alongside call/2 because a second only-import of the
@@ -133,6 +144,10 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      should_update: 1,
+      will_update: 1,
+      first_updated: 1,
+      updated: 1,
       styles: 1,
       sigil_TSR: 2,
       sigil_CSS: 2
@@ -154,6 +169,10 @@ defmodule Noizu.Tessera.Component do
       state: 3,
       template: 1,
       action: 2,
+      should_update: 1,
+      will_update: 1,
+      first_updated: 1,
+      updated: 1,
       styles: 1,
       sigil_TSR: 2,
       sigil_CSS: 2
@@ -307,6 +326,45 @@ defmodule Noizu.Tessera.Component do
   defmacro sigil_TSR({:<<>>, _meta, [markup]}, _modifiers) when is_binary(markup), do: markup
   defmacro sigil_TSR(markup, _modifiers) when is_binary(markup), do: markup
 
+  # -- lifecycle DSL (lit-parity 1c) -------------------------------------------
+  #
+  # `should_update` / `will_update` / `first_updated` / `updated` each take a
+  # restricted-subset `fn state, changed -> ... end` (same shape as action/2).
+  # `changed` is a plain-object snapshot of Lit's changedProperties Map — keys
+  # are property names (camelCase attrs/props, snake state), values are the OLD
+  # values (undefined on the first update). The second argument must be named
+  # `changed` (or `_` / `_changed`): the generated method declares that exact
+  # binding. The fn AST is recorded as DATA and translated to JS at
+  # __before_compile__.
+
+  @doc false
+  @spec should_update(Macro.t()) :: Macro.t()
+  defmacro should_update(fn_ast), do: lifecycle_record_ast(:should_update, fn_ast, __CALLER__)
+
+  @doc false
+  @spec will_update(Macro.t()) :: Macro.t()
+  defmacro will_update(fn_ast), do: lifecycle_record_ast(:will_update, fn_ast, __CALLER__)
+
+  @doc false
+  @spec first_updated(Macro.t()) :: Macro.t()
+  defmacro first_updated(fn_ast), do: lifecycle_record_ast(:first_updated, fn_ast, __CALLER__)
+
+  @doc false
+  @spec updated(Macro.t()) :: Macro.t()
+  defmacro updated(fn_ast), do: lifecycle_record_ast(:updated, fn_ast, __CALLER__)
+
+  defp lifecycle_record_ast(hook, fn_ast, %Macro.Env{} = caller) do
+    quote bind_quoted: [
+            consumer: caller.module,
+            hook: hook,
+            fn_ast: Macro.escape(fn_ast),
+            line: caller.line,
+            file: caller.file
+          ] do
+      Noizu.Tessera.Component.record(consumer, :lifecycle, hook, fn_ast, [], line, file, false)
+    end
+  end
+
   # -- styles DSL ----------------------------------------------------------------
   #
   # `styles` declares author CSS for the generated Lit element (lit-parity
@@ -423,15 +481,17 @@ defmodule Noizu.Tessera.Component do
   # order and Hologram's hook reads @__props__ first.
   def record(consumer, :attr, name, type, opts, line, file, hologram?) do
     opts = eval_opts!(opts, :attr, name, file, line)
-    Spec.validate!(:attr, name, %{type: type}, file, line)
+    Spec.validate!(:attr, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
 
-    entry = %{
-      name: name,
-      type: type,
-      required: !!opts[:required],
-      default: opts[:default],
-      line: line
-    }
+    entry =
+      %{
+        name: name,
+        type: type,
+        required: !!opts[:required],
+        default: opts[:default],
+        line: line
+      }
+      |> put_property_opts(opts)
 
     Module.put_attribute(consumer, :tessera_attrs, {line, entry})
 
@@ -444,15 +504,17 @@ defmodule Noizu.Tessera.Component do
 
   def record(consumer, :prop, name, type, opts, line, file, _hologram?) do
     opts = eval_opts!(opts, :prop, name, file, line)
-    Spec.validate!(:prop, name, %{type: type}, file, line)
+    Spec.validate!(:prop, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
 
-    entry = %{
-      name: name,
-      type: type,
-      json: !!opts[:json],
-      default: opts[:default],
-      line: line
-    }
+    entry =
+      %{
+        name: name,
+        type: type,
+        json: !!opts[:json],
+        default: opts[:default],
+        line: line
+      }
+      |> put_property_opts(opts)
 
     Module.put_attribute(consumer, :tessera_props, {line, entry})
     :ok
@@ -525,10 +587,13 @@ defmodule Noizu.Tessera.Component do
   # __before_compile__ so errors carry the declaration's line.
   def record(consumer, :state, name, type, opts, line, file, _hologram?) do
     opts = eval_opts!(opts, :state, name, file, line)
-    Spec.validate!(:state, name, %{type: type}, file, line)
+    Spec.validate!(:state, name, %{type: type, attribute: opts[:attribute], reflect: opts[:reflect]}, file, line)
     assert_json_safe_default!(opts[:default], :state, name, file, line)
 
-    entry = %{name: name, type: type, default: opts[:default], line: line}
+    entry =
+      %{name: name, type: type, default: opts[:default], line: line}
+      |> put_property_opts(opts)
+
     Module.put_attribute(consumer, :tessera_state, {line, entry})
     :ok
   end
@@ -568,6 +633,61 @@ defmodule Noizu.Tessera.Component do
       consumer,
       :tessera_actions,
       {line, %{name: name, fn_ast: fn_ast, line: line}}
+    )
+
+    :ok
+  end
+
+  def record(consumer, :lifecycle, hook, fn_ast, _opts, line, file, _hologram?) do
+    unless hook in [:should_update, :will_update, :first_updated, :updated] do
+      raise CompileError,
+        file: file,
+        line: line,
+        description: "unknown tessera lifecycle hook: #{inspect(hook)}"
+    end
+
+    unless match?({:fn, _, [{:->, _, [args, _body]}]} when length(args) == 2, fn_ast) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{hook} hook must be a single-clause fn with exactly two arguments — " <>
+            "`fn state, changed -> ... end` (the restricted subset, " <>
+            "docs/notes/spike-elixir-to-lit.md)"
+    end
+
+    {:fn, _, [{:->, _, [[_first, second], _body]}]} = fn_ast
+
+    # The generated method declares `const changed = Object.fromEntries(...)`,
+    # so the fn must bind that exact name (or an underscore-prefixed unused
+    # variant: `_`, `_changed`). A var AST is a 3-tuple with an atom context —
+    # patterns like %{count: c} carry a list there.
+    unless match?({name, _, ctx} when is_atom(name) and is_atom(ctx), second) and
+             (elem(second, 0) == :changed or String.starts_with?(Atom.to_string(elem(second, 0)), "_")) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "tessera #{hook} hook's second argument must be named `changed` (or `_` / " <>
+            "`_changed`) — `fn state, changed -> ... end`; it binds the changedProperties " <>
+            "snapshot (patterns and other names are outside the subset)"
+    end
+
+    current = Module.get_attribute(consumer, :tessera_lifecycle) || %{}
+
+    if Map.has_key?(current, hook) do
+      raise CompileError,
+        file: file,
+        line: line,
+        description:
+          "duplicate tessera lifecycle hook #{inspect(hook)} (already declared at line " <>
+            "#{current[hook].line}) — a component declares each hook once"
+    end
+
+    Module.put_attribute(
+      consumer,
+      :tessera_lifecycle,
+      Map.put(current, hook, %{hook: hook, fn_ast: fn_ast, line: line})
     )
 
     :ok
@@ -673,7 +793,8 @@ defmodule Noizu.Tessera.Component do
       state: lit.state,
       actions: lit.actions,
       template: lit.template,
-      styles: styles
+      styles: styles,
+      lifecycle: lit.lifecycle
     }
 
     body =
@@ -730,6 +851,7 @@ defmodule Noizu.Tessera.Component do
       |> Enum.reject(fn {_name, _type, opts} -> opts[:tessera_origin] end)
       |> Enum.map(fn {name, type, opts} ->
         %{name: name, type: type, json: !!opts[:json], default: opts[:default], line: 0}
+        |> put_property_opts(opts)
       end)
     else
       accumulated(env.module, :tessera_props)
@@ -760,10 +882,12 @@ defmodule Noizu.Tessera.Component do
 
     templates = accumulated(env.module, :tessera_template)
 
+    lifecycle_raw = Module.get_attribute(env.module, :tessera_lifecycle) || %{}
+
     assert_no_duplicates!(:state, state, env)
     assert_no_action_duplicates!(actions_raw, env)
 
-    template = assert_single_template!(templates, state, actions_raw, env)
+    template = assert_single_template!(templates, state, actions_raw, lifecycle_raw, env)
 
     ctx = %Expr{
       state_keys: MapSet.new(Enum.map(state, & &1.name)),
@@ -780,6 +904,12 @@ defmodule Noizu.Tessera.Component do
       Enum.map(actions_raw, fn entry ->
         js = Expr.translate_action(entry.fn_ast, %{ctx | line: entry.line || 0})
         %{name: entry.name, js: js, line: entry.line}
+      end)
+
+    lifecycle =
+      Map.new(lifecycle_raw, fn {hook, entry} ->
+        js = lifecycle_js(entry, %{ctx | line: entry.line || 0})
+        {hook, %{js: js, line: entry.line}}
       end)
 
     template_entry =
@@ -799,19 +929,41 @@ defmodule Noizu.Tessera.Component do
               description: "tessera template: " <> msg
         end
 
-    %{state: state, actions: actions, template: template_entry}
+    %{state: state, actions: actions, template: template_entry, lifecycle: lifecycle}
   end
 
-  defp assert_single_template!(templates, state, actions_raw, env) do
+  # Lifecycle hooks reuse the action subset. The second fn argument is
+  # normalized to `changed` (the record guard admits `changed`, `_` and
+  # underscore-prefixed variants) — the generated method declares
+  # `const changed = Object.fromEntries(...)`, so the translated body reads
+  # that exact binding.
+  defp lifecycle_js(%{fn_ast: {:fn, meta, [{:->, arrow_meta, [[first, second], body]}]}}, ctx) do
+    normalized = {:fn, meta, [{:->, arrow_meta, [[first, {:changed, elem(second, 1), nil}], body]}]}
+    Expr.translate_action(normalized, ctx)
+  end
+
+  # Property options (attribute rename/disable, reflect) ride the entry maps
+  # only when declared — absent opts keep the pre-1c entry shapes byte-stable.
+  defp put_property_opts(entry, opts) do
+    entry
+    |> then(fn e ->
+      if Keyword.has_key?(opts, :attribute), do: Map.put(e, :attribute, opts[:attribute]), else: e
+    end)
+    |> then(fn e ->
+      if Keyword.has_key?(opts, :reflect), do: Map.put(e, :reflect, opts[:reflect]), else: e
+    end)
+  end
+
+  defp assert_single_template!(templates, state, actions_raw, lifecycle_raw, env) do
     case templates do
       [] ->
-        if state != [] or actions_raw != [] do
+        if state != [] or actions_raw != [] or lifecycle_raw != %{} do
           raise CompileError,
             file: env.file,
             line: 0,
             description:
-              "tessera state/action declarations require a matching template ~TSR declaration " <>
-                "(the element DSL is all-or-nothing: state + actions + template)"
+              "tessera state/action/lifecycle declarations require a matching template ~TSR " <>
+                "declaration (the element DSL is all-or-nothing: state + actions + template)"
         end
 
         nil
@@ -908,11 +1060,23 @@ defmodule Noizu.Tessera.Component do
     # validate at record time, but in Hologram mode `prop` lines go through
     # Hologram's own macro and only land here.
     Enum.each(attrs, fn entry ->
-      Spec.validate!(:attr, entry.name, %{type: entry.type}, env.file, entry.line)
+      Spec.validate!(
+        :attr,
+        entry.name,
+        %{type: entry.type, attribute: entry[:attribute], reflect: entry[:reflect]},
+        env.file,
+        entry.line
+      )
     end)
 
     Enum.each(props, fn entry ->
-      Spec.validate!(:prop, entry.name, %{type: entry.type}, env.file, entry.line || 0)
+      Spec.validate!(
+        :prop,
+        entry.name,
+        %{type: entry.type, attribute: entry[:attribute], reflect: entry[:reflect]},
+        env.file,
+        entry.line || 0
+      )
     end)
 
     Enum.each(css_properties, fn entry ->
