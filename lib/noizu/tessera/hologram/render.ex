@@ -164,8 +164,11 @@ defmodule Noizu.Tessera.Hologram.Render do
     * `{:violation, key}` — the SSR author contract is violated: the server
       render raised the TESSER-029 author-contract ArgumentError on state
       `key` (an atom);
-    * `{:error, exception}` — the probe render failed some other way (an
-      author bug the lint does not interpret; surfaced raw).
+    * `{:error, reason}` — the probe render failed some other way (an author
+      bug the lint does not interpret): an exception struct, or
+      `{kind, value}` for a `throw`n value or an `exit` caught from the
+      render. Never raises: classification is total over every non-success
+      outcome.
 
   The violation detection rides the TESSER-009/TESSER-029 render-time guard —
   this lint is that guard shifted left to build/CI time for manifest-listed
@@ -177,15 +180,25 @@ defmodule Noizu.Tessera.Hologram.Render do
   cover; the lint only moves the discovery of KNOWN DSD-exported components
   earlier.
   """
-  @spec lint_component(module(), map()) :: :ok | {:violation, atom()} | {:error, Exception.t()}
+  @spec lint_component(module(), map()) ::
+          :ok | {:violation, atom()} | {:error, Exception.t() | {:throw | :exit, term()}}
   def lint_component(module, props \\ %{}) when is_atom(module) and is_map(props) do
     try do
       shadow_html(module, Map.new(props))
       :ok
+    catch
+      kind, value when kind in [:throw, :exit] ->
+        {:error, {kind, value}}
     rescue
       error in ArgumentError ->
         if String.starts_with?(error.message, "tessera SSR:") do
-          {:violation, contract_key!(error.message)}
+          case contract_key(error.message) do
+            {:ok, key} -> {:violation, key}
+            # Contract message whose key segment drifted (message-format
+            # change) — still never raises; surfaces as an unclassified error
+            # so the task output shows the raw exception loudly.
+            :no_key -> {:error, error}
+          end
         else
           {:error, error}
         end
@@ -195,15 +208,18 @@ defmodule Noizu.Tessera.Hologram.Render do
     end
   end
 
-  # The contract message is tessera's own (shadow_html/3) and always carries
-  # `read state key #{inspect(key)}` where key is the template-var atom that
-  # missed. The key already exists as an atom in the VM (it came from a
-  # KeyError keyed by it), so the strict regex + to_atom cannot mint anything.
-  defp contract_key!(message) do
-    case Regex.run(~r/read state key (:?[^\s]+) /, message) do
-      [_, ":" <> name] -> String.to_atom(name)
-      [_, raw] -> raw
-      _ -> raise "tessera SSR contract message without a state key: #{inspect(message)}"
+  # The contract message is tessera's own (shadow_html/3): its key segment is
+  # `inspect(key)` bounded by the fixed suffix " that its server init did not
+  # set", so the capture cannot run past the key into surrounding prose.
+  # inspect/1 of an atom never contains whitespace; only a ":"-prefixed
+  # capture is converted, via String.to_atom — safe because the segment came
+  # from inspect/1 of an atom that already exists in the VM (nothing new is
+  # minted; a non-atom key would be returned as its raw inspect string).
+  defp contract_key(message) do
+    case Regex.run(~r/read state key (.+?) that its server init did not set/, message) do
+      [_, ":" <> name] -> {:ok, String.to_atom(name)}
+      [_, raw] -> {:ok, raw}
+      _ -> :no_key
     end
   end
 

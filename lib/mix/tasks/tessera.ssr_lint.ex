@@ -65,11 +65,33 @@ defmodule Mix.Tasks.Tessera.SsrLint do
 
   defp components_from(argv) do
     argv_modules = Enum.map(argv, &module_from_name!/1)
-    env_modules = Application.get_env(:tessera, :ssr_components, [])
+    env_modules = env_modules!()
 
     env_modules
     |> Enum.concat(argv_modules)
     |> Enum.uniq()
+  end
+
+  # App-env manifest entries are host-written config: validated here so a bad
+  # entry is a clear Mix.raise (the documented failure mode) instead of a
+  # FunctionClauseError crash inside lint_component/2's guard.
+  defp env_modules! do
+    Application.get_env(:tessera, :ssr_components, [])
+    |> Enum.map(fn
+      mod when is_atom(mod) ->
+        unless Code.ensure_loaded?(mod) do
+          Mix.raise(
+            "tessera.ssr_lint: app-env component #{inspect(mod)} is not loaded — run mix compile first"
+          )
+        end
+
+        mod
+
+      other ->
+        Mix.raise(
+          "tessera.ssr_lint: config :tessera, :ssr_components entries must be module atoms — got #{inspect(other)}"
+        )
+    end)
   end
 
   defp module_from_name!(name) when is_binary(name) do

@@ -42,6 +42,42 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
     end
   end
 
+  defmodule ThrowingStub do
+    use Hologram.Component
+
+    def init(_props, _component, _server), do: throw(:boom)
+
+    def template do
+      ~HOLO"<span>x</span>"
+    end
+  end
+
+  defmodule ExitingStub do
+    use Hologram.Component
+
+    def init(_props, _component, _server), do: exit(:halt)
+
+    def template do
+      ~HOLO"<span>x</span>"
+    end
+  end
+
+  defmodule DriftedContractStub do
+    use Hologram.Component
+
+    # Raises an ArgumentError carrying the "tessera SSR:" prefix but WITHOUT
+    # the genuine message's key segment — simulates a future message-format
+    # drift. lint_component must surface it as {:error, exception}, not raise.
+    def init(_props, _component, _server) do
+      raise ArgumentError,
+            "tessera SSR: Noizu.Tessera.Hologram.SsrLintTest.ViolatingCounter violated the contract (format drift)"
+    end
+
+    def template do
+      ~HOLO"<span>x</span>"
+    end
+  end
+
   # -- lint_component/2 -------------------------------------------------------
 
   test "a contract-honouring component lints :ok" do
@@ -58,6 +94,24 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
 
   test "an unknown module lints {:error, exception}" do
     assert {:error, %UndefinedFunctionError{}} = Render.lint_component(NoSuch.ComponentAnywhere)
+  end
+
+  test "a component that throws or exits lints {:error, {kind, value}} — never raises" do
+    assert {:error, {:throw, :boom}} =
+             Render.lint_component(ThrowingStub, %{})
+
+    assert {:error, {:exit, :halt}} =
+             Render.lint_component(ExitingStub, %{})
+  end
+
+  test "a contract message whose key segment drifted lints {:error, exception}, not a violation" do
+    # Forged to match a future message-format drift: prefix holds, key segment
+    # gone. The lint must not raise and must not misclassify.
+    drift_message =
+      "tessera SSR: Noizu.Tessera.Hologram.SsrLintTest.ViolatingCounter violated the contract (format drift)"
+
+    assert {:error, %ArgumentError{message: ^drift_message}} =
+             Render.lint_component(DriftedContractStub, %{})
   end
 
   # -- mix tessera.ssr_lint ---------------------------------------------------
