@@ -24,12 +24,19 @@ defmodule Tessera.TestFixtures.Conformance.FromLitPanel do
   # Lit: panelTitle
   attr :panel_title, :string, default: "Overview"
   attr :open, :boolean, default: true, reflect: true
-  prop :rows, :list, json: true, default: [%{"id" => "r1", "label" => "Inbox"}, %{"id" => "r2", "label" => "Sent"}, %{"id" => "r3", "label" => "Drafts"}]
+
+  prop :rows, :list,
+    json: true,
+    default: [
+      %{"id" => "r1", "label" => "Inbox"},
+      %{"id" => "r2", "label" => "Sent"},
+      %{"id" => "r3", "label" => "Drafts"}
+    ]
+
   # Lit: tickCount
-  state :tick_count, :integer, default: 0
+  state(:tick_count, :integer, default: 0)
 
   cy "tsr-conf-from-lit-panel-root"
-
 
   template(~TSR"""
   <section class="panel" data-cy="tsr-conf-from-lit-panel-root">

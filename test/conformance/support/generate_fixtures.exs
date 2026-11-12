@@ -136,6 +136,16 @@ from_lit_source =
 
 File.mkdir_p!(Path.dirname(from_lit_path))
 
+# Run the converter output through the PROJECT formatter (.formatter.exs,
+# incl. the DSL's locals_without_parens) so the committed artifact is
+# byte-identical to what `mix format --check-formatted` expects. CI's format
+# gate failed on raw converter output (PR #64, b274470).
+from_lit_source =
+  (fn source ->
+     {formatter, _opts} = Mix.Tasks.Format.formatter_for_file(from_lit_path)
+     formatter.(source)
+   end).(from_lit_source)
+
 cond do
   check? ->
     unless Code.ensure_loaded?(from_lit_module) do
