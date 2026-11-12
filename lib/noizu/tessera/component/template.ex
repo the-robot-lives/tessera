@@ -975,8 +975,11 @@ defmodule Noizu.Tessera.Component.Template do
     # Mixed text/expression parts on a dotted name lower to a quoted property
     # assignment — a property-binding path the sink guard must cover too
     # (TESSER-030 robot review 4553404659). Static dotted values stay legal —
-    # no host data flows through them.
-    maybe_warn_prop_sink(name, ctx)
+    # no host data flows through them — so the guard only fires when an
+    # expression part is actually present (robot review 4553617597).
+    if Enum.any?(parts, &match?({:expr, _}, &1)) do
+      maybe_warn_prop_sink(name, ctx)
+    end
 
     inner =
       Enum.map_join(parts, "", fn
