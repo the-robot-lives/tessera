@@ -943,6 +943,14 @@ defmodule Noizu.Tessera.Component.Template do
   # style={style_map(…)}, title={if_defined(…)}, title={nothing}) emits UNQUOTED
   # and without __t — lit-html directive part position. A quoted directive is
   # treated as a string; `nothing` unquoted removes the attribute.
+  # Property binding (`.value={expr}`, lit-html `.prop=${…}`): the value is
+  # assigned to the element PROPERTY, unquoted and without __t, so non-string
+  # values and directives such as live() pass through untouched.
+  defp attr_js({"." <> _ = name, {:parts, [{:expr, e}]}}, ctx) do
+    ast = if is_binary(e), do: to_ast(e, ctx), else: e
+    "#{name}=${#{Expr.translate(ast, ctx)}}"
+  end
+
   defp attr_js({name, {:parts, [{:expr, e}]}}, ctx) do
     ast = if is_binary(e), do: to_ast(e, ctx), else: e
 
@@ -1072,6 +1080,7 @@ defmodule Noizu.Tessera.Component.Template do
   defp directive_ast?({:class_map, _, [_]}), do: true
   defp directive_ast?({:style_map, _, [_]}), do: true
   defp directive_ast?({:if_defined, _, [_]}), do: true
+  defp directive_ast?({:live, _, [_]}), do: true
   defp directive_ast?({:nothing, _, ctx}) when is_atom(ctx), do: true
   defp directive_ast?(_), do: false
 

@@ -5,6 +5,7 @@
 > Post-0.2.0 changes on `develop` (2026-11-12). The rows below are NOT yet re-scored; counts are recomputed at the next release:
 > - #96 `createRenderRoot` (light DOM): **Tier 1 implemented.** `use Noizu.Tessera.Component, render_root: :light` emits `createRenderRoot() { return this; }` and adopts styles additively into the root node. Slots are refused at compile time, and `:host` rules don't match in light DOM. Covered by `js/test/light_dom.test.mjs`. Tier 2 is unchanged.
 > - #63 `repeat`: **Tier 1 implemented.** The keyed loop `{%for row <- @rows, key: row.id}` lowers to `repeat(items, keyFn, templateFn)` and imports `lit/directives/repeat.js`. Reorders move keyed nodes, covered by `js/test/repeat.test.mjs`, which fails when lowered to `.map`. Unkeyed `{%for}` stays `Array.map`.
+> - #67 `live` (+ lit-html `.prop` bindings): **Tier 1 implemented.** `.value={live(@draft)}` lowers to `.value=${live(this.draft)}`. Property bindings `.prop={expr}` are new and assign the property unquoted. Covered by `js/test/live.test.mjs` (a user-edited input is reset on re-render), which fails without `live`.
 > - #155–#158 SSR/DSD: **Tier 2 shipped** (`Noizu.Tessera.Hologram.Render`, shim hydration; conformance SSR-01/02). See `docs/notes/ssr-dsd-spike.md`.
 >
 > Correction (2026-11-11): matrix corrected against spike code (spike/elixir-to-lit @ 103c776) — Tier 1 column audited row-by-row against the compiled output; Tier 2 cells purged of stale Lit-wrapper framing; see §3 for the tier comparison.

@@ -138,6 +138,42 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-light-root\">\n  <button type=\"button\" data-cy=\"conf-light-inc\" $click={:bump}>+</button>\n  <span class=\"light-count\" data-cy=\"conf-light-count\">{@count}</span>\n</div>\n"
     }
   },
+  "tsr-conf-live": {
+    "actions": [
+      "clear"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-live-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_live.ex",
+    "js": "conf_live.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Live",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": "",
+        "name": "draft",
+        "type": "string"
+      },
+      {
+        "default": 0,
+        "name": "clears",
+        "type": "integer"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-live",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-live-root\">\n  <input data-cy=\"conf-live-input\" .value={live(@draft)} />\n  <span data-cy=\"conf-live-clears\">{@clears}</span>\n</div>\n"
+    }
+  },
   "tsr-conf-pipeline": {
     "actions": [
       "bump",

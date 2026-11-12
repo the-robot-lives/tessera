@@ -33,6 +33,8 @@ fixtures = [
   Tessera.TestFixtures.Conformance.Pipeline,
   # lit-parity #63 (keyed {%for} → repeat) — consumed by js/test/repeat.test.mjs.
   Tessera.TestFixtures.Conformance.Repeat,
+  # lit-parity #67 (live + .prop bindings) — consumed by js/test/live.test.mjs.
+  Tessera.TestFixtures.Conformance.Live,
   # lit-parity #96 (render_root: :light) — consumed by js/test/light_dom.test.mjs.
   Tessera.TestFixtures.Conformance.Light,
   # X-17 (brief 2d): the first DERIVED conformance pair — the vendor element
