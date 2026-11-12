@@ -33,7 +33,7 @@ defmodule Noizu.Tessera.FromLit.RenderMixTaskTest do
     assert output =~ "WARNING: render(): call `nothing(…)` is outside the supported subset"
 
     assert output =~
-             "WARNING: render(): `style` binding: directive argument must be an object literal"
+             "WARNING: render(): `style` binding: classMap/styleMap take an inline object literal — variable or call arguments are outside the subset"
 
     # ...and embedded as TODO markers in the written spec module
     spec_path = Path.join([root, "lib", "tessera", "from_lit_task", "sink.ex"])
