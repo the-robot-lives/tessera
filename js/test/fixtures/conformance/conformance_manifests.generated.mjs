@@ -94,6 +94,50 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-form-root\">\n  <button type=\"button\" data-cy=\"conf-form-set\" $click={:set_value, value: \"clicked\"}>set</button>\n  <span data-cy=\"conf-form-value\">{@value}</span>\n</div>\n"
     }
   },
+  "tsr-conf-light": {
+    "actions": [
+      "bump"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-light-root",
+    "events": [
+      {
+        "detail": {
+          "count": "integer"
+        },
+        "name": "conf-light-ping"
+      }
+    ],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_light.ex",
+    "js": "conf_light.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Light",
+    "parts": [],
+    "props": [],
+    "renderRoot": "light",
+    "slots": [],
+    "state": [
+      {
+        "default": 0,
+        "name": "count",
+        "type": "integer"
+      }
+    ],
+    "styles": [
+      {
+        "kind": "css",
+        "value": "tsr-conf-light .light-count {\n  color: rgb(1, 2, 3);\n}\n"
+      }
+    ],
+    "tag": "tsr-conf-light",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-light-root\">\n  <button type=\"button\" data-cy=\"conf-light-inc\" $click={:bump}>+</button>\n  <span class=\"light-count\" data-cy=\"conf-light-count\">{@count}</span>\n</div>\n"
+    }
+  },
   "tsr-conf-pipeline": {
     "actions": [
       "bump",

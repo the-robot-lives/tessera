@@ -2,6 +2,10 @@
 
 > Generated: 2026-11-11 | Session: `8cab005e-11cf-42b8-8a29-9aff00f6bec0`
 >
+> Post-0.2.0 changes on `develop` (2026-11-12). The rows below are NOT yet re-scored; counts are recomputed at the next release:
+> - #96 `createRenderRoot` (light DOM): **Tier 1 implemented.** `use Noizu.Tessera.Component, render_root: :light` emits `createRenderRoot() { return this; }` and adopts styles additively into the root node. Slots are refused at compile time, and `:host` rules don't match in light DOM. Covered by `js/test/light_dom.test.mjs`. Tier 2 is unchanged.
+> - #155–#158 SSR/DSD: **Tier 2 shipped** (`Noizu.Tessera.Hologram.Render`, shim hydration; conformance SSR-01/02). See `docs/notes/ssr-dsd-spike.md`.
+>
 > Correction (2026-11-11): matrix corrected against spike code (spike/elixir-to-lit @ 103c776) — Tier 1 column audited row-by-row against the compiled output; Tier 2 cells purged of stale Lit-wrapper framing; see §3 for the tier comparison.
 >
 > Compares the full Lit 3 feature surface against tessera's three implementation tiers:

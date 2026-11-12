@@ -83,6 +83,8 @@ defmodule Noizu.Tessera.Component do
     validate_extension_api_option!(extension_api, caller.file, caller.line)
     form_associated = Keyword.get(opts, :form_associated)
     validate_form_associated_option!(form_associated, caller.file, caller.line)
+    render_root = Keyword.get(opts, :render_root)
+    validate_render_root_option!(render_root, caller.file, caller.line)
 
     # Set at EXPANSION time (not in the quoted output) so a later `use Base`
     # expansion can see it for the reverse double-use guard — quoted
@@ -100,6 +102,13 @@ defmodule Noizu.Tessera.Component do
     # §6.7 declaration lane (brief 2f) — only `true` sets the attribute; the
     # struct defaults to false and a deriving module inherits the base's value
     # in __before_compile__ (participation is additive, never silently dropped).
+    # Light-DOM render root (lit-parity row #96): only `:light` sets the
+    # attribute; absent/`:shadow` keeps the default shadow root, and a deriving
+    # module inherits the base's root in __before_compile__.
+    if render_root == :light do
+      Module.put_attribute(caller.module, :tessera_render_root, :light)
+    end
+
     if form_associated == true do
       Module.put_attribute(caller.module, :tessera_form_associated, true)
     end
@@ -961,8 +970,30 @@ defmodule Noizu.Tessera.Component do
       # (additive — see validate_form_associated_option!/4).
       form_associated:
         Module.get_attribute(env.module, :tessera_form_associated) == true or
-          (not is_nil(derived_from) and derived_from.__tessera_spec__().form_associated == true)
+          (not is_nil(derived_from) and derived_from.__tessera_spec__().form_associated == true),
+      # lit-parity #96: `:light` renders into the element itself (no shadow
+      # root). Declared via `use …, render_root: :light`; a derived module
+      # inherits its base's root (its JS class extends the base class).
+      render_root:
+        if Module.get_attribute(env.module, :tessera_render_root) == :light or
+             (not is_nil(derived_from) and derived_from.__tessera_spec__().render_root == :light) do
+          :light
+        else
+          :shadow
+        end
     }
+
+    # lit-parity #96: a light-DOM root has no shadow tree, so <slot> cannot
+    # project children. Refuse slots up front rather than ship dead markup.
+    if spec.render_root == :light and spec.slots != [] do
+      raise CompileError,
+        file: env.file,
+        line: env.line,
+        description:
+          "tessera render_root: :light cannot declare slots (#{inspect(spec.slots)}) — " <>
+            "light DOM has no shadow root to project into. Drop the slots or use the " <>
+            "default shadow root."
+    end
 
     # Chain-conflict warning (§5.7, brief 2e): record this `tag: :inherit`
     # layer beside its already-compiled same-tag siblings; a same-depth
@@ -1759,6 +1790,19 @@ defmodule Noizu.Tessera.Component do
   # `true` is meaningful (the default is false and participation is additive —
   # a deriving module cannot silently UN-declare its base's participation), so
   # `false` is accepted and treated as unset; anything else fails compilation.
+  # lit-parity #96: `render_root: :light` (or the default `:shadow`).
+  defp validate_render_root_option!(nil, _file, _line), do: :ok
+  defp validate_render_root_option!(root, _file, _line) when root in [:shadow, :light], do: :ok
+
+  defp validate_render_root_option!(value, file, line) do
+    raise CompileError,
+      file: file,
+      line: line,
+      description:
+        "tessera :render_root option must be :shadow (default) or :light, got: " <>
+          inspect(value)
+  end
+
   defp validate_form_associated_option!(nil, _file, _line), do: :ok
   defp validate_form_associated_option!(false, _file, _line), do: :ok
 
