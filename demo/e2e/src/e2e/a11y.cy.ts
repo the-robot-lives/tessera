@@ -24,6 +24,10 @@ const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
 const TIER2: string = Cypress.env("tsrTier2Url") ?? "http://localhost:5589";
 const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
 
+// window.Hologram is GlobalRegistry (globalThis.Hologram), exposed by the
+// runtime "to make tests easier"; mountedPage is set after the boot render.
+type HoloWindow = Window & { Hologram?: { mountedPage?: unknown } };
+
 /**
  * Waits until EVERY custom element matching `hostSelector` (not just the
  * first — robot-review 4547531352) has BOTH a shadow root and
@@ -145,12 +149,20 @@ describe("tessera a11y: axe over the Hologram demo (:5586)", { tags: "@slow" }, 
     cy.visit(`${HOLO}/`);
     waitShadowReady("persona-card", '[data-cy="persona-card-btn"]');
     waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
-    // The Hologram runtime does a ONE-SHOT body takeover shortly after boot
-    // (verified locally: a body-appended node is gone within ~1.5s). Settle
-    // past it, then RE-ASSERT readiness so axe always scans the FINAL,
-    // post-takeover DOM (robot-review 4547531345: no fixed-wait-only scan of
-    // a transient DOM; in CI the re-assert is a no-op if no takeover ran).
-    cy.wait(1500);
+    // The Hologram runtime does a ONE-SHOT body takeover shortly after boot:
+    // #mountPage renders the page and patches the body vnode (a
+    // body-appended node is gone within ~1.5s — verified locally), then sets
+    // window.Hologram.mountedPage in the SAME animation-frame callback
+    // (GlobalRegistry, exposed for tests). Waiting on mountedPage PROVES the
+    // takeover has completed — a fixed wait cannot (robot-review 4547688678):
+    // cy.should() retries until the runtime sets it, however slow CI is.
+    // The shadow-readiness re-asserts stay as belt-and-braces.
+    cy.window().should((win) => {
+      expect(
+        (win as HoloWindow).Hologram?.mountedPage ?? null,
+        "window.Hologram.mountedPage set (one-shot body takeover complete)",
+      ).to.not.eq(null);
+    });
     waitShadowReady("persona-card", '[data-cy="persona-card-btn"]');
     waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
     a11y.expectNoAxeViolations([]);
