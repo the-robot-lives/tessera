@@ -93,19 +93,24 @@ describe("from_lit conversion renders live (Tier 1)", () => {
   // The race is bounded (review on PR #54): a missing/renamed event fails
   // fast with a clear message instead of hanging to the runner timeout.
   async function clickAwaitCommit(el, button) {
+    // Bounded wait; the timer is cleared once the commit fires, so a passing
+    // click leaves no pending timer/rejection behind (PR #59 review).
+    let timer;
     const committed = new Promise((resolve) =>
       el.addEventListener("tsr-state-change", resolve, { once: true })
     );
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("tsr-state-change not fired within 2s of click")),
+        2000
+      );
+    });
     button.click();
-    await Promise.race([
-      committed,
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error("tsr-state-change not fired within 2s of click")),
-          2000
-        )
-      ),
-    ]);
+    try {
+      await Promise.race([committed, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
     await el.updateComplete;
   }
 
