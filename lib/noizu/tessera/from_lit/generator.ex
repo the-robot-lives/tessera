@@ -412,7 +412,8 @@ defmodule Noizu.Tessera.FromLit.Generator do
         # A custom Lit attribute name rides the attr itself as `attribute:`
         # (review on PR #54): reflected attrs must reflect to the ORIGINAL
         # attribute, not the kebab derivation of the snake_case atom.
-        if(custom_attribute?(entry), do: ~s(attribute: "#{entry.attribute}"))
+        # inspect/1 emits a correctly escaped Elixir string literal (PR #59 review).
+        if(custom_attribute?(entry), do: "attribute: " <> inspect(entry.attribute))
       ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join(", ")
@@ -424,8 +425,9 @@ defmodule Noizu.Tessera.FromLit.Generator do
   # The DSL derives the wire attribute from the snake_case atom (kebab);
   # only a name that DIFFERS needs the explicit option.
   defp custom_attribute?(entry) do
+    # Same derivation the DSL uses (PR #59 review: no duplicated rule).
     is_binary(entry[:attribute]) and
-      entry.attribute != String.replace(Atom.to_string(entry.name), "_", "-")
+      entry.attribute != Noizu.Tessera.Naming.snake_to_kebab(entry.name)
   end
 
   defp prop_line(entry) do
