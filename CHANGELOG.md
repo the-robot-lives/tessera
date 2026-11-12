@@ -2,6 +2,7 @@
 
 ## 2026-11-12 (unreleased)
 
+- feat(ssr): SSR author contract enforced at render time (TESSER SSR-3 §4.3). A component missing the server `init/3` now raises an ArgumentError that names the unset state key and the one-line mirror fix, instead of a bare KeyError. Hologram's no-op default `init/3` makes a compile-time check impossible.
 - feat(ssr): Tier-2 server-side rendering as declarative shadow DOM (TESSER SSR-1/SSR-2). `Noizu.Tessera.Hologram.Render.element/4` renders a Hologram component on the server into `<tag tsr-props=…><template shadowrootmode="open"><div data-tessera-holo-host>…`, and the shim hydrates onto that host (adopt plus vnode sel normalisation) instead of mounting from scratch. HoloKit Counter gains the `init/3` author contract. Proven by `ssr_dsd.cy.ts` (node identity after an action), which fails with either half removed. Tests: `render_test.exs` 4/4. Nightly regenerates `demo/holo_element/ssr/index.html`.
 - fix(conformance): fixture generator writes repo-relative `file` paths into `conformance_manifests.generated.mjs` (was a local absolute path from a worktree checkout; TESSER-003).
 - fix(extension): a derived module's `extension_api:` pin is stored as the requirement string (`extension_api_pin`, manifest key only when pinned) instead of overwriting its inherited `extension_api` version; `mix tessera.manifest` re-checks pins with `Version.match?` against the base's current version (TESSER-002, EXTENSION-CONTRACT §8.4).
