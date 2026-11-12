@@ -28,6 +28,87 @@ function format(violations: AxeViolation[]): string {
     .join("\n");
 }
 
+/**
+ * Serialise an axe violation node target chain (axe pierces shadow roots with
+ * nested arrays) into one comparable string of segments.
+ */
+export function axeTargetChain(target: unknown[]): string {
+  const flat: string[] = [];
+  const walk = (seg: unknown): void => {
+    if (typeof seg === "string") flat.push(seg);
+    else if (Array.isArray(seg)) seg.forEach(walk);
+  };
+  walk(target);
+  return flat.join(" ");
+}
+
+/** A pin tolerates EXACTLY `count` violating nodes whose FULL axe target
+ * chain equals `target` (segments joined by spaces — copy it from the failure
+ * message) for its rule id — never a rule-wide count, which let a NEW
+ * violation of the same rule replace a fixed one one-for-one
+ * (robot-review 4547688688 / TESSER-032). A leaf/suffix match is NOT enough:
+ * another component's same-tagged node would still match the pin. */
+export type KnownNodePin = { target: string; count: number };
+
+function matchesPinTarget(chain: string, pinTarget: string): boolean {
+  return chain === pinTarget;
+}
+
+/**
+ * Pure core of the known-violation gate, split out so the guard can be proven
+ * to bite without a browser (TESSER-032): returns one message per failure —
+ * empty means pass.
+ *
+ *  1. every id in `known` must still REPRODUCE (fixed? remove the entry —
+ *     no silent permanent allowlist);
+ *  2. if a rule has pins, every violating node of that rule must match a
+ *     pinned target (a NEW node at an unpinned target goes red — the
+ *     one-for-one replacement hole is closed);
+ *  3. each pinned target must see EXACTLY `count` nodes (a FIXED node —
+ *     stale suppression — goes red too).
+ *
+ * A known rule WITHOUT pins keeps the legacy rule-wide behaviour (reproduce
+ * check only).
+ */
+export function checkKnownViolations(
+  violations: AxeViolation[],
+  known: string[],
+  pins?: Record<string, KnownNodePin[]>,
+): string[] {
+  const failures: string[] = [];
+  const seen = violations.map((v) => v.id);
+  known.forEach((id) => {
+    if (!seen.includes(id))
+      failures.push(`known violation "${id}" no longer reproduces: fixed? remove it from the allowlist`);
+  });
+  Object.entries(pins ?? {}).forEach(([id, rulePins]) => {
+    if (!known.includes(id)) {
+      failures.push(`pinned rule "${id}" is not in the known allowlist (misconfiguration: pin without known)`);
+      return;
+    }
+    const v = violations.find((x) => x.id === id);
+    const nodes = v?.nodes ?? [];
+    const chains = nodes.map((n) => axeTargetChain(n.target));
+    rulePins.forEach((pin) => {
+      const found = chains.filter((c) => matchesPinTarget(c, pin.target)).length;
+      if (found !== pin.count)
+        failures.push(
+          `known violation "${id}" pinned selector "${pin.target}" node count changed` +
+            ` (${pin.count} pinned, ticketed scope only${found === 0 ? " — no longer reproduces: fixed? remove the pin" : ""})`,
+        );
+    });
+    if (rulePins.length > 0) {
+      const uncovered = new Set<string>();
+      chains.forEach((chain) => {
+        if (!rulePins.some((pin) => matchesPinTarget(chain, pin.target)))
+          uncovered.add(`known violation "${id}" node at "${chain}" is not covered by any pinned selector (ticketed scope only)`);
+      });
+      failures.push(...uncovered);
+    }
+  });
+  return failures;
+}
+
 export const tesseraA11y = {
   /**
    * Inject axe-core into the page under test and assert zero violations.
@@ -37,12 +118,16 @@ export const tesseraA11y = {
    * the test goes red the moment the defect is fixed and forces the entry out
    * (no silent permanent allowlist).
    *
-   * `knownCounts` optionally pins the EXPECTED node count per known rule id
-   * (robot-review 4547531347: a rule-wide pin must not silently swallow a
-   * NEW violation of the same rule from another component — when given, the
-   * assertion is exact: more or fewer nodes than pinned goes red).
+   * `knownPins` optionally scopes that tolerance to SPECIFIC nodes per known
+   * rule id: `{ [ruleId]: [{ target, count }] }` (TESSER-032, robot-review
+   * 4547688688). `target` must equal the node's FULL axe target chain
+   * (shadow-piercing segments flattened, joined by spaces — copy it from the
+   * failure message); `count` is exact. A new node under a different target
+   * fails, and a fixed node (stale pin) fails too. The old rule-wide
+   * `knownCounts` pin had a one-for-one replacement hole and is gone — pin by
+   * target.
    */
-  expectNoAxeViolations(known: string[] = [], knownCounts?: Record<string, number>): void {
+  expectNoAxeViolations(known: string[] = [], knownPins?: Record<string, KnownNodePin[]>): void {
     cy.readFile("node_modules/axe-core/axe.min.js", "utf8", { log: false }).then((src) => {
       cy.window({ log: false }).then(async (win) => {
         const w = win as unknown as WinWithAxe;
@@ -65,17 +150,8 @@ export const tesseraA11y = {
         const results = await w.axe!.run(w.document, { runOnly: { type: "tag", values: AXE_TAGS } });
         const unexpected = results.violations.filter((v) => !known.includes(v.id));
         expect(unexpected, `axe violations:\n${format(unexpected)}`).to.have.length(0);
-        const seen = results.violations.map((v) => v.id);
-        known.forEach((id) =>
-          expect(seen, `known violation "${id}" no longer reproduces: fixed? remove it from the allowlist`).to.include(id),
-        );
-        Object.entries(knownCounts ?? {}).forEach(([id, count]) => {
-          const v = results.violations.find((x) => x.id === id);
-          expect(
-            v?.nodes.length ?? 0,
-            `known violation "${id}" node count changed (${count} pinned, ticketed scope only)`,
-          ).to.eq(count);
-        });
+        const failures = checkKnownViolations(results.violations, known, knownPins);
+        expect(failures, failures.join("\n")).to.have.length(0);
       });
     });
   },
