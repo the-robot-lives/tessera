@@ -105,8 +105,8 @@ describe("from_lit conversion renders live (Tier 1)", () => {
         2000
       );
     });
-    button.click();
     try {
+      button.click(); // inside the try: a synchronous throw still clears the timer
       await Promise.race([committed, timeout]);
     } finally {
       clearTimeout(timer);
