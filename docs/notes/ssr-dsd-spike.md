@@ -20,9 +20,11 @@ fallback — not needed: the question is answered.
 > The spec FAILS when either half is removed. §4.3 LANDED at render time,
 > not compile time: Hologram injects a no-op default `init/3`, so the missing
 > mirror cannot be seen from exports. `Render` turns the resulting KeyError
-> into an ArgumentError that names the key and the one-line fix. Still owed:
-> §4.4 conformance cases and the §4.5 complex-component checks. Only the
-> HoloKit Counter is exercised today.
+> into an ArgumentError that names the key and the one-line fix. §4.4 LANDED:
+> conformance SSR-01/02 run on Tier 2 (adapter `ssr` fixture parses the server
+> markup with `setHTMLUnsafe` before upgrade, then checks server-node
+> identity after an action). Both fail with adoption removed. Still owed: the
+> §4.5 complex-component checks. Only the HoloKit Counter is exercised today.
 
 ## 1. The two questions, answered
 
