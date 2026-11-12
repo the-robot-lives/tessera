@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-12 (unreleased)
+
+- fix(extension): a derived module's `extension_api:` pin is stored as the requirement string (`extension_api_pin`, manifest key only when pinned) instead of overwriting its inherited `extension_api` version; `mix tessera.manifest` re-checks pins with `Version.match?` against the base's current version (TESSER-002, EXTENSION-CONTRACT §8.4).
+
 ## 2026-11-12
 
 - Release **0.2.0** prep: `mix.exs` `@version` 0.1.0 → 0.2.0 (first hex release; contents = Lit-parity milestone: Tier-1 element DSL + styles/props/lifecycle/directives, the extension contract `use Vendor.Element` on both tiers, Tier-2 Hologram-runtime elements with state/action/lifecycle/slots/forms, conformance suite, component gallery, `mix tessera.from_lit`). `publish.yml` switched to `workflow_dispatch` only (owner decision: HEX_API_KEY secret invalid; manual 2FA publish, tag pushed after). Parity declaration in `docs/notes/lit-parity.md` extended to Tier 2's extension contract at `1ca9e81`; `gap-acceptance.md` 3f rows resolved LANDED. → develop (#19) → CI fix (#22: mix format under Elixir 1.18 + Hologram assets before `tessera.bundles`; develop had been red since c39ffd2) → stage (#20/#23) → main (#21) → shipped-docs fix (README/EXTENDING current for 0.2.0, #25/#26) → main `22603fe` → **published to hex.pm as `noizu_tessera` 0.2.0** (owner, manual 2FA, 2026-11-11T22:27Z) → tag `v0.2.0` pushed at `22603fe` (publish workflow did not fire — manual-only gate confirmed). Back-merges #24/#27.

@@ -322,6 +322,44 @@ defmodule Noizu.Tessera.Component.ExtensionTest do
     end
   end
 
+  describe "extension_api pin is stored as a requirement (§8.4, TESSER-002)" do
+    test "a satisfied pin keeps the inherited version and rides the manifest as written" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_base(id)
+      mod = compile_derived(base, id, ~s(tag: "ext-der-#{id}", extension_api: "~> 1.0"))
+
+      spec = mod.__tessera_spec__()
+      assert spec.extension_api == "1.0.0"
+      assert spec.extension_api_pin == "~> 1.0"
+      assert mod.__tessera_manifest__()["extension_api"] == "1.0.0"
+      assert mod.__tessera_manifest__()["extension_api_pin"] == "~> 1.0"
+    end
+
+    test "an unpinned derivation carries no pin key" do
+      id = :erlang.unique_integer([:positive])
+      {base, _dir} = compile_base(id)
+      mod = compile_derived(base, id, ~s(tag: "ext-der-#{id}"))
+
+      assert mod.__tessera_spec__().extension_api_pin == nil
+      refute Map.has_key?(mod.__tessera_manifest__(), "extension_api_pin")
+    end
+
+    test "manifest-time check matches the requirement against the base's current version" do
+      check = &Mix.Tasks.Tessera.Manifest.pin_unsatisfied?/3
+
+      # vendor minor bump inside the range: quiet
+      refute check.("~> 1.0", "1.0.0", "1.4.0")
+      # vendor major bump: warns
+      assert check.("~> 1.0", "1.0.0", "2.0.0")
+      # caret normalises like check_pin!/3 ("^1.2.0" ⇒ "~> 1.2")
+      assert check.("^1.2.0", "1.2.0", "1.1.9")
+      refute check.("^1.2.0", "1.2.0", "1.9.0")
+      # unpinned: MAJOR comparison of the inherited version
+      refute check.(nil, "1.0.0", "1.3.0")
+      assert check.(nil, "1.0.0", "2.0.0")
+    end
+  end
+
   describe "use Vendor.Element — double use + cycle (§5.1, §5.9)" do
     test "repeating use Noizu.Tessera.Component after use Base raises" do
       id = :erlang.unique_integer([:positive])
