@@ -46,7 +46,22 @@ export const tesseraA11y = {
     cy.readFile("node_modules/axe-core/axe.min.js", "utf8", { log: false }).then((src) => {
       cy.window({ log: false }).then(async (win) => {
         const w = win as unknown as WinWithAxe;
-        w.eval(src as string);
+        // Inject once per AUT window (PR #42 review): re-evaluating axe on every
+        // call costs CI time and can leave a half-replaced global.
+        // A failed or CSP-blocked injection (eval throws) or a partial/foreign
+        // global is a clear assertion failure, never a TypeError (#68 review).
+        let injectError: unknown = null;
+        if (typeof w.axe?.run !== "function") {
+          try {
+            w.eval(src as string);
+          } catch (e) {
+            injectError = e;
+          }
+        }
+        expect(
+          typeof w.axe?.run,
+          `axe-core injected into the AUT window${injectError ? ` (eval threw: ${String(injectError)})` : ""}`,
+        ).to.eq("function");
         const results = await w.axe!.run(w.document, { runOnly: { type: "tag", values: AXE_TAGS } });
         const unexpected = results.violations.filter((v) => !known.includes(v.id));
         expect(unexpected, `axe violations:\n${format(unexpected)}`).to.have.length(0);
@@ -80,8 +95,13 @@ export const tesseraA11y = {
         type Frame = { id: string; url: string };
         type FT = { frame: Frame; childFrames?: FT[] };
         const walk = (n: FT): Frame[] => [n.frame, ...(n.childFrames ?? []).flatMap(walk)];
-        const aut = walk((t as { frameTree: FT }).frameTree).find((f) => f.url === href);
-        expect(aut, `AUT frame for ${href}`).to.not.eq(undefined);
+        // Compare normalised URLs (PR #42 review): Cypress and CDP can disagree on
+        // a trailing slash or hash for the same document.
+        const norm = (u: string) => u.split("#")[0].replace(/\/+$/, "");
+        const matches = walk((t as { frameTree: FT }).frameTree).filter((f) => norm(f.url) === norm(href));
+        // Exactly one frame must match; ambiguity would aim the AX query at the wrong document (#68 review).
+        expect(matches.length, `exactly one AUT frame for ${href}`).to.eq(1);
+        const aut = matches[0];
         return cdp("Accessibility.getFullAXTree", { frameId: aut!.id });
       })
       .then((res) => ((res as { nodes: AxNode[] }).nodes ?? []).filter((n) => !n.ignored));
