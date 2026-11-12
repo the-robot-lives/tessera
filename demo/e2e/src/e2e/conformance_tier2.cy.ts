@@ -59,7 +59,10 @@ type ConfCase = {
   fast: boolean;
   title: string;
   status: string;
-  run: ((mount: typeof mount, expect: Chai.ExpectStatic) => Promise<void>) | null;
+  // `mountFn` (not `mount`): naming the parameter `mount` shadowed the
+  // imported mount() inside its own `typeof` annotation — TS2502. Case bodies
+  // receive the real mount() positionally, unchanged.
+  run: ((mountFn: typeof mount, expect: Chai.ExpectStatic) => Promise<void>) | null;
 };
 
 // Registers a fresh-host visit + one it() per case. Pending cases (registry-

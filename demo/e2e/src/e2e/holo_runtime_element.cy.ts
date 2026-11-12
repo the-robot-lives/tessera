@@ -11,6 +11,28 @@ import {tesseraAsserts as asserts} from "../support/tessera/asserts";
 const HOLO = "http://localhost:5586";
 const STATIC = "http://localhost:5589";
 
+// item-saved payload the fancy_list element dispatches on save (camelCase —
+// asserted by the "item-saved payload detail is camelCase" spec).
+type Tier2SavedDetail = {itemId: number; name: string; index: number};
+
+declare global {
+  namespace Cypress {
+    // Cypress's AUT-window extension seam (cypress.d.ts: `interface
+    // ApplicationWindow {}` — merged into AUTWindow = Window & typeof
+    // globalThis & ApplicationWindow). Lets specs read/write __tier2Saved
+    // without a cast.
+    interface ApplicationWindow {
+      __tier2Saved: Tier2SavedDetail | null;
+    }
+  }
+  // Maps the element's custom DOM event name onto its payload type so the
+  // addEventListener callback receives a CustomEvent<Tier2SavedDetail> —
+  // the real event type, not an Event + cast.
+  interface WindowEventMap {
+    "item-saved": CustomEvent<Tier2SavedDetail>;
+  }
+}
+
 type ListHost = {
   get: (selector: string) => Cypress.Chainable<any>;
 };
