@@ -23,6 +23,27 @@ defmodule Noizu.Tessera.Hologram.RenderTest do
     end
   end
 
+  defmodule ClientOnlyInit do
+    use Hologram.Component
+
+    # Only the CLIENT init — violates the SSR author contract.
+    def init(_props, component), do: Hologram.Component.put_state(component, count: 0)
+
+    def template do
+      ~HOLO"<span>{@count}</span>"
+    end
+  end
+
+  test "a component without init/3 fails with the author-contract fix, not a bare KeyError" do
+    error =
+      assert_raise ArgumentError, fn ->
+        Render.element(ClientOnlyInit, "client-only")
+      end
+
+    assert error.message =~ "read state key :count"
+    assert error.message =~ "def init(props, component, server)"
+  end
+
   test "element/4 emits a declarative shadow root holding the server host" do
     html = Render.element(SsrCounter, "ssr-counter", %{label: "pings", step: 2})
 

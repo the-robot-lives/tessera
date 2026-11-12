@@ -86,10 +86,29 @@ defmodule Noizu.Tessera.Hologram.Render do
       Enum.map(props, fn {k, v} -> {to_string(k), [expression: {v}]} end) ++
         [{"cid", [expression: {cid}]}]
 
-    {html, _registry, _server} =
-      renderer.render_dom({:component, module, props_dom, []}, env, server)
+    try do
+      {html, _registry, _server} =
+        renderer.render_dom({:component, module, props_dom, []}, env, server)
 
-    html
+      html
+    rescue
+      # SSR author contract (spike §4.3): Hologram's default init/3 is a no-op,
+      # so a component that only defines the CLIENT init/2 renders its
+      # template against empty state and KeyErrors on the first `@key`.
+      # Re-raise with the fix instead of a bare KeyError.
+      error in KeyError ->
+        reraise ArgumentError,
+                [
+                  message:
+                    "tessera SSR: #{inspect(module)} read state key #{inspect(error.key)} " <>
+                      "that its server init did not set. Hologram renders on the server " <>
+                      "with init/3, not the client init/2. Define it, usually by " <>
+                      "mirroring the client init: " <>
+                      "`def init(props, component, server), do: {init(props, component), server}` " <>
+                      "(Noizu.Tessera.Hologram.Render moduledoc, Author contract)."
+                ],
+                __STACKTRACE__
+    end
   end
 
   @doc "Props as the `tsr-props` JSON the element reads (camelCase keys)."
