@@ -57,7 +57,11 @@ fixtures = [
   # FM-01…FM-03 (brief 2f): the Tier-1 form fixture — declares
   # `form_associated: true`, so its generated element carries
   # `static formAssociated = true` and the manifest the `formAssociated` key.
-  Tessera.TestFixtures.Conformance.Form
+  Tessera.TestFixtures.Conformance.Form,
+  # TESSER-019: a `mix tessera.from_lit` conversion (source:
+  # test/fixtures/from_lit/dashboard_panel.ts) rendered LIVE by
+  # js/test/from_lit_render.test.mjs.
+  Tessera.TestFixtures.Conformance.FromLitPanel
 ]
 
 out_dir = Path.expand("js/test/fixtures/conformance", File.cwd!())

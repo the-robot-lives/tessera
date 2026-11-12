@@ -94,6 +94,70 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-form-root\">\n  <button type=\"button\" data-cy=\"conf-form-set\" $click={:set_value, value: \"clicked\"}>set</button>\n  <span data-cy=\"conf-form-value\">{@value}</span>\n</div>\n"
     }
   },
+  "tsr-conf-from-lit-panel": {
+    "actions": [
+      "tick"
+    ],
+    "attrs": [
+      {
+        "default": "Overview",
+        "name": "panel-title",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "default": true,
+        "name": "open",
+        "required": false,
+        "type": "boolean"
+      }
+    ],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "from-lit-panel-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_from_lit.ex",
+    "js": "conf_from_lit.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.FromLitPanel",
+    "parts": [],
+    "props": [
+      {
+        "default": [
+          {
+            "id": "r1",
+            "label": "Inbox"
+          },
+          {
+            "id": "r2",
+            "label": "Sent"
+          },
+          {
+            "id": "r3",
+            "label": "Drafts"
+          }
+        ],
+        "json": true,
+        "name": "rows",
+        "type": "list"
+      }
+    ],
+    "slots": [],
+    "state": [
+      {
+        "default": 0,
+        "name": "tick_count",
+        "type": "integer"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-from-lit-panel",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<section class=\"panel\" data-cy=\"from-lit-panel-root\">\n  <h3 data-cy=\"from-lit-title\">{@panel_title}</h3>\n  <p class=\"mode\" data-cy=\"from-lit-mode\">{if(@open, do: \"open\", else: \"closed\")}</p>\n  <ul data-cy=\"from-lit-list\">{%for row <- @rows, key: row.id}<li data-id={row.id}>{row.label}</li>{/for}</ul>\n  <button type=\"button\" data-cy=\"from-lit-tick\" $click={:tick}>tick</button>\n  <span class=\"ticks\" data-cy=\"from-lit-ticks\">{@tick_count}</span>\n</section>\n"
+    }
+  },
   "tsr-conf-light": {
     "actions": [
       "bump"
