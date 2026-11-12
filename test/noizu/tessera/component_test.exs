@@ -1045,4 +1045,39 @@ defmodule Noizu.Tessera.ComponentTest do
       assert live_js("<input value={live(@draft)} />") =~ "value=${live(this.draft)}"
     end
   end
+
+  describe "unsafe_html + guard (lit-parity #71/#66, BoE #4)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp ug_js(template) do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "ug-#{id}", js: "ug_#{id}.mjs"|, """
+        state :markup, :string, default: ""
+        state :note, :string, default: ""
+        template ~TSR"#{template}"
+        """)
+
+      LitCodegen.element_module(mod.__tessera_spec__())
+    end
+
+    test "unsafe_html lowers to unsafeHTML (unquoted) with its import" do
+      js = ug_js("<div>{unsafe_html(@markup)}</div>")
+      assert js =~ ~s|import { unsafeHTML } from "lit/directives/unsafe-html.js";|
+      assert js =~ "${unsafeHTML(this.markup)}"
+    end
+
+    test "guard lowers to guard(deps, () => body) with its import" do
+      js = ug_js("<div>{guard([@note], @note)}</div>")
+      assert js =~ ~s|import { guard } from "lit/directives/guard.js";|
+      assert js =~ "${guard([this.note], () => this.note)}"
+    end
+
+    test "guard needs a dependency list literal" do
+      assert_raise CompileError, ~r/guard\/2 takes a dependency LIST literal first/, fn ->
+        ug_js("<div>{guard(@note, @note)}</div>")
+      end
+    end
+  end
 end

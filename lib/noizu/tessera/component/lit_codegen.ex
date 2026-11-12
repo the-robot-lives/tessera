@@ -533,7 +533,10 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     # keyed {%for … , key: …} (lit-parity #63)
     {"repeat", "lit/directives/repeat.js"},
     # live(expr) (lit-parity #67)
-    {"live", "lit/directives/live.js"}
+    {"live", "lit/directives/live.js"},
+    # unsafe_html(expr) (#71) / guard([deps], expr) (#66)
+    {"unsafeHTML", "lit/directives/unsafe-html.js"},
+    {"guard", "lit/directives/guard.js"}
   ]
 
   defp render_js(%Spec{template: nil}), do: ""

@@ -1081,6 +1081,8 @@ defmodule Noizu.Tessera.Component.Template do
   defp directive_ast?({:style_map, _, [_]}), do: true
   defp directive_ast?({:if_defined, _, [_]}), do: true
   defp directive_ast?({:live, _, [_]}), do: true
+  defp directive_ast?({:unsafe_html, _, [_]}), do: true
+  defp directive_ast?({:guard, _, [_, _]}), do: true
   defp directive_ast?({:nothing, _, ctx}) when is_atom(ctx), do: true
   defp directive_ast?(_), do: false
 

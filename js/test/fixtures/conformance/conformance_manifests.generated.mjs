@@ -538,6 +538,48 @@ export const manifests = {
       "lexer": "hologram",
       "raw": "<div data-cy=\"conf-template-root\" title=\"{@label}\">\n  <input data-cy=\"conf-template-input\" .value=\"{@label}\">\n  <span data-cy=\"conf-template-flag\">{%if @flag}ON{%else}OFF{/if}</span>\n  <button type=\"button\" data-cy=\"conf-template-toggle\" $click={:toggle_flag}>flag</button>\n  <ul data-cy=\"conf-template-list\">{%for item <- @items}<li class=\"item\">{item}</li>{/for}</ul>\n  <div data-cy=\"conf-template-nested\">{%for item <- @items}<span class=\"nest\"><b>{item}</b></span>{/for}</div>\n</div>\n"
     }
+  },
+  "tsr-conf-unsafe-guard": {
+    "actions": [
+      "bump_other",
+      "set_note"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-ug-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_unsafe_guard.ex",
+    "js": "conf_unsafe_guard.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.UnsafeGuard",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": "<em data-cy=\"conf-ug-em\">trusted</em>",
+        "name": "markup",
+        "type": "string"
+      },
+      {
+        "default": "n0",
+        "name": "note",
+        "type": "string"
+      },
+      {
+        "default": 0,
+        "name": "other",
+        "type": "integer"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-unsafe-guard",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-ug-root\">\n  <div data-cy=\"conf-ug-html\">{unsafe_html(@markup)}</div>\n  <div data-cy=\"conf-ug-guard\">{guard([@note], \"#{@note}:#{@other}\")}</div>\n  <span data-cy=\"conf-ug-other\">{@other}</span>\n</div>\n"
+    }
   }
 };
 export default manifests;
