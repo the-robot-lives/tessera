@@ -72,7 +72,7 @@ subclass module first, or re-register via `defineOnce` from an
 earlier-bundled entry. If you cannot control load order, use behaviors (§1)
 or derivation / `extendElement` (§3) instead.
 
-## 3. Swapping the element via `use ..., element:` — NOT IMPLEMENTED (as of 0.2.0)
+## 3. Swapping the element via `use ..., element:` — NOT IMPLEMENTED (as of 0.3.0)
 
 **This option does not exist.** `use Noizu.Tessera.Component` does not read an
 `element:` option; it is silently ignored (tracked as F-04). Do not write code
