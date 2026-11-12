@@ -121,27 +121,31 @@ defmodule Noizu.Tessera.Hologram.Render do
 
   # Only the genuine SSR state-miss shape earns the author-contract rewrite.
   #
-  # Two structural facts, both verified against Hologram 0.10 (they come from
-  # its access layer and can shift between versions — re-probe on bumps):
+  # Three structural facts, verified empirically against Hologram 0.10
+  # (raw-KeyError probes for every class; the drift-probe test in
+  # render_test.exs pins them so an upstream change fails loudly instead of
+  # silently re-classifying):
   #
   # 1. Template `@key` access compiles to `:erlang.map_get(key, vars)` over
   #    the merged props+state map (Renderer.render_stateful_component/5), so a
   #    state miss is a KeyError whose term is a PLAIN map. KeyErrors on
   #    keyword lists or structs (or tuples, etc.) are the author's own data
   #    bugs and must propagate raw.
-  # 2. A KeyError raised anywhere inside the author's init/3 call tree still
+  # 2. `vars` always carries `:cid` — TESSERA injects the `"cid"` expression
+  #    into props_dom here (our contract, not Hologram's), and Hologram's
+  #    renderer threads it into nested child components too. A KeyError whose
+  #    term lacks `:cid` therefore did not miss against `vars`: it is a
+  #    nested plain-map access (`Map.fetch!(@config, :k)` on state data) —
+  #    the author's own bug, propagated raw. (Accepted residue: a nested map
+  #    that itself contains a `:cid` key still gets the contract message.)
+  # 3. A KeyError raised anywhere inside the author's init/3 call tree still
   #    carries the `{module, :init, 3}` frame on the stack, while Hologram's
   #    injected no-op default init/3 (defoverridable in Hologram.Component)
   #    can never raise. So an init frame present = the author's own failure.
   #    (Shape alone is not enough here: `Map.fetch!(props, :missing)` in
-  #    init/3 raises on a plain map, identical to a state miss.)
-  #
-  # Boundary note: a KeyError on a *nested* plain-map state value (e.g.
-  # `Map.fetch!(@config, :k)` where the template set `@config` via init)
-  # still matches this shape and keeps the contract message — it is a missing
-  # key in server-rendered state data and the init/3 hint stays the right fix.
+  #    init/3 raises on a plain map with `:cid` in it, identical to a miss.)
   defp state_miss?(%KeyError{term: term}, module, stacktrace)
-       when is_map(term) and not is_struct(term) do
+       when is_map(term) and not is_struct(term) and is_map_key(term, :cid) do
     not Enum.any?(stacktrace, fn
       {^module, :init, 3, _meta} -> true
       _frame -> false
