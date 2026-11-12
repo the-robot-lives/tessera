@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tessera a11y fixture - live region inside a shadow root</title>
+    <!--
+      TEST FIXTURE for demo/e2e/src/e2e/a11y.cy.ts (TESSER-015). Dependency-free
+      on purpose: a vanilla custom element whose aria-live region lives INSIDE
+      its open shadow root, the pattern tobor-kit components use. No tessera
+      runtime is loaded, so this page isolates the shadow-root live-region
+      contract from the bundle build.
+    -->
+    <script>
+      class A11yLiveProbe extends HTMLElement {
+        constructor() {
+          super();
+          this.count = 0;
+          const root = this.attachShadow({ mode: "open", delegatesFocus: true });
+          root.innerHTML = `
+            <button type="button" data-cy="probe-btn">Add item</button>
+            <div role="status" aria-live="polite" aria-atomic="true" data-cy="probe-live">No items yet</div>`;
+          root.querySelector("button").addEventListener("click", () => {
+            this.count += 1;
+            root.querySelector("[data-cy=probe-live]").textContent =
+              `${this.count} item${this.count === 1 ? "" : "s"} added`;
+          });
+        }
+      }
+      customElements.define("a11y-live-probe", A11yLiveProbe);
+    </script>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Live region in a shadow root</h1>
+      <a11y-live-probe data-cy="probe"></a11y-live-probe>
+    </main>
+  </body>
+</html>
