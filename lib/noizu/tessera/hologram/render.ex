@@ -96,20 +96,59 @@ defmodule Noizu.Tessera.Hologram.Render do
       # so a component that only defines the CLIENT init/2 renders its
       # template against empty state and KeyErrors on the first `@key`.
       # Re-raise with the fix instead of a bare KeyError.
+      #
+      # Narrowed (TESSER-029): only the genuine state-miss shape earns the
+      # rewrite — see state_miss?/3. Any other KeyError is a real bug in the
+      # author's code and re-raises untouched with its original stacktrace.
       error in KeyError ->
-        reraise ArgumentError,
-                [
-                  message:
-                    "tessera SSR: #{inspect(module)} read state key #{inspect(error.key)} " <>
-                      "that its server init did not set. Hologram renders on the server " <>
-                      "with init/3, not the client init/2. Define it, usually by " <>
-                      "mirroring the client init: " <>
-                      "`def init(props, component, server), do: {init(props, component), server}` " <>
-                      "(Noizu.Tessera.Hologram.Render moduledoc, Author contract)."
-                ],
-                __STACKTRACE__
+        if state_miss?(error, module, __STACKTRACE__) do
+          reraise ArgumentError,
+                  [
+                    message:
+                      "tessera SSR: #{inspect(module)} read state key #{inspect(error.key)} " <>
+                        "that its server init did not set. Hologram renders on the server " <>
+                        "with init/3, not the client init/2. Define it, usually by " <>
+                        "mirroring the client init: " <>
+                        "`def init(props, component, server), do: {init(props, component), server}` " <>
+                        "(Noizu.Tessera.Hologram.Render moduledoc, Author contract)."
+                  ],
+                  __STACKTRACE__
+        else
+          reraise error, __STACKTRACE__
+        end
     end
   end
+
+  # Only the genuine SSR state-miss shape earns the author-contract rewrite.
+  #
+  # Two structural facts, both verified against Hologram 0.10 (they come from
+  # its access layer and can shift between versions — re-probe on bumps):
+  #
+  # 1. Template `@key` access compiles to `:erlang.map_get(key, vars)` over
+  #    the merged props+state map (Renderer.render_stateful_component/5), so a
+  #    state miss is a KeyError whose term is a PLAIN map. KeyErrors on
+  #    keyword lists or structs (or tuples, etc.) are the author's own data
+  #    bugs and must propagate raw.
+  # 2. A KeyError raised anywhere inside the author's init/3 call tree still
+  #    carries the `{module, :init, 3}` frame on the stack, while Hologram's
+  #    injected no-op default init/3 (defoverridable in Hologram.Component)
+  #    can never raise. So an init frame present = the author's own failure.
+  #    (Shape alone is not enough here: `Map.fetch!(props, :missing)` in
+  #    init/3 raises on a plain map, identical to a state miss.)
+  #
+  # Boundary note: a KeyError on a *nested* plain-map state value (e.g.
+  # `Map.fetch!(@config, :k)` where the template set `@config` via init)
+  # still matches this shape and keeps the contract message — it is a missing
+  # key in server-rendered state data and the init/3 hint stays the right fix.
+  defp state_miss?(%KeyError{term: term}, module, stacktrace)
+       when is_map(term) and not is_struct(term) do
+    not Enum.any?(stacktrace, fn
+      {^module, :init, 3, _meta} -> true
+      _frame -> false
+    end)
+  end
+
+  defp state_miss?(%KeyError{}, _module, _stacktrace), do: false
 
   @doc "Props as the `tsr-props` JSON the element reads (camelCase keys)."
   @spec props_json(map()) :: String.t()

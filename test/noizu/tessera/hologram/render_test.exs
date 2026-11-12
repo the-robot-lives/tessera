@@ -34,6 +34,36 @@ defmodule Noizu.Tessera.Hologram.RenderTest do
     end
   end
 
+  defmodule GenuineTemplateKeyError do
+    use Hologram.Component
+
+    # Full contract honoured (init/3 present), but the template itself raises
+    # a KeyError on a keyword-list term — a real bug, not a state miss.
+    def init(props, component),
+      do: Hologram.Component.put_state(component, opts: Map.get(props, :opts, []))
+
+    def init(props, component, server), do: {init(props, component), server}
+
+    def template do
+      ~HOLO"<span>{Keyword.fetch!(@opts, :missing)}</span>"
+    end
+  end
+
+  defmodule GenuineInitKeyError do
+    use Hologram.Component
+
+    # init/3 present but raises its own KeyError on a plain-map term
+    # (shape-identical to a state miss) — must propagate untouched.
+    def init(props, component),
+      do: Hologram.Component.put_state(component, x: Map.fetch!(props, :required))
+
+    def init(props, component, server), do: {init(props, component), server}
+
+    def template do
+      ~HOLO"<span>{@x}</span>"
+    end
+  end
+
   test "a component without init/3 fails with the author-contract fix, not a bare KeyError" do
     error =
       assert_raise ArgumentError, fn ->
@@ -42,6 +72,26 @@ defmodule Noizu.Tessera.Hologram.RenderTest do
 
     assert error.message =~ "read state key :count"
     assert error.message =~ "def init(props, component, server)"
+  end
+
+  test "a genuine template KeyError surfaces untouched, not rewritten as the author-contract error" do
+    error =
+      assert_raise KeyError, fn ->
+        Render.element(GenuineTemplateKeyError, "genuine-kw")
+      end
+
+    assert error.key == :missing
+    refute is_map(error.term)
+  end
+
+  test "a KeyError raised inside the author's own init/3 surfaces untouched" do
+    error =
+      assert_raise KeyError, fn ->
+        Render.element(GenuineInitKeyError, "genuine-init")
+      end
+
+    assert error.key == :required
+    assert is_map(error.term)
   end
 
   test "element/4 emits a declarative shadow root holding the server host" do
