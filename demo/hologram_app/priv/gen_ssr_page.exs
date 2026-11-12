@@ -53,3 +53,16 @@ page = """
 out = Path.expand("../holo_element/ssr/index.html", File.cwd!())
 File.write!(out, page)
 IO.puts("gen_ssr_page: wrote #{Path.relative_to_cwd(out)}")
+
+# The bare element markup for the Tier-2 conformance "ssr" fixture (SSR-01/02),
+# served by the Hologram host from priv/static/tessera/ (gitignored, so CI
+# regenerates it before boot). Same render call as the page above.
+fragment = Path.expand("priv/static/tessera/ssr/counter.dsd.html", File.cwd!())
+File.mkdir_p!(Path.dirname(fragment))
+
+File.write!(
+  fragment,
+  Render.element(HoloKit.Components.Counter, "tsr-holo-counter", %{label: "server pings", step: 2})
+)
+
+IO.puts("gen_ssr_page: wrote #{Path.relative_to_cwd(fragment)}")

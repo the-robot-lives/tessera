@@ -232,6 +232,10 @@ jobs:
             # the next compile re-runs it (deps.compile alone cannot load
             # noizu_tessera) and the files exist on every run.
             mix deps.clean spike_kit --build && mix compile || return 1
+            # Tier-2 conformance "ssr" fixture (SSR-01/02): server-rendered DSD
+            # markup into priv/static/tessera/ssr/ (gitignored; --no-start
+            # renders without booting the endpoint).
+            mix run --no-start priv/gen_ssr_page.exs || return 1
             nohup mix holo > /tmp/holo.log 2>&1 &
             for i in $(seq 1 120); do
               curl -sf -o /dev/null http://localhost:5586/ && return 0

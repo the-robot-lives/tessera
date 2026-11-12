@@ -51,6 +51,7 @@ const SUPPORTED = new Set<string>([
   "X-03", "X-05", "X-06", "X-07", "X-08", "X-09", "X-10", "X-11", "X-16", "X-19", "X-20",
   "X-02", "X-13",
   "X-21",
+  "SSR-01", "SSR-02",
 ]);
 
 type ConfCase = {

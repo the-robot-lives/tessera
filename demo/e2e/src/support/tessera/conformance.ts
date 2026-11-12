@@ -27,6 +27,8 @@ export type ConformanceHandle = {
   waitFor: (fn: () => boolean, timeout?: number) => Promise<void>;
   nextEvent: (name: string, node?: EventTarget, timeout?: number) => Promise<any>;
   settle: () => Promise<void>;
+  // SSR fixture only: nodes the HTML parser created BEFORE the upgrade.
+  serverNodes?: {root: Element; label: Element; count: Element; inc: Element};
   // X-21: post-define extendElement against the real runtime (glue seam).
   extend: (mixin: (Base: any) => any, opts?: Record<string, unknown>) => boolean;
 };
@@ -130,6 +132,7 @@ function makeNextEvent(win: Window) {
  * connect it, and wait for the runtime to mount its shadow root (init wait).
  */
 export function mount(spec: {fixture: string; attrs?: Record<string, string>}): Promise<ConformanceHandle> {
+  if (spec.fixture === "ssr") return mountSsr();
   const tag = FIXTURES[spec.fixture];
   if (!tag) return Promise.reject(new Error(`conformance: unknown Tier-2 fixture "${spec.fixture}"`));
   if (!ctx) return Promise.reject(new Error("conformance: visitTier2Host() must run before mount()"));
@@ -190,4 +193,81 @@ export function cleanup(): void {
     const el = mounted.pop();
     el?.remove();
   }
+}
+
+// SSR-01/02 (TESSER SSR-3): fetch the server-rendered DSD markup
+// (Noizu.Tessera.Hologram.Render via priv/gen_ssr_page.exs), let the HTML
+// parser attach the declarative shadow root in a DETACHED holder (the element
+// cannot upgrade there), capture the server-created nodes, then connect it so
+// the runtime upgrades and hydrates in place.
+function mountSsr(): Promise<ConformanceHandle> {
+  if (!ctx) return Promise.reject(new Error("conformance: visitTier2Host() must run before mount()"));
+  const win = ctx.win;
+  const tag = "tsr-holo-counter";
+
+  return win
+    .fetch(`${HOLO}/tessera/ssr/counter.dsd.html`)
+    .then((res) => {
+      if (!res.ok) throw new Error(`conformance: ssr fixture HTTP ${res.status}`);
+      return res.text();
+    })
+    .then(
+      (markup) =>
+        new Promise<ConformanceHandle>((resolve, reject) => {
+          const holder = win.document.createElement("div") as HTMLDivElement & {
+            setHTMLUnsafe?: (html: string) => void;
+          };
+          if (typeof holder.setHTMLUnsafe !== "function") {
+            reject(new Error("conformance: setHTMLUnsafe unavailable (DSD parsing)"));
+            return;
+          }
+          holder.setHTMLUnsafe(markup);
+          const el = holder.firstElementChild as HTMLElement | null;
+          const sr = el?.shadowRoot;
+          if (!el || !sr) {
+            reject(new Error("conformance: ssr markup produced no declarative shadow root"));
+            return;
+          }
+          const pick = (cy: string) => sr.querySelector(`[data-cy="${cy}"]`) as Element;
+          const serverNodes = {
+            root: pick("holo-counter-root"),
+            label: pick("holo-counter-label"),
+            count: pick("holo-counter-count"),
+            inc: pick("holo-counter-inc"),
+          };
+
+          win.document.body.appendChild(holder);
+          mounted.push(holder);
+
+          const start = Date.now();
+          const settle = () => {
+            const fence = (el as unknown as {updateComplete?: Promise<unknown>}).updateComplete;
+            return Promise.resolve(fence).then(
+              () => new Promise<void>((flush) => win.setTimeout(() => void flush(), 0)),
+            );
+          };
+          const wait = () => {
+            if ((el as unknown as {__mount?: unknown}).__mount) {
+              void settle().then(() =>
+                resolve({
+                  el,
+                  tag,
+                  shadowRoot: sr,
+                  win,
+                  waitFor: makeWaitFor(win),
+                  nextEvent: makeNextEvent(win),
+                  settle,
+                  serverNodes,
+                  extend: () => false,
+                }),
+              );
+            } else if (Date.now() - start > 15_000) {
+              reject(new Error("conformance: ssr element never mounted"));
+            } else {
+              win.setTimeout(wait, 25);
+            }
+          };
+          wait();
+        }),
+    );
 }
