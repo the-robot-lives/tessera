@@ -76,7 +76,13 @@ manifests_source =
       fixtures
       |> Enum.map(fn mod -> mod.__tessera_spec__() end)
       |> Enum.reject(&Extension.takeover?/1)
-      |> Map.new(fn spec -> {spec.tag, Spec.to_manifest_map(spec)} end),
+      |> Map.new(fn spec ->
+        # Repo-relative `file` so the committed fixture is identical on every
+        # checkout/worktree and never leaks a local home path (TESSER-003).
+        manifest = Spec.to_manifest_map(spec)
+        file = manifest["file"] && Path.relative_to(manifest["file"], File.cwd!())
+        {spec.tag, Map.put(manifest, "file", file)}
+      end),
       pretty: true
     ) <>
     ";\nexport default manifests;\n"

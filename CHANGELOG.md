@@ -2,6 +2,7 @@
 
 ## 2026-11-12 (unreleased)
 
+- fix(conformance): fixture generator writes repo-relative `file` paths into `conformance_manifests.generated.mjs` (was a local absolute path from a worktree checkout; TESSER-003).
 - fix(extension): a derived module's `extension_api:` pin is stored as the requirement string (`extension_api_pin`, manifest key only when pinned) instead of overwriting its inherited `extension_api` version; `mix tessera.manifest` re-checks pins with `Version.match?` against the base's current version (TESSER-002, EXTENSION-CONTRACT §8.4).
 
 ## 2026-11-12
