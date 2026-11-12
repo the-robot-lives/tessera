@@ -160,6 +160,9 @@ jobs:
         run: |
           mkdir -p demo/holo_element/dist/tessera-holo
           cp demo/hologram_app/priv/static/tessera/*.js demo/holo_element/dist/tessera-holo/
+          # SSR/DSD page (ssr_dsd.cy.ts): re-render from the CURRENT sources so
+          # the committed page can't drift from Render / the Counter template.
+          (cd demo/hologram_app && mix run --no-start priv/gen_ssr_page.exs)
           (cd demo/holo_element/react/vendor && npm ci --no-audit --no-fund)
           cd demo/holo_element
           nohup node serve.mjs > /tmp/holo-element.log 2>&1 &
