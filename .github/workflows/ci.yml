@@ -119,26 +119,31 @@ jobs:
   e2e-typecheck:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Single source for the node toolchain: setup-node and the cache key both
+    # read this, so a version bump can never leave a stale node-version
+    # literal in the key (robot review #95 thread 4553899450).
+    env:
+      NODE_VERSION: "24"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Cache e2e node_modules
         id: e2e-tsc-cache
         uses: actions/cache@v4
         with:
           path: demo/e2e/node_modules
-          # node24 literal must move with the setup-node version above, and
-          # package.json rides beside the lockfile: a node bump or a
-          # manifest-only change must not reuse node_modules built by another
-          # toolchain. Deliberately NO restore-keys — a near-miss restore
-          # would attach a tree built against a DIFFERENT lockfile (the
-          # stale-deps class this gate exists to prevent); a cold npm ci is
-          # the safe miss. (Robot review #91 threads 4553737476/4553737691.)
-          key: e2e-js-${{ runner.os }}-node24-${{ hashFiles('demo/e2e/package.json', 'demo/e2e/package-lock.json') }}
+          # NODE_VERSION (shared with setup-node above) + package.json ride
+          # beside the lockfile: a node bump or a manifest-only change must
+          # not reuse node_modules built by another toolchain. Deliberately
+          # NO restore-keys — a near-miss restore would attach a tree built
+          # against a DIFFERENT lockfile (the stale-deps class this gate
+          # exists to prevent); a cold npm ci is the safe miss. (Robot
+          # review #91 threads 4553737476/4553737691.)
+          key: e2e-js-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('demo/e2e/package.json', 'demo/e2e/package-lock.json') }}
 
       - name: tsc --noEmit (local binary)
         working-directory: demo/e2e
