@@ -274,6 +274,11 @@ defmodule Noizu.Tessera.FromLit.Generator do
     # carried (the task prints both sets too).
     warnings = (shape["warnings"] || []) ++ warnings
 
+    state_fun = if plan.render, do: &live_state_line/1, else: &state_line/1
+
+    {style_warnings, style_dsl} = styles_dsl(shape, plan)
+    warnings = warnings ++ style_warnings
+
     warning_lines =
       if warnings == [] do
         []
@@ -281,11 +286,6 @@ defmodule Noizu.Tessera.FromLit.Generator do
         ["", "  Conversion warnings (verify by hand):"] ++
           Enum.map(warnings, fn w -> "    * #{heredoc_safe(w)}" end)
       end
-
-    state_fun = if plan.render, do: &live_state_line/1, else: &state_line/1
-
-    {style_warnings, style_dsl} = styles_dsl(shape, plan)
-    warnings = warnings ++ style_warnings
 
     dsl =
       Enum.map_join(plan.attrs, "\n", &attr_line/1) <>
@@ -353,7 +353,9 @@ defmodule Noizu.Tessera.FromLit.Generator do
     warnings =
       if interpolated == [],
         do: [],
-        else: ["static styles with ${...} interpolation not carried into the `styles` DSL — port by hand"]
+        else: [
+          "static styles with ${...} interpolation not carried into the `styles` DSL — port by hand"
+        ]
 
     {warnings, lines}
   end

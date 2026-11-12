@@ -75,7 +75,9 @@ defmodule Noizu.Tessera.FromLit.Render do
         rest = binary_part(body, s + l, byte_size(body) - s - l)
         {_parts, after_tpl} = tpl(rest, [], [])
         raw = binary_part(rest, 0, byte_size(rest) - byte_size(after_tpl))
-        inner = if String.ends_with?(raw, "`"), do: binary_part(raw, 0, byte_size(raw) - 1), else: raw
+
+        inner =
+          if String.ends_with?(raw, "`"), do: binary_part(raw, 0, byte_size(raw) - 1), else: raw
 
         preamble =
           if String.trim(binary_part(body, 0, s)) == "",
@@ -86,7 +88,9 @@ defmodule Noizu.Tessera.FromLit.Render do
 
         multi =
           if length(Regex.scan(~r/\breturn\b/, body)) > 1,
-            do: ["render(): more than one `return` — only the first `return html`…`` was converted"],
+            do: [
+              "render(): more than one `return` — only the first `return html`…`` was converted"
+            ],
             else: []
 
         {%{"template" => inner}, preamble ++ multi}
@@ -172,7 +176,8 @@ defmodule Noizu.Tessera.FromLit.Render do
     end
   end
 
-  defp scan_text("/>" <> rest, {:tag, _, _}, out, ctx), do: scan_text(rest, :text, out <> "/>", ctx)
+  defp scan_text("/>" <> rest, {:tag, _, _}, out, ctx),
+    do: scan_text(rest, :text, out <> "/>", ctx)
 
   defp scan_text(">" <> rest, {:tag, name, closing}, out, ctx) do
     tail = if not closing and name in @void, do: " />", else: ">"
@@ -207,11 +212,17 @@ defmodule Noizu.Tessera.FromLit.Render do
             {head <> tail, st, ctx}
 
           {:error, reason, ctx} ->
-            {String.trim_trailing(head), st, add_todo(ctx, js, "`#{prefix}#{name}` binding: #{reason} — attribute omitted")}
+            {String.trim_trailing(head), st,
+             add_todo(ctx, js, "`#{prefix}#{name}` binding: #{reason} — attribute omitted")}
         end
 
       nil ->
-        {acc, st, add_todo(ctx, js, "interpolation is not an `attr=${…}` binding (element/spread part) — dropped")}
+        {acc, st,
+         add_todo(
+           ctx,
+           js,
+           "interpolation is not an `attr=${…}` binding (element/spread part) — dropped"
+         )}
     end
   end
 
@@ -228,7 +239,13 @@ defmodule Noizu.Tessera.FromLit.Render do
       else
         with {:ok, ast} <- parse_expr(js) do
           try do
-            if directive?(ast), do: throw({:unsupported, "directive inside a quoted attribute value (unquote the binding)"})
+            if directive?(ast),
+              do:
+                throw(
+                  {:unsupported,
+                   "directive inside a quoted attribute value (unquote the binding)"}
+                )
+
             {:ok, ex(ast, ctx)}
           catch
             {:unsupported, r} -> {:error, r}
@@ -265,7 +282,11 @@ defmodule Noizu.Tessera.FromLit.Render do
   defp handler({:call, {:member, {:member, {:this}, n}, "bind"}, [{:this}]}), do: action_name(n)
 
   defp handler(_),
-    do: throw({:unsupported, "event handler is not a plain `this.method` reference (inline arrow / call)"})
+    do:
+      throw(
+        {:unsupported,
+         "event handler is not a plain `this.method` reference (inline arrow / call)"}
+      )
 
   defp action_name(n) do
     snake = n |> Naming.camel_to_snake() |> Atom.to_string() |> String.trim_leading("_")
@@ -355,7 +376,10 @@ defmodule Noizu.Tessera.FromLit.Render do
     if Regex.match?(~r/^[a-z][A-Za-z0-9_]*$/, p) and p not in @reserved do
       p
     else
-      throw({:unsupported, "loop variable #{inspect(p)} is not a valid tessera template variable name"})
+      throw(
+        {:unsupported,
+         "loop variable #{inspect(p)} is not a valid tessera template variable name"}
+      )
     end
   end
 
@@ -381,7 +405,9 @@ defmodule Noizu.Tessera.FromLit.Render do
   # ---------------------------------------------------------------------------
 
   defp ex({:num, s}, _ctx) do
-    if Regex.match?(~r/^\d+(\.\d+)?$/, s), do: s, else: throw({:unsupported, "number literal #{s}"})
+    if Regex.match?(~r/^\d+(\.\d+)?$/, s),
+      do: s,
+      else: throw({:unsupported, "number literal #{s}"})
   end
 
   defp ex({:str, s}, _ctx) do
@@ -401,7 +427,10 @@ defmodule Noizu.Tessera.FromLit.Render do
         var
 
       :error ->
-        throw({:unsupported, "identifier `#{name}` (render() local or import) is not in the supported subset"})
+        throw(
+          {:unsupported,
+           "identifier `#{name}` (render() local or import) is not in the supported subset"}
+        )
     end
   end
 
@@ -413,7 +442,10 @@ defmodule Noizu.Tessera.FromLit.Render do
         "@#{atom}"
 
       :error ->
-        throw({:unsupported, "`this.#{n}` is not a converted property/state (getter, method or plain field)"})
+        throw(
+          {:unsupported,
+           "`this.#{n}` is not a converted property/state (getter, method or plain field)"}
+        )
     end
   end
 
@@ -535,12 +567,16 @@ defmodule Noizu.Tessera.FromLit.Render do
 
   defp obj_key(k) do
     cond do
-      Regex.match?(~r/^[a-z_][A-Za-z0-9_]*$/, k) -> "#{k}:"
-      String.contains?(k, ["{", "}", "\\", "\""]) -> throw({:unsupported, "object key #{inspect(k)}"})
-      true -> ~s("#{k}":)
+      Regex.match?(~r/^[a-z_][A-Za-z0-9_]*$/, k) ->
+        "#{k}:"
+
+      String.contains?(k, ["{", "}", "\\", "\""]) ->
+        throw({:unsupported, "object key #{inspect(k)}"})
+
+      true ->
+        ~s("#{k}":)
     end
   end
-
 
   # ---------------------------------------------------------------------------
   # JS scanning: template literals
@@ -591,11 +627,15 @@ defmodule Noizu.Tessera.FromLit.Render do
   defp raw_string("\\" <> <<c::utf8, rest::binary>>, q, acc),
     do: raw_string(rest, q, [<<c::utf8>>, "\\" | acc])
 
-  defp raw_string(<<q, rest::binary>>, q, acc), do: {IO.iodata_to_binary(Enum.reverse([<<q>> | acc])), rest}
+  defp raw_string(<<q, rest::binary>>, q, acc),
+    do: {IO.iodata_to_binary(Enum.reverse([<<q>> | acc])), rest}
+
   defp raw_string(<<c::utf8, rest::binary>>, q, acc), do: raw_string(rest, q, [<<c::utf8>> | acc])
   defp raw_string("", _q, acc), do: {IO.iodata_to_binary(Enum.reverse(acc)), ""}
 
-  defp raw_tpl("\\" <> <<c::utf8, rest::binary>>, acc), do: raw_tpl(rest, [<<c::utf8>>, "\\" | acc])
+  defp raw_tpl("\\" <> <<c::utf8, rest::binary>>, acc),
+    do: raw_tpl(rest, [<<c::utf8>>, "\\" | acc])
+
   defp raw_tpl("`" <> rest, acc), do: {IO.iodata_to_binary(Enum.reverse(["`" | acc])), rest}
 
   defp raw_tpl("${" <> rest, acc) do
@@ -671,7 +711,10 @@ defmodule Noizu.Tessera.FromLit.Render do
 
       true ->
         <<c::utf8, _::binary>> = src
-        throw({:unsupported, "unsupported token `#{<<c::utf8>>}` (assignment/bitwise/other operator)"})
+
+        throw(
+          {:unsupported, "unsupported token `#{<<c::utf8>>}` (assignment/bitwise/other operator)"}
+        )
     end
   end
 
@@ -803,7 +846,10 @@ defmodule Noizu.Tessera.FromLit.Render do
 
   defp p_primary([{:p, "["} | r]), do: p_array(r, [])
   defp p_primary([{:p, "{"} | r]), do: p_object(r, [])
-  defp p_primary([tok | _]), do: throw({:unsupported, "unsupported expression syntax near #{describe(tok)}"})
+
+  defp p_primary([tok | _]),
+    do: throw({:unsupported, "unsupported expression syntax near #{describe(tok)}"})
+
   defp p_primary([]), do: throw({:unsupported, "empty expression"})
 
   defp arrow_params([{:p, ")"}, {:p, "=>"} | rest], acc), do: {:ok, Enum.reverse(acc), rest}
@@ -841,7 +887,8 @@ defmodule Noizu.Tessera.FromLit.Render do
     end
   end
 
-  defp p_object(_, _), do: throw({:unsupported, "object literal with shorthand/spread/computed keys"})
+  defp p_object(_, _),
+    do: throw({:unsupported, "object literal with shorthand/spread/computed keys"})
 
   defp expect([{:p, p} | r], p), do: r
   defp expect(_, p), do: throw({:unsupported, "expected `#{p}` in expression"})
@@ -877,9 +924,12 @@ defmodule Noizu.Tessera.FromLit.Render do
       |> Enum.map(fn l -> byte_size(l) - byte_size(String.trim_leading(l)) end)
       |> Enum.min(fn -> 0 end)
 
-    rest = Enum.map(rest, fn l -> if l == "", do: "", else: binary_part(l, indent, byte_size(l) - indent) end)
+    rest =
+      Enum.map(rest, fn l ->
+        if l == "", do: "", else: binary_part(l, indent, byte_size(l) - indent)
+      end)
 
-    ([first | rest])
+    [first | rest]
     |> Enum.join("\n")
     |> String.trim()
   end
