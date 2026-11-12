@@ -8,6 +8,22 @@
 // cwd (js/). The default run is the FULL suite; `--group fast` is the
 // per-change FAST subset (behavior-defining core). The per-host Lit matrix and
 // cross-module-copy redundancy (*.lit.test.mjs / *.copies.test.mjs) are FULL-only.
+import { chromeLauncher } from "@web/test-runner-chrome";
+
+// TESSER-031: CI runs this suite against GitHub's preinstalled system Chrome
+// via chrome-launcher with ZERO launch flags and the default 30s
+// browserStartTimeout. On a cold 2-core runner the first test page can
+// outlive that window ("browser was unable to create and start a test page
+// after 30000ms" — js-fast 43178367276, js-integration 43127541770, and
+// 43124786857 on develop, all 2026-11-12), failing the job even though every
+// test that did run passed. Structural fix: an explicit launcher with the
+// standard headless-Linux CI flags (--no-sandbox for runner-user policy
+// noise, --disable-dev-shm-usage for shared-memory robustness, --disable-gpu
+// for GPU-less runners) and a doubled start budget. Local dev keeps the
+// stock zero-flag launch (CI is GitHub-set). concurrency stays 1 — the flake
+// occurs fully serialized, so it is not a parallelism problem.
+const isCI = Boolean(process.env.CI);
+
 export default {
   rootDir: new URL("..", import.meta.url).pathname,
   nodeResolve: true,
@@ -58,4 +74,18 @@ export default {
   // deterministic and matches the tobor-kit WTR setup style.
   concurrentBrowsers: 1,
   concurrency: 1,
+  // TESSER-031: explicit chrome launcher (see note at top). The flags key is
+  // chrome-launcher's `chromeFlags`; empty locally. Doubled page-start budget
+  // (defaults: browserStartTimeout 30000, testsStartTimeout 60000).
+  browsers: [
+    chromeLauncher({
+      launchOptions: {
+        chromeFlags: isCI
+          ? ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
+          : [],
+      },
+    }),
+  ],
+  browserStartTimeout: 60000,
+  testsStartTimeout: 60000,
 };
