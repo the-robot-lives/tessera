@@ -946,7 +946,17 @@ defmodule Noizu.Tessera.Component.Template do
   # Property binding (`.value={expr}`, lit-html `.prop=${…}`): the value is
   # assigned to the element PROPERTY, unquoted and without __t, so non-string
   # values and directives such as live() pass through untouched.
+  #
+  # Property assignment bypasses lit-html text escaping entirely (TESSER-030),
+  # so a small denylist of unambiguous raw-HTML sink names warns at compile
+  # time. Warn, not error: deliberate use stays legal, and URL-like props
+  # (.src/.href) are deliberately NOT listed — custom elements define them
+  # legitimately; the sink there is a `javascript:` URL, not the name.
+  # Sanctioned opt-in for raw markup: unsafe_html(…) in markup position
+  # (lit-parity #71).
+
   defp attr_js({"." <> _ = name, {:parts, [{:expr, e}]}}, ctx) do
+    maybe_warn_prop_sink(name, ctx)
     ast = if is_binary(e), do: to_ast(e, ctx), else: e
     "#{name}=${#{Expr.translate(ast, ctx)}}"
   end
@@ -962,6 +972,15 @@ defmodule Noizu.Tessera.Component.Template do
   end
 
   defp attr_js({name, {:parts, parts}}, ctx) do
+    # Mixed text/expression parts on a dotted name lower to a quoted property
+    # assignment — a property-binding path the sink guard must cover too
+    # (TESSER-030 robot review 4553404659). Static dotted values stay legal —
+    # no host data flows through them — so the guard only fires when an
+    # expression part is actually present (robot review 4553617597).
+    if Enum.any?(parts, &match?({:expr, _}, &1)) do
+      maybe_warn_prop_sink(name, ctx)
+    end
+
     inner =
       Enum.map_join(parts, "", fn
         {:text, s} ->
@@ -974,6 +993,32 @@ defmodule Noizu.Tessera.Component.Template do
 
     "#{name}=\"#{inner}\""
   end
+
+  # Known raw-HTML sink property names (TESSER-030, lit-parity.md § .prop
+  # security surface): `.prop` assignment bypasses lit-html text escaping, so
+  # these unambiguous sink names warn at compile time. Warn, not error —
+  # deliberate use stays legal; URL-like props (.src/.href) are deliberately
+  # NOT listed: custom elements define them legitimately, and the sink there
+  # is a `javascript:` URL, not the name itself. Sanctioned opt-in for raw
+  # markup: unsafe_html(…) in markup position (lit-parity #71).
+  @prop_sink_denylist ~w(innerHTML outerHTML srcdoc)
+
+  defp maybe_warn_prop_sink("." <> prop = name, ctx) do
+    if prop in @prop_sink_denylist do
+      loc = if ctx.line, do: [file: ctx.file, line: ctx.line], else: [file: ctx.file]
+
+      IO.warn(
+        "tessera #{name}={…} targets a known XSS sink: #{prop} writes raw HTML and bypasses " <>
+          "lit-html text escaping. For trusted, sanitized markup prefer unsafe_html(…) in markup " <>
+          "position (lit-parity #71); a deliberate #{name} sink is allowed but is on you — this " <>
+          "warning is not a sanitizer and the denylist is not complete " <>
+          "(docs/notes/lit-parity.md § .prop security surface)",
+        loc
+      )
+    end
+  end
+
+  defp maybe_warn_prop_sink(_name, _ctx), do: :ok
 
   # Binding sources arrive brace-stripped: ":increment" or ":increment, step: 1"
   # (Hologram expression form) or "increment" (Hologram string form). Accept
