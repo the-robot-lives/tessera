@@ -162,8 +162,8 @@ defmodule Noizu.Tessera.Hologram.Render do
 
     * `:ok` — the probe render succeeded;
     * `{:violation, key}` — the SSR author contract is violated: the server
-      render raised the TESSER-029 author-contract ArgumentError on state
-      `key` (an atom);
+      render raised the TESSER-029 author-contract ArgumentError and a
+      plain-atom state `key` was extractable from its message;
     * `{:error, reason}` — the probe render failed some other way (an author
       bug the lint does not interpret): an exception struct, or
       `{kind, value}` for a `throw`n value or an `exit` caught from the
@@ -186,17 +186,14 @@ defmodule Noizu.Tessera.Hologram.Render do
     try do
       shadow_html(module, Map.new(props))
       :ok
-    catch
-      kind, value when kind in [:throw, :exit] ->
-        {:error, {kind, value}}
     rescue
       error in ArgumentError ->
         if String.starts_with?(error.message, "tessera SSR:") do
           case contract_key(error.message) do
             {:ok, key} -> {:violation, key}
-            # Contract message whose key segment drifted (message-format
-            # change) — still never raises; surfaces as an unclassified error
-            # so the task output shows the raw exception loudly.
+            # No extractable plain-atom key (message-format drift, or a forged
+            # contract-prefixed message) — still never raises; surfaces as an
+            # unclassified error so the task output shows the raw exception.
             :no_key -> {:error, error}
           end
         else
@@ -205,20 +202,26 @@ defmodule Noizu.Tessera.Hologram.Render do
 
       error ->
         {:error, error}
+    catch
+      kind, value when kind in [:throw, :exit] ->
+        {:error, {kind, value}}
     end
   end
 
   # The contract message is tessera's own (shadow_html/3): its key segment is
   # `inspect(key)` bounded by the fixed suffix " that its server init did not
   # set", so the capture cannot run past the key into surrounding prose.
-  # inspect/1 of an atom never contains whitespace; only a ":"-prefixed
-  # capture is converted, via String.to_atom — safe because the segment came
-  # from inspect/1 of an atom that already exists in the VM (nothing new is
-  # minted; a non-atom key would be returned as its raw inspect string).
+  # Only a PLAIN-ATOM inspect shape (`:name` / `:name?` / `:name!`) converts,
+  # via String.to_atom on a segment that is inspect/1 output of an atom that
+  # already exists in the VM (nothing is minted). Exotic atoms and non-atoms
+  # (quoted/compound inspect output) return :no_key — the caller surfaces the
+  # raw exception rather than promoting a binary to {:violation, key} or
+  # minting a wrong atom for an exotic key.
+  @contract_key_rx ~r/read state key (:([A-Za-z_][A-Za-z0-9_]*[?!]?)) that its server init did not set/
+
   defp contract_key(message) do
-    case Regex.run(~r/read state key (.+?) that its server init did not set/, message) do
-      [_, ":" <> name] -> {:ok, String.to_atom(name)}
-      [_, raw] -> {:ok, raw}
+    case Regex.run(@contract_key_rx, message) do
+      [_, _key, name] -> {:ok, String.to_atom(name)}
       _ -> :no_key
     end
   end

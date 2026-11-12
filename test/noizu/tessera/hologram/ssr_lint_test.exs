@@ -78,6 +78,22 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
     end
   end
 
+  defmodule ForgedBinaryKeyStub do
+    use Hologram.Component
+
+    # Raises a contract-prefixed message whose key segment is a QUOTED
+    # inspect rep (binary key) — not a plain-atom shape. Must classify as
+    # {:error, exception}: never {:violation, binary}, never a minted atom.
+    def init(_props, _component, _server) do
+      raise ArgumentError,
+            "tessera SSR: Noizu.Tessera.Hologram.SsrLintTest.ForgedBinaryKeyStub read state key \"count\" that its server init did not set. Hologram renders on the server with init/3."
+    end
+
+    def template do
+      ~HOLO"<span>x</span>"
+    end
+  end
+
   # -- lint_component/2 -------------------------------------------------------
 
   test "a contract-honouring component lints :ok" do
@@ -112,6 +128,12 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
 
     assert {:error, %ArgumentError{message: ^drift_message}} =
              Render.lint_component(DriftedContractStub, %{})
+  end
+
+  test "a forged contract message with a non-plain-atom key lints {:error, exception}, not {:violation, binary}" do
+    # "count" as a quoted inspect rep — never promotable to {:violation, key}
+    # (the spec is {:violation, atom()}), and nothing minted from it.
+    assert {:error, %ArgumentError{}} = Render.lint_component(ForgedBinaryKeyStub, %{})
   end
 
   # -- mix tessera.ssr_lint ---------------------------------------------------
@@ -166,5 +188,17 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
       end)
 
     assert output =~ "nothing to lint"
+  end
+
+  test "the task Mix.raises on a non-list app-env value" do
+    Application.put_env(:tessera, :ssr_components, %{not: :a_list})
+
+    on_exit(fn -> Application.delete_env(:tessera, :ssr_components) end)
+
+    assert_raise Mix.Error, ~r/must be a list of module atoms/, fn ->
+      ExUnit.CaptureIO.capture_io(fn ->
+        Mix.Tasks.Tessera.SsrLint.run([])
+      end)
+    end
   end
 end

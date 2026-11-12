@@ -73,25 +73,32 @@ defmodule Mix.Tasks.Tessera.SsrLint do
   end
 
   # App-env manifest entries are host-written config: validated here so a bad
-  # entry is a clear Mix.raise (the documented failure mode) instead of a
-  # FunctionClauseError crash inside lint_component/2's guard.
+  # value or entry is a clear Mix.raise (the documented failure mode) instead
+  # of an Enum/FunctionClause crash.
   defp env_modules! do
-    Application.get_env(:tessera, :ssr_components, [])
-    |> Enum.map(fn
-      mod when is_atom(mod) ->
-        unless Code.ensure_loaded?(mod) do
-          Mix.raise(
-            "tessera.ssr_lint: app-env component #{inspect(mod)} is not loaded — run mix compile first"
-          )
-        end
+    case Application.get_env(:tessera, :ssr_components, []) do
+      mods when is_list(mods) ->
+        Enum.map(mods, fn
+          mod when is_atom(mod) ->
+            unless Code.ensure_loaded?(mod) do
+              Mix.raise(
+                "tessera.ssr_lint: app-env component #{inspect(mod)} is not loaded — run mix compile first"
+              )
+            end
 
-        mod
+            mod
+
+          other ->
+            Mix.raise(
+              "tessera.ssr_lint: config :tessera, :ssr_components entries must be module atoms — got #{inspect(other)}"
+            )
+        end)
 
       other ->
         Mix.raise(
-          "tessera.ssr_lint: config :tessera, :ssr_components entries must be module atoms — got #{inspect(other)}"
+          "tessera.ssr_lint: config :tessera, :ssr_components must be a list of module atoms — got #{inspect(other)}"
         )
-    end)
+    end
   end
 
   defp module_from_name!(name) when is_binary(name) do
