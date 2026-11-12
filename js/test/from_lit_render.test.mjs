@@ -90,12 +90,22 @@ describe("from_lit conversion renders live (Tier 1)", () => {
   // The @click handler routes through __tesseraDispatch; a committed
   // transition fires `tsr-state-change` BEFORE the test may assert, so a
   // click can never race updateComplete (review on PR #50, warning 1).
+  // The race is bounded (review on PR #54): a missing/renamed event fails
+  // fast with a clear message instead of hanging to the runner timeout.
   async function clickAwaitCommit(el, button) {
     const committed = new Promise((resolve) =>
       el.addEventListener("tsr-state-change", resolve, { once: true })
     );
     button.click();
-    await committed;
+    await Promise.race([
+      committed,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("tsr-state-change not fired within 2s of click")),
+          2000
+        )
+      ),
+    ]);
     await el.updateComplete;
   }
 
