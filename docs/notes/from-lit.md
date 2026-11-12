@@ -11,10 +11,15 @@ attr/prop/event/slot bridge for free. The converter does the mechanical
 part — reading the element's declared surface and scaffolding the spec — so
 you start from a typed stub instead of a blank file.
 
-It is a **stub generator, not a transpiler**. The element's `render()`,
-lifecycle callbacks, and methods are NOT converted; you port them by hand
-into the generated `.mjs` (or replace them with the element DSL —
-`state`/`action`/`template ~TSR`, see `spike-elixir-to-lit.md`).
+It is a **stub generator, not a transpiler**. The element's lifecycle
+callbacks and methods are NOT converted. `render()` IS converted —
+mechanically, into a `template ~TSR` block plus `action` stubs — for the
+subset documented in the `Noizu.Tessera.FromLit.Render` moduledoc table;
+anything outside the subset is dropped with a `todos` entry (and a warning)
+rather than guessed. Directives keep the Tier-1 literal forms: `classMap`
+and `styleMap` take an inline object literal only, `guard` takes a literal
+dep array and a value-expression body (no html bodies — those lower only via
+the ternary/&& branch forms).
 
 ## How to use
 

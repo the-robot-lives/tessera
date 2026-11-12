@@ -13,11 +13,25 @@ defmodule Noizu.Tessera.FromLit.Render do
   | `${repeat(items, (i) => i.id, (i) => html\\`…\\`)}` | `{%for i <- @items, key: i.id}…{/for}` |
   | `@click=${this.foo}` | `$click={:foo}` (+ an `action :foo` stub) |
   | `.prop=${…}`, `?attr=${…}`, `attr=${…}`, `attr="a ${…}"` | same shape, `{expr}` |
-  | `classMap`, `styleMap`, `ifDefined`, `live`, `unsafeHTML`, `guard`, `nothing` | `class_map`, `style_map`, `if_defined`, `live`, `unsafe_html`, `guard`, `nothing` |
+  | `classMap({…})`, `styleMap({…})`, `ifDefined`, `live`, `unsafeHTML`, `guard([…], expr)`, `nothing` | `class_map`, `style_map`, `if_defined`, `live`, `unsafe_html`, `guard`, `nothing` |
 
   Operators `=== !== == != < <= > >= + - * / % && || ! ?:` and string/number/
   boolean/null literals, `x.length` (→ `Enum.count`), `.toUpperCase()` /
   `.toLowerCase()` / `.trim()` and untagged template literals translate too.
+
+  Operator semantics (TSR is compiled, not evaluated, on Tier 1 — the emitted
+  Elixir lowers back to JS by `Expr`):
+
+  * `===` and `==` both lower to strict JS `===` (`Expr` compiles Elixir `==`
+    to `===`, expr.ex). JS `null` and `undefined` both map to `nil`, so
+    `x == null` no longer also matches `undefined` — narrow `== null` guards
+    by hand.
+  * `&&`/`||`/`+` are emitted as Elixir `and`/`or`/`+`, which lower to JS
+    `&&`/`||`/`+` — JS truthiness and string concatenation are preserved in
+    the generated element. CAVEAT: Tier-2 SSR (`Hologram.Render`) evaluates
+    the same markup as real Elixir on the server, where `and`/`or` demand
+    booleans and `+` is numeric-only — keep those operands boolean/numeric if
+    the component may be hosted on Tier 2.
 
   Nothing outside that subset is guessed: the construct is DROPPED from the
   markup and reported as a `todos` entry (`%{snippet, reason}`) which the
@@ -264,10 +278,11 @@ defmodule Noizu.Tessera.FromLit.Render do
       try do
         case prefix do
           "@" ->
-            action = handler(ast)
+            action = handler(ast, ctx)
             {:ok, "$#{name}={:#{action}}", %{ctx | actions: [action | ctx.actions]}}
 
           p ->
+            ctx = maybe_warn_unsafe_html(ast, ctx, js)
             {:ok, "#{p}#{name}={#{ex(ast, ctx)}}", ctx}
         end
       catch
@@ -278,21 +293,31 @@ defmodule Noizu.Tessera.FromLit.Render do
     end
   end
 
-  defp handler({:member, {:this}, n}), do: action_name(n)
-  defp handler({:call, {:member, {:member, {:this}, n}, "bind"}, [{:this}]}), do: action_name(n)
+  defp handler({:member, {:this}, n}, ctx), do: action_name(n, ctx)
 
-  defp handler(_),
+  defp handler({:call, {:member, {:member, {:this}, n}, "bind"}, [{:this}]}, ctx),
+    do: action_name(n, ctx)
+
+  defp handler(_, _),
     do:
       throw(
         {:unsupported,
          "event handler is not a plain `this.method` reference (inline arrow / call)"}
       )
 
-  defp action_name(n) do
+  defp action_name(n, ctx) do
     snake = n |> Naming.camel_to_snake() |> Atom.to_string() |> String.trim_leading("_")
 
     if Regex.match?(Naming.snake_regex(), snake) and snake not in @reserved do
-      snake
+      if snake in ctx.actions do
+        throw(
+          {:unsupported,
+           "handlers `_save`/`save` collapse to tessera action `:#{snake}` " <>
+             "(a leading `_` is stripped) — rename one handler"}
+        )
+      else
+        snake
+      end
     else
       throw({:unsupported, "handler name #{inspect(n)} is not a valid tessera action name"})
     end
@@ -302,8 +327,12 @@ defmodule Noizu.Tessera.FromLit.Render do
 
   defp child(js, ctx) do
     case parse_expr(js) do
-      {:ok, ast} -> safe_child(ast, ctx, js)
-      {:error, reason} -> {"", add_todo(ctx, js, reason <> " — dropped")}
+      {:ok, ast} ->
+        ctx = maybe_warn_unsafe_html(ast, ctx, js)
+        safe_child(ast, ctx, js)
+
+      {:error, reason} ->
+        {"", add_todo(ctx, js, reason <> " — dropped")}
     end
   end
 
@@ -505,7 +534,13 @@ defmodule Noizu.Tessera.FromLit.Render do
   defp ex({:call, {:ident, "styleMap"}, [arg]}, ctx), do: "style_map(" <> obj(arg, ctx) <> ")"
   defp ex({:call, {:ident, "ifDefined"}, [a]}, ctx), do: "if_defined(" <> ex(a, ctx) <> ")"
   defp ex({:call, {:ident, "live"}, [a]}, ctx), do: "live(" <> ex(a, ctx) <> ")"
-  defp ex({:call, {:ident, "unsafeHTML"}, [a]}, ctx), do: "unsafe_html(" <> ex(a, ctx) <> ")"
+
+  defp ex({:call, {:ident, "unsafeHTML"}, [a]}, ctx) do
+    # The XSS-sink warning is added where the call ENTERS conversion (child /
+    # attribute position — see maybe_warn_unsafe_html/3); ex/2 cannot thread
+    # todos, so this clause only does the renaming.
+    "unsafe_html(" <> ex(a, ctx) <> ")"
+  end
 
   defp ex({:call, {:ident, "guard"}, [{:arr, deps}, {:arrow, [], body}]}, ctx) do
     if match?({:html, _}, body),
@@ -513,6 +548,14 @@ defmodule Noizu.Tessera.FromLit.Render do
 
     "guard([#{Enum.map_join(deps, ", ", &ex(&1, ctx))}], #{ex(body, ctx)})"
   end
+
+  defp ex({:call, {:ident, "guard"}, _}, _),
+    do:
+      throw(
+        {:unsupported,
+         "guard() takes a literal dep array and a value-expression body — " <>
+           "`guard([this.a, this.b], expr)`; variable deps or html bodies are outside the subset"}
+      )
 
   defp ex({:call, {:member, o, m}, []}, ctx) when m in ["toUpperCase", "toLowerCase", "trim"] do
     fun = %{"toUpperCase" => "upcase", "toLowerCase" => "downcase", "trim" => "trim"}[m]
@@ -563,7 +606,12 @@ defmodule Noizu.Tessera.FromLit.Render do
     "%{" <> inner <> "}"
   end
 
-  defp obj(_, _), do: throw({:unsupported, "directive argument must be an object literal"})
+  defp obj(_, _),
+    do:
+      throw(
+        {:unsupported,
+         "classMap/styleMap take an inline object literal — variable or call arguments are outside the subset"}
+      )
 
   defp obj_key(k) do
     cond do
@@ -896,6 +944,29 @@ defmodule Noizu.Tessera.FromLit.Render do
   # ---------------------------------------------------------------------------
   # helpers
   # ---------------------------------------------------------------------------
+
+  # unsafeHTML reaches conversion only through child / attribute positions, and
+  # ex/2 cannot thread todos — so the XSS-sink warning is recorded where ctx
+  # flows (PR #44 review, thread 4545471200).
+  defp maybe_warn_unsafe_html(ast, ctx, snippet) do
+    if has_unsafe_html?(ast) do
+      add_todo(
+        ctx,
+        snippet,
+        "unsafeHTML → unsafe_html (XSS sink — bind only trusted, sanitized markup)"
+      )
+    else
+      ctx
+    end
+  end
+
+  defp has_unsafe_html?({:call, {:ident, "unsafeHTML"}, _}), do: true
+
+  defp has_unsafe_html?(t) when is_tuple(t),
+    do: t |> Tuple.to_list() |> Enum.any?(&has_unsafe_html?/1)
+
+  defp has_unsafe_html?(l) when is_list(l), do: Enum.any?(l, &has_unsafe_html?/1)
+  defp has_unsafe_html?(_), do: false
 
   defp add_todo(ctx, js, reason) do
     snippet =

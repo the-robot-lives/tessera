@@ -41,7 +41,9 @@ defmodule Noizu.Tessera.FromLit.Generator do
     {plan, warnings} = plan(shape, Keyword.get(opts, :render, true))
 
     [{lib_path, _spec}, {mjs_path, _mjs}, test_file] = Scaffold.generate(tag, module_name, root)
-    spec = {lib_path, spec_module_content(shape, module_name, plan, warnings)}
+    {spec_source, style_warnings} = spec_module_content(shape, module_name, plan, warnings)
+    spec = {lib_path, spec_source}
+    warnings = warnings ++ style_warnings
 
     files =
       if plan.render do
@@ -102,16 +104,26 @@ defmodule Noizu.Tessera.FromLit.Generator do
   end
 
   defp plan_render(shape, true, known) do
-    with %{"template" => raw} <- shape["render"],
-         %{markup: markup} = converted when markup != "" <- Render.convert(raw, Map.new(known)) do
-      warnings =
-        Enum.map(converted.todos, fn t ->
-          "render(): #{t.reason} — `#{t.snippet}` left as a TODO marker in the template"
-        end)
+    case shape["render"] do
+      %{"template" => raw} ->
+        converted = Render.convert(raw, Map.new(known))
 
-      {converted, warnings}
-    else
-      _ -> {nil, []}
+        warnings =
+          Enum.map(converted.todos, fn t ->
+            "render(): #{t.reason} — `#{t.snippet}` left as a TODO marker in the template"
+          end)
+
+        # PR #44 review (thread 4545471204): a fully-unsupported render body
+        # converts to empty markup; the old `with` guard silently returned
+        # {nil, []} and discarded the todos/warnings explaining what failed.
+        if converted.markup == "" and converted.todos == [] and converted.actions == [] do
+          {nil, []}
+        else
+          {converted, warnings}
+        end
+
+      _ ->
+        {nil, []}
     end
   end
 
@@ -263,7 +275,9 @@ defmodule Noizu.Tessera.FromLit.Generator do
   # -- spec module -----------------------------------------------------------------
 
   @doc false
-  @spec spec_module_content(Extractor.shape(), String.t(), map(), [String.t()]) :: String.t()
+  @spec spec_module_content(Extractor.shape(), String.t(), map(), [String.t()]) ::
+          {String.t(), [String.t()]}
+
   def spec_module_content(shape, module_name, plan, warnings) do
     tag = shape["tag"]
     snake = String.replace(tag, "-", "_")
@@ -277,7 +291,8 @@ defmodule Noizu.Tessera.FromLit.Generator do
     state_fun = if plan.render, do: &live_state_line/1, else: &state_line/1
 
     {style_warnings, style_dsl} = styles_dsl(shape, plan)
-    warnings = warnings ++ style_warnings
+    {render_warnings, render_lines} = render_dsl(plan.render)
+    warnings = warnings ++ style_warnings ++ render_warnings
 
     warning_lines =
       if warnings == [] do
@@ -318,9 +333,9 @@ defmodule Noizu.Tessera.FromLit.Generator do
           dsl,
           "",
           "  cy \"#{tag}-root\""
-        ] ++ style_dsl ++ render_dsl(plan.render) ++ ["end"]
+        ] ++ style_dsl ++ render_lines ++ ["end"]
 
-    Enum.join(lines, "\n") <> "\n"
+    {Enum.join(lines, "\n") <> "\n", style_warnings ++ render_warnings}
   end
 
   # warnings embed JS snippets: keep them inert inside the emitted heredoc
@@ -345,22 +360,40 @@ defmodule Noizu.Tessera.FromLit.Generator do
     {plain, interpolated} =
       Enum.split_with(shape["styles"] || [], fn css -> not String.contains?(css, "${") end)
 
-    lines =
-      Enum.flat_map(plain, fn css ->
-        ["", "  styles(~CSS\"\"\""] ++ indent_block(dedent(css)) ++ ["  \"\"\")"]
+    {lines, unsafe_warnings} =
+      Enum.map_reduce(plain, [], fn css, ws ->
+        dedented = dedent(css)
+
+        if heredoc_unsafe?(dedented) do
+          {[
+             "",
+             "  # TODO(tessera.from_lit): css block contains a line starting with \"\"\" — " <>
+               "cannot be embedded in a ~CSS heredoc; block not emitted"
+           ],
+           ws ++
+             [
+               "static styles contains a line starting with \"\"\" — cannot be embedded in a " <>
+                 "~CSS heredoc; the block is not emitted"
+             ]}
+        else
+          {["", "  styles(~CSS\"\"\""] ++ indent_block(dedented) ++ ["  \"\"\")"], ws}
+        end
       end)
 
-    warnings =
+    # map_reduce nests the per-block line lists; flatten back to a flat line list
+    lines = List.flatten(lines)
+
+    interpolated_warnings =
       if interpolated == [],
         do: [],
         else: [
           "static styles with ${...} interpolation not carried into the `styles` DSL — port by hand"
         ]
 
-    {warnings, lines}
+    {unsafe_warnings ++ interpolated_warnings, lines}
   end
 
-  defp render_dsl(nil), do: []
+  defp render_dsl(nil), do: {[], []}
 
   defp render_dsl(render) do
     todo_lines =
@@ -368,8 +401,26 @@ defmodule Noizu.Tessera.FromLit.Generator do
         "  # TODO(tessera.from_lit): #{t.reason} — `#{t.snippet}`"
       end)
 
+    unsafe = heredoc_unsafe?(render.markup)
+
     template_lines =
-      ["", "  template(~TSR\"\"\""] ++ indent_block(render.markup) ++ ["  \"\"\")"]
+      if unsafe do
+        [
+          "",
+          "  # TODO(tessera.from_lit): markup line(s) start with \"\"\" — cannot be embedded " <>
+            "in a ~TSR heredoc; template not emitted"
+        ]
+      else
+        ["", "  template(~TSR\"\"\""] ++ indent_block(render.markup) ++ ["  \"\"\")"]
+      end
+
+    warnings =
+      if unsafe,
+        do: [
+          "render() markup contains a line starting with \"\"\" — cannot be embedded in a " <>
+            "~TSR heredoc; template not emitted"
+        ],
+        else: []
 
     action_lines =
       Enum.flat_map(render.actions, fn name ->
@@ -380,7 +431,18 @@ defmodule Noizu.Tessera.FromLit.Generator do
         ]
       end)
 
-    [""] ++ todo_lines ++ template_lines ++ action_lines
+    {warnings, [""] ++ todo_lines ++ template_lines ++ action_lines}
+  end
+
+  # Elixir closes a heredoc on the first line whose trim_leading begins with
+  # `"""` — even with trailing content on that line (probe-verified on the
+  # 1.18.4 toolchain; mid-line `"""` is legal content, a line-initial one is
+  # not). Emitted ~TSR/~CSS bodies with such a line would terminate the sigil
+  # early and break compilation (PR #44 review, thread 4545471208).
+  defp heredoc_unsafe?(text) do
+    text
+    |> String.split("\n")
+    |> Enum.any?(fn line -> line |> String.trim_leading() |> String.starts_with?("\"\"\"") end)
   end
 
   defp dedent(text) do
