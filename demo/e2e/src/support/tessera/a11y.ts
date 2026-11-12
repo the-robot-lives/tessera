@@ -36,8 +36,13 @@ export const tesseraA11y = {
    * excluded from the zero-violation assertion BUT must still reproduce, so
    * the test goes red the moment the defect is fixed and forces the entry out
    * (no silent permanent allowlist).
+   *
+   * `knownCounts` optionally pins the EXPECTED node count per known rule id
+   * (robot-review 4547531347: a rule-wide pin must not silently swallow a
+   * NEW violation of the same rule from another component — when given, the
+   * assertion is exact: more or fewer nodes than pinned goes red).
    */
-  expectNoAxeViolations(known: string[] = []): void {
+  expectNoAxeViolations(known: string[] = [], knownCounts?: Record<string, number>): void {
     cy.readFile("node_modules/axe-core/axe.min.js", "utf8", { log: false }).then((src) => {
       cy.window({ log: false }).then(async (win) => {
         const w = win as unknown as WinWithAxe;
@@ -49,6 +54,13 @@ export const tesseraA11y = {
         known.forEach((id) =>
           expect(seen, `known violation "${id}" no longer reproduces: fixed? remove it from the allowlist`).to.include(id),
         );
+        Object.entries(knownCounts ?? {}).forEach(([id, count]) => {
+          const v = results.violations.find((x) => x.id === id);
+          expect(
+            v?.nodes.length ?? 0,
+            `known violation "${id}" node count changed (${count} pinned, ticketed scope only)`,
+          ).to.eq(count);
+        });
       });
     });
   },
