@@ -134,16 +134,58 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
       assert content =~ "sessionId: computed default"
     end
 
-    test "reflect rides the attr as an option; original names ride as comments" do
+    test "reflect + custom attribute names ride the attr as options" do
       content = spec_content(generate_persona())
 
       assert content =~ "attr :display_name, :string, default: \"Anonymous\", reflect: true"
       assert content =~ "attr :disabled, :boolean, default: false, reflect: true"
-      # reflect is declared, not just commented; the attribute RENAME stays a
-      # comment (documenting the original) until the converter carries it.
-      assert content =~ "# Lit: displayName; Lit attribute: display-name"
+      # the persona rename COINCIDES with the kebab derivation (display_name →
+      # display-name), so no option — and no stale "Lit attribute:" comment
+      refute content =~ "Lit attribute:"
+      assert content =~ "# Lit: displayName"
       assert content =~ "# Lit: clickCount"
-      refute content =~ "# Lit: displayName; reflect;"
+    end
+
+    test "a genuinely-renamed attribute is DECLARED, so reflect lands on the original (PR #54)" do
+      # attribute "person" ≠ kebab derivation of :display_name — the option
+      # must be emitted, or reflect: true would reflect to the wrong name.
+      shape =
+        Extractor.extract("""
+        class Y extends LitElement {
+          @property({ type: String, attribute: "person", reflect: true })
+          displayName = "Anon";
+        }
+        """)
+        |> Map.put("tag", "rename-widget")
+
+      {files, _warnings} = Generator.generate(shape, "MyApp.RenameWidget", "/proj")
+      content = spec_content({files, _warnings})
+
+      assert content =~
+               ~s(attr :display_name, :string, default: "Anon", reflect: true, attribute: "person")
+    end
+
+    @tag :compile
+    test "the renamed attr compiles and the spec carries the original attribute (PR #54)" do
+      id = System.unique_integer([:positive])
+      module_name = "Tessera.FromLitRename.N#{id}"
+
+      shape =
+        Extractor.extract("""
+        class Y extends LitElement {
+          @property({ type: String, attribute: "person", reflect: true })
+          displayName = "Anon";
+        }
+        """)
+        |> Map.put("tag", "rename-widget")
+
+      {files, _warnings} = Generator.generate(shape, module_name, "/proj")
+      path = Path.join(System.tmp_dir!(), "tessera_from_lit_rename_#{id}.ex")
+      [{mod, _}] = Code.compile_string(spec_content({files, _warnings}), path)
+
+      attr = mod.__tessera_spec__().attrs |> Enum.find(&(&1.name == :display_name))
+      assert attr.attribute == "person"
+      assert attr.reflect == true
     end
   end
 

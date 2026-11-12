@@ -408,13 +408,24 @@ defmodule Noizu.Tessera.FromLit.Generator do
     opts =
       [
         default_opt(entry.default),
-        if(entry[:reflect], do: "reflect: true")
+        if(entry[:reflect], do: "reflect: true"),
+        # A custom Lit attribute name rides the attr itself as `attribute:`
+        # (review on PR #54): reflected attrs must reflect to the ORIGINAL
+        # attribute, not the kebab derivation of the snake_case atom.
+        if(custom_attribute?(entry), do: ~s(attribute: "#{entry.attribute}"))
       ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join(", ")
 
     comment = entry_comment(entry, "attr")
     "  #{comment}attr :#{entry.name}, :#{entry.type}#{opts_suffix(opts)}"
+  end
+
+  # The DSL derives the wire attribute from the snake_case atom (kebab);
+  # only a name that DIFFERS needs the explicit option.
+  defp custom_attribute?(entry) do
+    is_binary(entry[:attribute]) and
+      entry.attribute != String.replace(Atom.to_string(entry.name), "_", "-")
   end
 
   defp prop_line(entry) do
@@ -451,15 +462,13 @@ defmodule Noizu.Tessera.FromLit.Generator do
     ~s(  event "#{entry.name}"#{detail})
   end
 
-  defp entry_comment(entry, kind) do
+  defp entry_comment(entry, _kind) do
     notes =
       [
-        if(entry.original != Atom.to_string(entry.name), do: "Lit: #{entry.original}"),
-        # reflect rides the attr itself as `reflect: true` (review on PR #50):
-        # a bare "# reflect" comment documented the flag without declaring it.
-        if(kind == "attr" and is_binary(entry[:attribute]),
-          do: "Lit attribute: #{entry.attribute}"
-        )
+        if(entry.original != Atom.to_string(entry.name), do: "Lit: #{entry.original}")
+        # reflect and custom attribute names ride the attr itself as
+        # `reflect: true` / `attribute: "..."` (reviews on PRs #50/#54):
+        # bare comments documented the flags without declaring them.
       ]
       |> Enum.reject(&is_nil/1)
 
