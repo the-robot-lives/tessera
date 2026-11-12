@@ -237,6 +237,50 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-region-root\"><ul><li class=\"row\" data-cy=\"conf-region-row\">{%region :row}<span data-cy=\"conf-region-body\">base-row</span>{%endregion}</li></ul></div>\n"
     }
   },
+  "tsr-conf-repeat": {
+    "actions": [
+      "reverse"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-repeat-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_repeat.ex",
+    "js": "conf_repeat.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Repeat",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": [
+          {
+            "id": "a",
+            "label": "Alpha"
+          },
+          {
+            "id": "b",
+            "label": "Beta"
+          },
+          {
+            "id": "c",
+            "label": "Gamma"
+          }
+        ],
+        "name": "rows",
+        "type": "list"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-repeat",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<ul data-cy=\"conf-repeat-root\">{%for row <- @rows, key: row.id}<li data-id={row.id}>{row.label}</li>{/for}</ul>\n"
+    }
+  },
   "tsr-conf-slots": {
     "actions": [
       "slot_changed"

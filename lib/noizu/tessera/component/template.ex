@@ -365,15 +365,24 @@ defmodule Noizu.Tessera.Component.Template do
     end
   end
 
+  # `{%for item <- @items}` (Array.map) or the keyed form
+  # `{%for item <- @items, key: item.id}` (lit-parity #63, BoE need #2), which
+  # lowers to Lit's `repeat` directive so reorders MOVE existing DOM nodes
+  # instead of re-rendering them. A keyed loop carries its collection as
+  # `{:tessera_keyed, coll, key}`; nothing downstream inspects coll otherwise.
   defp for_pattern(expr_str) do
-    case Code.string_to_quoted(expr_str) do
-      {:ok, {:<-, _, [{var, _, nil}, coll]}} when is_atom(var) ->
+    case Code.string_to_quoted("[" <> expr_str <> "]") do
+      {:ok, [{:<-, _, [{var, _, nil}, coll]}]} when is_atom(var) ->
         {:ok, {var, coll}}
+
+      {:ok, [{:<-, _, [{var, _, nil}, coll]}, {:key, key}]} when is_atom(var) ->
+        {:ok, {var, {:tessera_keyed, coll, key}}}
 
       _ ->
         {:error,
          "for pattern `#{expr_str}` is outside the tessera element subset — " <>
-           "use a single variable: {%for item <- @items}"}
+           "use a single variable: {%for item <- @items} " <>
+           "(keyed: {%for item <- @items, key: item.id})"}
     end
   end
 
@@ -771,6 +780,16 @@ defmodule Noizu.Tessera.Component.Template do
     inner = Enum.map_join(children, "", &node_js(&1, ctx, opts))
     else_inner = Enum.map_join(else_children, "", &node_js(&1, ctx, opts))
     "${(#{Expr.translate(ast, ctx)}) ? html`#{inner}` : html`#{else_inner}`}"
+  end
+
+  defp node_js({:for, var, {:tessera_keyed, coll, key}, children}, ctx, opts) do
+    # keyed loop (lit-parity #63): Lit `repeat` — the key expression sees the
+    # loop var, so `key: item.id` is translated in the inner ctx.
+    inner_ctx = %{ctx | vars: MapSet.put(ctx.vars, var)}
+    inner = Enum.map_join(children, "", &node_js(&1, inner_ctx, opts))
+
+    "${repeat((#{Expr.translate(coll, ctx)} ?? []), (#{var}) => #{Expr.translate(key, inner_ctx)}, " <>
+      "(#{var}) => html`#{inner}`)}"
   end
 
   defp node_js({:for, var, coll, children}, ctx, opts) do
