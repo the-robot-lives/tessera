@@ -24,6 +24,7 @@ defmodule Noizu.Tessera.FromLit.Generator do
   """
 
   alias Noizu.Tessera.FromLit.Extractor
+  alias Noizu.Tessera.FromLit.Render
   alias Noizu.Tessera.Naming
   alias Noizu.Tessera.Scaffold
 
@@ -33,26 +34,29 @@ defmodule Noizu.Tessera.FromLit.Generator do
   (the caller writes them). Raises `CompileError` when the tag violates the
   contract grammar.
   """
-  @spec generate(Extractor.shape(), String.t(), String.t()) ::
+  @spec generate(Extractor.shape(), String.t(), String.t(), keyword()) ::
           {[{String.t(), String.t()}], [String.t()]}
-  def generate(shape, module_name, root) do
+  def generate(shape, module_name, root, opts \\ []) do
     tag = shape["tag"]
-    {plan, warnings} = plan(shape)
+    {plan, warnings} = plan(shape, Keyword.get(opts, :render, true))
 
     [{lib_path, _spec}, {mjs_path, _mjs}, test_file] = Scaffold.generate(tag, module_name, root)
+    spec = {lib_path, spec_module_content(shape, module_name, plan, warnings)}
 
-    files = [
-      {lib_path, spec_module_content(shape, module_name, plan, warnings)},
-      {mjs_path, mjs_content(shape, plan)},
-      test_file
-    ]
+    files =
+      if plan.render do
+        # element generated from the spec at `mix compile` — no hand-written stub
+        [spec, test_file]
+      else
+        [spec, {mjs_path, mjs_content(shape, plan)}, test_file]
+      end
 
     {files, warnings}
   end
 
   # -- planning ------------------------------------------------------------------
 
-  defp plan(shape) do
+  defp plan(shape, render?) do
     tag = shape["tag"]
 
     {attrs, props, states, prop_warnings} =
@@ -84,9 +88,34 @@ defmodule Noizu.Tessera.FromLit.Generator do
         end
       end)
 
-    {%{attrs: attrs, props: props, states: states, events: events, slots: slots},
-     prop_warnings ++ event_warnings ++ slot_warnings}
+    {render, render_warnings} =
+      plan_render(shape, render?, Enum.map(attrs ++ props ++ states, &{&1.original, &1.name}))
+
+    {%{
+       attrs: attrs,
+       props: props,
+       states: states,
+       events: events,
+       slots: slots,
+       render: render
+     }, prop_warnings ++ event_warnings ++ slot_warnings ++ render_warnings}
   end
+
+  defp plan_render(shape, true, known) do
+    with %{"template" => raw} <- shape["render"],
+         %{markup: markup} = converted when markup != "" <- Render.convert(raw, Map.new(known)) do
+      warnings =
+        Enum.map(converted.todos, fn t ->
+          "render(): #{t.reason} — `#{t.snippet}` left as a TODO marker in the template"
+        end)
+
+      {converted, warnings}
+    else
+      _ -> {nil, []}
+    end
+  end
+
+  defp plan_render(_shape, false, _known), do: {nil, []}
 
   defp plan_property(prop, _tag) do
     original = prop["name"]
@@ -250,13 +279,18 @@ defmodule Noizu.Tessera.FromLit.Generator do
         []
       else
         ["", "  Conversion warnings (verify by hand):"] ++
-          Enum.map(warnings, fn w -> "    * #{w}" end)
+          Enum.map(warnings, fn w -> "    * #{heredoc_safe(w)}" end)
       end
+
+    state_fun = if plan.render, do: &live_state_line/1, else: &state_line/1
+
+    {style_warnings, style_dsl} = styles_dsl(shape, plan)
+    warnings = warnings ++ style_warnings
 
     dsl =
       Enum.map_join(plan.attrs, "\n", &attr_line/1) <>
         section(plan.props, &prop_line/1) <>
-        section(plan.states, &state_line/1) <>
+        section(plan.states, state_fun) <>
         section(plan.events, &event_line/1) <>
         section(plan.slots, fn name -> "  " <> ~s(slot "#{name}") end)
 
@@ -283,11 +317,86 @@ defmodule Noizu.Tessera.FromLit.Generator do
           "",
           dsl,
           "",
-          "  cy \"#{tag}-root\"",
-          "end"
-        ]
+          "  cy \"#{tag}-root\""
+        ] ++ style_dsl ++ render_dsl(plan.render) ++ ["end"]
 
     Enum.join(lines, "\n") <> "\n"
+  end
+
+  # warnings embed JS snippets: keep them inert inside the emitted heredoc
+  defp heredoc_safe(w) do
+    w
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\#{", "\\\#{")
+    |> String.replace("\"\"\"", "\\\"\\\"\\\"")
+  end
+
+  defp live_state_line(entry) do
+    opts = default_opt(entry.default) || ""
+    comment = entry_comment(entry, "state")
+    "  #{comment}state :#{entry.name}, :#{entry.type}#{opts_suffix(opts)}"
+  end
+
+  # Non-interpolated `static styles` move to the `styles` DSL when the element
+  # is generated from a template; interpolated blocks stay a warned comment.
+  defp styles_dsl(_shape, %{render: nil}), do: {[], []}
+
+  defp styles_dsl(shape, _plan) do
+    {plain, interpolated} =
+      Enum.split_with(shape["styles"] || [], fn css -> not String.contains?(css, "${") end)
+
+    lines =
+      Enum.flat_map(plain, fn css ->
+        ["", "  styles(~CSS\"\"\""] ++ indent_block(dedent(css)) ++ ["  \"\"\")"]
+      end)
+
+    warnings =
+      if interpolated == [],
+        do: [],
+        else: ["static styles with ${...} interpolation not carried into the `styles` DSL — port by hand"]
+
+    {warnings, lines}
+  end
+
+  defp render_dsl(nil), do: []
+
+  defp render_dsl(render) do
+    todo_lines =
+      Enum.map(render.todos, fn t ->
+        "  # TODO(tessera.from_lit): #{t.reason} — `#{t.snippet}`"
+      end)
+
+    template_lines =
+      ["", "  template(~TSR\"\"\""] ++ indent_block(render.markup) ++ ["  \"\"\")"]
+
+    action_lines =
+      Enum.flat_map(render.actions, fn name ->
+        [
+          "",
+          "  # Lit handler `#{name}` — port the method body (state/emit DSL); no-op stub.",
+          "  action(:#{name}, fn state, _params -> state end)"
+        ]
+      end)
+
+    [""] ++ todo_lines ++ template_lines ++ action_lines
+  end
+
+  defp dedent(text) do
+    lines = text |> String.trim("\n") |> String.split("\n") |> Enum.map(&String.trim_trailing/1)
+
+    indent =
+      lines
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(fn l -> byte_size(l) - byte_size(String.trim_leading(l)) end)
+      |> Enum.min(fn -> 0 end)
+
+    Enum.map_join(lines, "\n", fn l ->
+      if l == "", do: "", else: binary_part(l, indent, byte_size(l) - indent)
+    end)
+  end
+
+  defp indent_block(text) do
+    text |> String.split("\n") |> Enum.map(fn l -> if l == "", do: "", else: "  " <> l end)
   end
 
   defp section([], _fun), do: ""

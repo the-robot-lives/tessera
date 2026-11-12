@@ -49,9 +49,12 @@ defmodule Noizu.Tessera.FromLit.Extractor do
         ],
         "slots" => [%{"name" => "header"}],
         "styles" => ["raw css", ...],
+        "render" => %{"template" => raw html`` template text} | nil,
         "warnings" => ["..."]
       }
   """
+
+  alias Noizu.Tessera.FromLit.Render
 
   @type shape :: map()
 
@@ -71,6 +74,7 @@ defmodule Noizu.Tessera.FromLit.Extractor do
     {events, event_warnings} = extract_events(cleaned)
     {slots, slot_warnings} = extract_slots(cleaned)
     {styles, style_warnings} = extract_styles(cleaned)
+    {render, render_warnings} = Render.locate(cleaned)
 
     {properties, dup_warnings} = merge_properties(decorated, statics)
 
@@ -79,7 +83,8 @@ defmodule Noizu.Tessera.FromLit.Extractor do
          class_warnings ++
          dec_warnings ++
          static_warnings ++
-         event_warnings ++ slot_warnings ++ style_warnings ++ dup_warnings)
+         event_warnings ++
+         slot_warnings ++ style_warnings ++ dup_warnings ++ render_warnings)
       |> Enum.uniq()
 
     %{
@@ -90,6 +95,7 @@ defmodule Noizu.Tessera.FromLit.Extractor do
       "events" => events,
       "slots" => slots,
       "styles" => styles,
+      "render" => render,
       "warnings" => warnings
     }
   end
