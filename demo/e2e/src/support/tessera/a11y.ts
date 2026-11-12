@@ -46,7 +46,11 @@ export const tesseraA11y = {
     cy.readFile("node_modules/axe-core/axe.min.js", "utf8", { log: false }).then((src) => {
       cy.window({ log: false }).then(async (win) => {
         const w = win as unknown as WinWithAxe;
-        w.eval(src as string);
+        // Inject once per AUT window (PR #42 review): re-evaluating axe on every
+        // call costs CI time and can leave a half-replaced global.
+        if (!w.axe) w.eval(src as string);
+        // A failed/CSP-blocked injection is a clear assertion failure, not a TypeError.
+        expect(w.axe, "axe-core injected into the AUT window").to.not.eq(undefined);
         const results = await w.axe!.run(w.document, { runOnly: { type: "tag", values: AXE_TAGS } });
         const unexpected = results.violations.filter((v) => !known.includes(v.id));
         expect(unexpected, `axe violations:\n${format(unexpected)}`).to.have.length(0);
@@ -80,7 +84,10 @@ export const tesseraA11y = {
         type Frame = { id: string; url: string };
         type FT = { frame: Frame; childFrames?: FT[] };
         const walk = (n: FT): Frame[] => [n.frame, ...(n.childFrames ?? []).flatMap(walk)];
-        const aut = walk((t as { frameTree: FT }).frameTree).find((f) => f.url === href);
+        // Compare normalised URLs (PR #42 review): Cypress and CDP can disagree on
+        // a trailing slash or hash for the same document.
+        const norm = (u: string) => u.split("#")[0].replace(/\/+$/, "");
+        const aut = walk((t as { frameTree: FT }).frameTree).find((f) => norm(f.url) === norm(href));
         expect(aut, `AUT frame for ${href}`).to.not.eq(undefined);
         return cdp("Accessibility.getFullAXTree", { frameId: aut!.id });
       })

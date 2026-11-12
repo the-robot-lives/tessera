@@ -20,9 +20,9 @@
 /// <reference types="cypress" />
 import { tesseraA11y as a11y } from "../support/tessera/a11y";
 
-const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
-const TIER2: string = Cypress.env("tsrTier2Url") ?? "http://localhost:5589";
-const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
+const PLAIN: string = Cypress.env("tsrPlainUrl") || "http://localhost:5587";
+const TIER2: string = Cypress.env("tsrTier2Url") || "http://localhost:5589";
+const HOLO: string = Cypress.env("tsrHoloUrl") || "http://localhost:5586";
 
 // window.Hologram is GlobalRegistry (globalThis.Hologram), exposed by the
 // runtime "to make tests easier"; mountedPage is set after the boot render.
