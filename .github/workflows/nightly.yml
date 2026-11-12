@@ -96,6 +96,9 @@ jobs:
           # Tier-2 serving bundles (the /holo_runtime glue imports them from
           # /tessera/) — same emit step as the fast lane, before boot.
           mix tessera.bundles
+          # Regenerate spike_kit's gitignored *.element.generated.mjs (a warm
+          # _build cache skips the compile that writes them; see ci.yml).
+          mix deps.clean spike_kit --build && mix compile
           nohup mix holo > /tmp/holo.log 2>&1 &
           for i in $(seq 1 120); do
             curl -sf -o /dev/null http://localhost:5586/ && exit 0

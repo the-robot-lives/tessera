@@ -60,7 +60,7 @@ defmodule Mix.Tasks.Tessera.Manifest do
       api = spec.extension_api || Noizu.Tessera.Spec.default_extension_api()
       base_api = base_spec.extension_api || Noizu.Tessera.Spec.default_extension_api()
 
-      if major(api) != major(base_api) do
+      if pin_unsatisfied?(spec.extension_api_pin, api, base_api) do
         Mix.shell().warn(
           "tessera: #{spec.tag} declares extension_api #{inspect(api)} but its base " <>
             "#{inspect(base)} declares #{inspect(base_api)} — pin unsatisfied at manifest " <>
@@ -72,6 +72,36 @@ defmodule Mix.Tasks.Tessera.Manifest do
 
     :ok
   end
+
+  # §8.4 (owner decision 2026-11-12): a pinned module stores its requirement
+  # string, so the check is a real Version.match? against the base's CURRENT
+  # version — a vendor minor bump inside "~> 1.0" stays quiet, a major bump
+  # warns. Unpinned modules (or an unparsable base version) fall back to the
+  # MAJOR comparison of the inherited version.
+  @doc false
+  def pin_unsatisfied?(pin, api, base_api) when is_binary(pin) do
+    # Same caret normalisation as Extension.check_pin!/3: "^1.2.0" ⇒ "~> 1.2".
+    requirement =
+      case pin do
+        "^" <> rest ->
+          case String.split(rest, ".") do
+            [major, minor | _] -> "~> #{major}.#{minor}"
+            _ -> pin
+          end
+
+        _ ->
+          pin
+      end
+
+    with {:ok, version} <- Version.parse(base_api),
+         {:ok, req} <- Version.parse_requirement(requirement) do
+      not Version.match?(version, req)
+    else
+      _ -> major(api) != major(base_api)
+    end
+  end
+
+  def pin_unsatisfied?(_pin, api, base_api), do: major(api) != major(base_api)
 
   defp major(value) do
     case Regex.run(~r/\d+/, to_string(value)) do

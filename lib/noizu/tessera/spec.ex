@@ -64,6 +64,9 @@ defmodule Noizu.Tessera.Spec do
             derived_from: nil,
             priority: 0,
             extension_api: nil,
+            # §8.4: a derived module's `extension_api:` pin, stored as the
+            # requirement string (never resolved) — nil when unpinned.
+            extension_api_pin: nil,
             # Template regions (EXTENSION-CONTRACT.md §5.4, brief 2d):
             # `regions` lists the regions declared by the compiled template
             # (preorder, outer before inner) as `%{name: atom, nested: [atom]}`;
@@ -188,6 +191,7 @@ defmodule Noizu.Tessera.Spec do
           derived_from: module() | nil,
           priority: integer(),
           extension_api: String.t() | nil,
+          extension_api_pin: String.t() | nil,
           regions: [region_entry()],
           region_overrides: [atom()],
           form_associated: boolean()
@@ -488,6 +492,14 @@ defmodule Noizu.Tessera.Spec do
   @doc "Spec rendered to a plain JSON-encodable map (used by `__tessera_manifest__/0`)."
   @spec to_manifest_map(t()) :: map()
   def to_manifest_map(%__MODULE__{} = spec) do
+    spec
+    |> base_manifest_map()
+    # §8.4: present only on pinned derived modules (requirement string as
+    # written), so unpinned manifests stay byte-identical.
+    |> put_manifest_opt("extension_api_pin", spec.extension_api_pin)
+  end
+
+  defp base_manifest_map(%__MODULE__{} = spec) do
     %{
       "contractVersion" => spec.version,
       # §8.3: the extension-api axis rides every manifest entry, defaulted so

@@ -72,7 +72,11 @@ defmodule Noizu.Tessera.Component.Extension do
     pin = Keyword.get(opts, :extension_api)
     base_api = base_spec.extension_api || @default_extension_api
     check_pin!(base_api, pin, caller)
-    extension_api = pin || base_api
+    # §8.3/§8.4 (owner decision 2026-11-12): a pin is a REQUIREMENT, not a
+    # declaration. The derived element inherits the base's concrete version;
+    # the requirement string rides `extension_api_pin` and is re-checked with
+    # Version.match? at manifest time against the base's current version.
+    extension_api = base_api
 
     js = resolve_js!(Keyword.get(opts, :js), tag, base_spec, inherit?, caller)
 
@@ -82,6 +86,7 @@ defmodule Noizu.Tessera.Component.Extension do
     Module.put_attribute(caller.module, :tessera_derived_from, base)
     Module.put_attribute(caller.module, :tessera_derived_priority, priority)
     Module.put_attribute(caller.module, :tessera_extension_api, extension_api)
+    Module.put_attribute(caller.module, :tessera_extension_api_pin, pin)
 
     quote do
       # Internally a normal component in derivation mode. The private
@@ -1330,7 +1335,8 @@ defmodule Noizu.Tessera.Component.Extension do
     pin = Keyword.get(opts, :extension_api)
     base_api = vendor_spec.extension_api || @default_extension_api
     check_pin!(base_api, pin, caller)
-    extension_api = pin || base_api
+    # §8.4: inherit the vendor's version; the pin stays a requirement string.
+    extension_api = base_api
 
     author_actions = Keyword.get(opts, :actions, [])
 
@@ -1438,6 +1444,7 @@ defmodule Noizu.Tessera.Component.Extension do
         derived_from: base,
         priority: priority,
         extension_api: extension_api,
+        extension_api_pin: pin,
         # §6.7 additive inheritance: the layer participates if it declares
         # `form_associated: true` or its base already does.
         form_associated:
