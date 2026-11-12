@@ -16,8 +16,8 @@
 // X-19 (tag-takeover chain) + X-21 (extendElement registry) landed with
 // brief 2e — X-19 gates "the base tag's conformance suite MUST still pass"
 // by REPLAYING the pipeline case bodies verbatim on the taken-over fixture,
-// X-21 is Tier-1-only by nature (the JS registry, like X-15; §9 lists it
-// [PENDING TIER-1] for Tier 2). X-02 (contract-surface agreement: attrs, props, events, slots)
+// X-21 (the JS extendElement registry) runs on BOTH tiers: Tier 2 wires a
+// glue fixture since TESSER-004. X-02 (contract-surface agreement: attrs, props, events, slots)
 // and X-13 (§6.6 subclass hooks) close the registry after brief 3f -
 // tier-agnostic bodies over the shared logical fixtures; their per-tier
 // SUPPORTED sets are the adapters' honest accounting - never green for an
@@ -451,7 +451,10 @@ export const cases = [
       }
       expect(queued).to.equal(false);
       expect(warns.filter((w) => w.includes("already defined")).length).to.equal(1);
-      expect(warns.some((w) => w.includes("behaviors") && w.includes("onAction"))).to.equal(true);
+      // The warning names a sanctioned post-define path. onAction (§6.4) is
+      // the one both tiers share; Tier 1 also names behaviors (§6.5), and
+      // Tier 2, which has no behaviors API, names compiled takeover modules.
+      expect(warns.some((w) => w.includes("onAction"))).to.equal(true);
 
       // warn-once per tag: a second late registration stays silent
       h.win.console.warn = (m) => warns.push(String(m));
