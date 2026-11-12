@@ -310,6 +310,37 @@ function emitDomEvent(targetValue, action) {
 // mounting
 // ---------------------------------------------------------------------------
 
+// Direct child of the shadow root carrying the host marker, or null.
+function findServerHost(shadowRoot) {
+  for (const child of shadowRoot.children || []) {
+    if (child.hasAttribute && child.hasAttribute("data-tessera-holo-host")) return child;
+  }
+
+  return null;
+}
+
+// Move `#id` / `.class` tokens out of every vnode sel (toVNode form) into
+// data.attrs (Hologram renderer form) so the first hydration patch matches
+// nodes instead of replacing them. Walks the whole adopted tree in place.
+export function normalizeHydratedVnode(vnode) {
+  if (!vnode || typeof vnode.sel !== "string") return vnode;
+
+  const match = /^([^#.]+)(?:#([^.]+))?((?:\.[^.]+)*)$/.exec(vnode.sel);
+
+  if (match && (match[2] || match[3])) {
+    const [, tag, id, classes] = match;
+    vnode.data = vnode.data || {};
+    vnode.data.attrs = {...(vnode.data.attrs || {})};
+    if (id) vnode.data.attrs.id = id;
+    if (classes) vnode.data.attrs.class = classes.slice(1).split(".").join(" ");
+    vnode.sel = tag;
+  }
+
+  for (const child of vnode.children || []) normalizeHydratedVnode(child);
+
+  return vnode;
+}
+
 export function mountComponent(shadowRoot, moduleName, props = {}, options = {}) {
   if (!RT) {
     throw new Error(
@@ -319,9 +350,19 @@ export function mountComponent(shadowRoot, moduleName, props = {}, options = {})
 
   const cid = "tssr_" + String(++cidCounter);
 
-  const hostDiv = document.createElement("div");
-  hostDiv.setAttribute("data-tessera-holo-host", "");
-  shadowRoot.appendChild(hostDiv);
+  // SSR / DSD hydration (TESSER SSR-1, ssr-dsd-spike.md §4.1): when the
+  // shadow root already holds a server-rendered host (a declarative shadow
+  // root emitted by Noizu.Tessera.Hologram.Render), ADOPT it instead of
+  // appending a fresh one — the first patch then morphs the real server DOM
+  // in place (node identity preserved) rather than leaving a dead duplicate.
+  // `options.hydrate: false` forces a from-scratch mount.
+  const serverHost = options.hydrate === false ? null : findServerHost(shadowRoot);
+  const hostDiv = serverHost || document.createElement("div");
+
+  if (!serverHost) {
+    hostDiv.setAttribute("data-tessera-holo-host", "");
+    shadowRoot.appendChild(hostDiv);
+  }
 
   const instance = {
     cid,
@@ -329,6 +370,7 @@ export function mountComponent(shadowRoot, moduleName, props = {}, options = {})
     props: {...props},
     shadowRoot,
     hostDiv,
+    hydrated: !!serverHost,
     element: options.element || null,
     patch: null,
     vnode: null,
@@ -494,7 +536,15 @@ function renderInstance(instance) {
 
     if (!instance.patch) {
       instance.patch = snabbdomInit([attributesModule, eventListenersModule]);
-      instance.vnode = instance.patch(toVNode(instance.hostDiv), vnode);
+      const initial = toVNode(instance.hostDiv);
+
+      // Hydration: snabbdom's toVNode bakes #id/.class into `sel`, while the
+      // Hologram renderer emits plain-tag sels with class/id in data.attrs —
+      // without normalising, isSameVnode fails and the server subtree is
+      // REPLACED on the first patch (the spike's blocker).
+      if (instance.hydrated) normalizeHydratedVnode(initial);
+
+      instance.vnode = instance.patch(initial, vnode);
     } else {
       withFocusPreservation(instance, () => {
         instance.vnode = instance.patch(instance.vnode, vnode);

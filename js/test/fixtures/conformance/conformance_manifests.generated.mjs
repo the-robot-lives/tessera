@@ -94,6 +94,86 @@ export const manifests = {
       "raw": "<div data-cy=\"conf-form-root\">\n  <button type=\"button\" data-cy=\"conf-form-set\" $click={:set_value, value: \"clicked\"}>set</button>\n  <span data-cy=\"conf-form-value\">{@value}</span>\n</div>\n"
     }
   },
+  "tsr-conf-light": {
+    "actions": [
+      "bump"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-light-root",
+    "events": [
+      {
+        "detail": {
+          "count": "integer"
+        },
+        "name": "conf-light-ping"
+      }
+    ],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_light.ex",
+    "js": "conf_light.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Light",
+    "parts": [],
+    "props": [],
+    "renderRoot": "light",
+    "slots": [],
+    "state": [
+      {
+        "default": 0,
+        "name": "count",
+        "type": "integer"
+      }
+    ],
+    "styles": [
+      {
+        "kind": "css",
+        "value": "tsr-conf-light .light-count {\n  color: rgb(1, 2, 3);\n}\n"
+      }
+    ],
+    "tag": "tsr-conf-light",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-light-root\">\n  <button type=\"button\" data-cy=\"conf-light-inc\" $click={:bump}>+</button>\n  <span class=\"light-count\" data-cy=\"conf-light-count\">{@count}</span>\n</div>\n"
+    }
+  },
+  "tsr-conf-live": {
+    "actions": [
+      "clear"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-live-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_live.ex",
+    "js": "conf_live.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Live",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": "",
+        "name": "draft",
+        "type": "string"
+      },
+      {
+        "default": 0,
+        "name": "clears",
+        "type": "integer"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-live",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-live-root\">\n  <input data-cy=\"conf-live-input\" .value={live(@draft)} />\n  <span data-cy=\"conf-live-clears\">{@clears}</span>\n</div>\n"
+    }
+  },
   "tsr-conf-pipeline": {
     "actions": [
       "bump",
@@ -191,6 +271,50 @@ export const manifests = {
     "template": {
       "lexer": "minimal",
       "raw": "<div data-cy=\"conf-region-root\"><ul><li class=\"row\" data-cy=\"conf-region-row\">{%region :row}<span data-cy=\"conf-region-body\">base-row</span>{%endregion}</li></ul></div>\n"
+    }
+  },
+  "tsr-conf-repeat": {
+    "actions": [
+      "reverse"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-repeat-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_repeat.ex",
+    "js": "conf_repeat.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.Repeat",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": [
+          {
+            "id": "a",
+            "label": "Alpha"
+          },
+          {
+            "id": "b",
+            "label": "Beta"
+          },
+          {
+            "id": "c",
+            "label": "Gamma"
+          }
+        ],
+        "name": "rows",
+        "type": "list"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-repeat",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<ul data-cy=\"conf-repeat-root\">{%for row <- @rows, key: row.id}<li data-id={row.id}>{row.label}</li>{/for}</ul>\n"
     }
   },
   "tsr-conf-slots": {
@@ -413,6 +537,48 @@ export const manifests = {
     "template": {
       "lexer": "hologram",
       "raw": "<div data-cy=\"conf-template-root\" title=\"{@label}\">\n  <input data-cy=\"conf-template-input\" .value=\"{@label}\">\n  <span data-cy=\"conf-template-flag\">{%if @flag}ON{%else}OFF{/if}</span>\n  <button type=\"button\" data-cy=\"conf-template-toggle\" $click={:toggle_flag}>flag</button>\n  <ul data-cy=\"conf-template-list\">{%for item <- @items}<li class=\"item\">{item}</li>{/for}</ul>\n  <div data-cy=\"conf-template-nested\">{%for item <- @items}<span class=\"nest\"><b>{item}</b></span>{/for}</div>\n</div>\n"
+    }
+  },
+  "tsr-conf-unsafe-guard": {
+    "actions": [
+      "bump_other",
+      "set_note"
+    ],
+    "attrs": [],
+    "contractVersion": 1,
+    "cssProperties": [],
+    "cy": "conf-ug-root",
+    "events": [],
+    "extension_api": "1.0.0",
+    "file": "test/support/conformance/conf_unsafe_guard.ex",
+    "js": "conf_unsafe_guard.mjs",
+    "lifecycle": [],
+    "module": "Tessera.TestFixtures.Conformance.UnsafeGuard",
+    "parts": [],
+    "props": [],
+    "slots": [],
+    "state": [
+      {
+        "default": "<em data-cy=\"conf-ug-em\">trusted</em>",
+        "name": "markup",
+        "type": "string"
+      },
+      {
+        "default": "n0",
+        "name": "note",
+        "type": "string"
+      },
+      {
+        "default": 0,
+        "name": "other",
+        "type": "integer"
+      }
+    ],
+    "styles": [],
+    "tag": "tsr-conf-unsafe-guard",
+    "template": {
+      "lexer": "hologram",
+      "raw": "<div data-cy=\"conf-ug-root\">\n  <div data-cy=\"conf-ug-html\">{unsafe_html(@markup)}</div>\n  <div data-cy=\"conf-ug-guard\">{guard([@note], \"#{@note}:#{@other}\")}</div>\n  <span data-cy=\"conf-ug-other\">{@other}</span>\n</div>\n"
     }
   }
 };

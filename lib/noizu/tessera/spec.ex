@@ -81,7 +81,10 @@ defmodule Noizu.Tessera.Spec do
             # to the manifest (`formAssociated`), the CEM `tessera` field and
             # the Tier-1 `static formAssociated` emission; the runtime attaches
             # ElementInternals ONLY when it is set (§6.7 negative).
-            form_associated: false
+            form_associated: false,
+            # lit-parity #96: :shadow (default) or :light (renders into the
+            # element itself — no shadow root, no slot projection).
+            render_root: :shadow
 
   @type attr_entry :: %{
           required(:name) => Naming.snake(),
@@ -194,7 +197,8 @@ defmodule Noizu.Tessera.Spec do
           extension_api_pin: String.t() | nil,
           regions: [region_entry()],
           region_overrides: [atom()],
-          form_associated: boolean()
+          form_associated: boolean(),
+          render_root: :shadow | :light
         }
 
   @doc """
@@ -589,6 +593,7 @@ defmodule Noizu.Tessera.Spec do
       # every runtime treats absent/false as "never attach internals". (The
       # Tier-2 standalone runtime, brief 3f, reads this same key.)
       put_manifest_opt(map, "formAssociated", if(spec.form_associated, do: true, else: nil))
+      |> put_manifest_opt("renderRoot", if(spec.render_root == :light, do: "light", else: nil))
     end)
   end
 end

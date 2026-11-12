@@ -29,6 +29,14 @@ export default {
         "test/bus.test.mjs",
         "test/define.test.mjs",
         "test/index.test.mjs",
+        // lit-parity #96: render_root: :light (BoE need #1).
+        "test/light_dom.test.mjs",
+        // lit-parity #63: keyed {%for} → repeat (BoE need #2).
+        "test/repeat.test.mjs",
+        // lit-parity #67: live() + .prop bindings (BoE need #3).
+        "test/live.test.mjs",
+        // lit-parity #71/#66: unsafe_html + guard (BoE need #4).
+        "test/unsafe_guard.test.mjs",
         // Phase 4b conformance suite — Tier-1 FAST lane (behavior-defining
         // core cases only; pending cases skipped, never green). The `.fast.mjs`
         // suffix keeps the default full glob from double-running it.

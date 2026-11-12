@@ -87,7 +87,7 @@ defmodule Noizu.Tessera.Component.LitCodegen do
         super();
     #{constructor_defaults(spec)}
       }
-
+    #{light_render_root(spec)}
       connectedCallback() {
         super.connectedCallback();
         // Theming contract (EXTENSION-CONTRACT.md §7): the host exposes a root part.
@@ -529,7 +529,14 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   @directive_imports [
     {"classMap", "lit/directives/class-map.js"},
     {"styleMap", "lit/directives/style-map.js"},
-    {"ifDefined", "lit/directives/if-defined.js"}
+    {"ifDefined", "lit/directives/if-defined.js"},
+    # keyed {%for … , key: …} (lit-parity #63)
+    {"repeat", "lit/directives/repeat.js"},
+    # live(expr) (lit-parity #67)
+    {"live", "lit/directives/live.js"},
+    # unsafe_html(expr) (#71) / guard([deps], expr) (#66)
+    {"unsafeHTML", "lit/directives/unsafe-html.js"},
+    {"guard", "lit/directives/guard.js"}
   ]
 
   defp render_js(%Spec{template: nil}), do: ""
@@ -594,6 +601,31 @@ defmodule Noizu.Tessera.Component.LitCodegen do
     do: "      static formAssociated = true;\n"
 
   defp form_associated_static(%Spec{}), do: ""
+
+  # lit-parity #96 (`render_root: :light`): render into the element itself.
+  # Lit only adopts static styles into a shadow root, so the styles are
+  # adopted ADDITIVELY into the element's root node (the document, or an
+  # enclosing shadow root) — Lit's own adoptStyles would replace that root's
+  # sheets. `:host` rules do not match in light DOM; target the tag instead.
+  defp light_render_root(%Spec{render_root: :light}) do
+    """
+
+      createRenderRoot() {
+        const root = this.getRootNode();
+        if (root && "adoptedStyleSheets" in root) {
+          const sheets = this.constructor.elementStyles
+            .map((s) => (s instanceof CSSStyleSheet ? s : s.styleSheet))
+            .filter(Boolean);
+          const have = new Set(root.adoptedStyleSheets);
+          const add = sheets.filter((s) => !have.has(s));
+          if (add.length) root.adoptedStyleSheets = [...root.adoptedStyleSheets, ...add];
+        }
+        return this;
+      }
+    """
+  end
+
+  defp light_render_root(%Spec{}), do: ""
 
   defp class_name(%Spec{} = spec) do
     spec.tag
