@@ -946,7 +946,17 @@ defmodule Noizu.Tessera.Component.Template do
   # Property binding (`.value={expr}`, lit-html `.prop=${…}`): the value is
   # assigned to the element PROPERTY, unquoted and without __t, so non-string
   # values and directives such as live() pass through untouched.
+  #
+  # Property assignment bypasses lit-html text escaping entirely (TESSER-030),
+  # so a small denylist of unambiguous raw-HTML sink names warns at compile
+  # time. Warn, not error: deliberate use stays legal, and URL-like props
+  # (.src/.href) are deliberately NOT listed — custom elements define them
+  # legitimately; the sink there is a `javascript:` URL, not the name.
+  # Sanctioned opt-in for raw markup: unsafe_html(…) in markup position
+  # (lit-parity #71).
+
   defp attr_js({"." <> _ = name, {:parts, [{:expr, e}]}}, ctx) do
+    maybe_warn_prop_sink(name, ctx)
     ast = if is_binary(e), do: to_ast(e, ctx), else: e
     "#{name}=${#{Expr.translate(ast, ctx)}}"
   end
@@ -973,6 +983,29 @@ defmodule Noizu.Tessera.Component.Template do
       end)
 
     "#{name}=\"#{inner}\""
+  end
+
+  # Known raw-HTML sink property names (TESSER-030, lit-parity.md § .prop
+  # security surface): `.prop` assignment bypasses lit-html text escaping, so
+  # these unambiguous sink names warn at compile time. Warn, not error —
+  # deliberate use stays legal; URL-like props (.src/.href) are deliberately
+  # NOT listed: custom elements define them legitimately, and the sink there
+  # is a `javascript:` URL, not the name itself. Sanctioned opt-in for raw
+  # markup: unsafe_html(…) in markup position (lit-parity #71).
+  @prop_sink_denylist ~w(innerHTML outerHTML srcdoc)
+
+  defp maybe_warn_prop_sink("." <> prop = name, ctx) do
+    if prop in @prop_sink_denylist do
+      IO.warn(
+        "tessera #{name}={…} targets a known XSS sink: #{prop} writes raw HTML and bypasses " <>
+          "lit-html text escaping. For trusted, sanitized markup prefer unsafe_html(…) in markup " <>
+          "position (lit-parity #71); a deliberate #{name} sink is allowed but is on you — this " <>
+          "warning is not a sanitizer and the denylist is not complete " <>
+          "(docs/notes/lit-parity.md § .prop security surface)",
+        file: ctx.file,
+        line: ctx.line || 0
+      )
+    end
   end
 
   # Binding sources arrive brace-stripped: ":increment" or ":increment, step: 1"

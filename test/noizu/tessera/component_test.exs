@@ -1046,6 +1046,41 @@ defmodule Noizu.Tessera.ComponentTest do
     end
   end
 
+  describe "dangerous .prop sink denylist (TESSER-030)" do
+    test "each denylisted sink warns and points at unsafe_html" do
+      for prop <- ["innerHTML", "outerHTML", "srcdoc"] do
+        id = :erlang.unique_integer([:positive])
+
+        stderr =
+          ExUnit.CaptureIO.capture_io(:stderr, fn ->
+            compile_source(~s|tag: "sink-#{id}", js: "sink_#{id}.mjs"|, """
+            state :markup, :string, default: ""
+            template ~TSR"<iframe .#{prop}={@markup}></iframe>"
+            """)
+          end)
+
+        assert stderr =~ "tessera .#{prop}={…} targets a known XSS sink"
+        assert stderr =~ "unsafe_html(…) in markup position"
+        assert stderr =~ "lit-parity"
+      end
+    end
+
+    test "a normal property binding stays silent" do
+      id = :erlang.unique_integer([:positive])
+
+      stderr =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          compile_source(~s|tag: "sink-#{id}", js: "sink_#{id}.mjs"|, """
+          state :draft, :string, default: ""
+          template ~TSR"<input .value={@draft} />"
+          """)
+        end)
+
+      refute stderr =~ "XSS sink"
+      refute stderr =~ "tessera .value"
+    end
+  end
+
   describe "unsafe_html + guard (lit-parity #71/#66, BoE #4)" do
     alias Noizu.Tessera.Component.LitCodegen
 
