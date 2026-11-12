@@ -225,6 +225,13 @@ jobs:
             # this the runtime 404s and the core-claim specs fail on the
             # console-error assertion (the e2e-smoke RED bug).
             mix tessera.bundles || return 1
+            # spike_kit writes its gitignored `*.element.generated.mjs` next to
+            # the SOURCE at compile time; a warm _build cache skips that
+            # compile, so Hologram's esbuild could not resolve them and the
+            # demo never booted (main 22603fe red). Drop spike_kit's build so
+            # the next compile re-runs it (deps.compile alone cannot load
+            # noizu_tessera) and the files exist on every run.
+            mix deps.clean spike_kit --build && mix compile || return 1
             nohup mix holo > /tmp/holo.log 2>&1 &
             for i in $(seq 1 120); do
               curl -sf -o /dev/null http://localhost:5586/ && return 0
