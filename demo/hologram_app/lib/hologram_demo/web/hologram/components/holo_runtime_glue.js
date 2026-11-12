@@ -194,6 +194,31 @@ export function loadHoloRuntime() {
     // tag (fresh surface: inherited actions + a new :reset), base untouched.
     rt.defineElement("tsr-holo-takeover-derived", "HoloKit.Components.TakeoverProbeDerived");
 
+    // X-21 (EXTENSION-CONTRACT §5.9, TESSER-004): the JS extendElement
+    // registry on Tier 2. Two UNLABELLED mixins queue BEFORE the first define,
+    // so the perfect-tie fallback (first-registered outermost) composes them:
+    // layerTrace() === ["base", "m2", "m1"]. ES6-safe like the subclasses above.
+    class ConfX21Element extends rt.TesseraHoloElement {
+      layerTrace() {
+        return ["base"];
+      }
+    }
+    const x21Layer = function (label) {
+      return function (Base) {
+        return class extends Base {
+          layerTrace() {
+            return super.layerTrace().concat([label]);
+          }
+        };
+      };
+    };
+    rt.extendElement("tsr-holo-conf-x21", x21Layer("m1"));
+    rt.extendElement("tsr-holo-conf-x21", x21Layer("m2"));
+    rt.defineElement("tsr-holo-conf-x21", "HoloKit.Components.Counter", ConfX21Element);
+    // Harness seam: X-21's post-define registration must call the REAL
+    // runtime extendElement (the bundle is an ESM import, not a global).
+    globalThis.__tesseraHoloRuntime = rt;
+
     registerEvents(["count-changed", "item-saved", "item-archived"]);
   })().catch((error) => {
     loadPromise = null;

@@ -27,6 +27,8 @@ export type ConformanceHandle = {
   waitFor: (fn: () => boolean, timeout?: number) => Promise<void>;
   nextEvent: (name: string, node?: EventTarget, timeout?: number) => Promise<any>;
   settle: () => Promise<void>;
+  // X-21: post-define extendElement against the real runtime (glue seam).
+  extend: (mixin: (Base: any) => any, opts?: Record<string, unknown>) => boolean;
 };
 
 // Tier-2 fixture tags. The shared counter (C/T/E family) + the state probe
@@ -67,6 +69,8 @@ const FIXTURES: Record<string, string> = {
   // el.x13Trace). The shared subclassHooksBody mounts it and proves the
   // super-chains + reserved-member enforcement on the instance.
   subclass: "tsr-holo-state-sub",
+  // X-21 (TESSER-004): base + two pre-define extendElement mixins (glue).
+  x21: "tsr-holo-conf-x21",
 };
 
 let ctx: {win: Window} | null = null;
@@ -159,6 +163,12 @@ export function mount(spec: {fixture: string; attrs?: Record<string, string>}): 
           waitFor: makeWaitFor(win),
           nextEvent: makeNextEvent(win),
           settle,
+          extend: (mixin, opts) =>
+            (win as unknown as {__tesseraHoloRuntime: {extendElement: Function}}).__tesseraHoloRuntime.extendElement(
+              tag,
+              mixin,
+              opts,
+            ),
         };
         // Init wait also rides the fence: the first render commits during
         // connectedCallback, so every case starts from a settled first render.
