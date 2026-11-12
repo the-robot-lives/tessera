@@ -26,7 +26,8 @@ import { tesseraA11y as a11y } from "../support/tessera/a11y";
 function envUrl(key: string, fallback: string): string {
   const v: unknown = Cypress.env(key);
   if (typeof v === "string" && v.trim() !== "") return v;
-  if (v !== undefined && v !== "") Cypress.log({ name: "a11y", message: `ignoring non-string ${key}=${String(v)}` });
+  if (typeof v === "string" && v !== "") Cypress.log({ name: "a11y", message: `ignoring blank ${key}` });
+  else if (v !== undefined && typeof v !== "string") Cypress.log({ name: "a11y", message: `ignoring non-string ${key}=${String(v)}` });
   return fallback;
 }
 
