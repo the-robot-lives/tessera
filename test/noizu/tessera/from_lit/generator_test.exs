@@ -134,11 +134,16 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
       assert content =~ "sessionId: computed default"
     end
 
-    test "original Lit names and reflect/custom-attribute notes ride along as comments" do
+    test "reflect rides the attr as an option; original names ride as comments" do
       content = spec_content(generate_persona())
 
-      assert content =~ "# Lit: displayName; reflect; Lit attribute: display-name"
+      assert content =~ "attr :display_name, :string, default: \"Anonymous\", reflect: true"
+      assert content =~ "attr :disabled, :boolean, default: false, reflect: true"
+      # reflect is declared, not just commented; the attribute RENAME stays a
+      # comment (documenting the original) until the converter carries it.
+      assert content =~ "# Lit: displayName; Lit attribute: display-name"
       assert content =~ "# Lit: clickCount"
+      refute content =~ "# Lit: displayName; reflect;"
     end
   end
 
