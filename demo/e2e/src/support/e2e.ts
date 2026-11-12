@@ -13,7 +13,11 @@
 import { register as registerCypressGrep } from "@cypress/grep";
 registerCypressGrep();
 
-type WinWithBucket = Window & { __tesseraConsoleErrors?: string[] };
+// The console capture target is a Cypress AUT window: `Window & typeof
+// globalThis` is the same intersection Cypress itself uses for AUTWindow
+// (the AUT window's `console` lives on globalThis, not the DOM Window
+// interface), plus the error bucket this module installs.
+type WinWithBucket = Window & typeof globalThis & {__tesseraConsoleErrors?: string[]};
 
 function installConsoleCapture(win: WinWithBucket): void {
   win.__tesseraConsoleErrors = [];
