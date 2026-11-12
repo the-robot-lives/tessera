@@ -7,5 +7,5 @@ export default {
   props:  [{ name: "rows", type: "list", json: true, default: [{"id":"r1","label":"Inbox"},{"id":"r2","label":"Sent"},{"id":"r3","label":"Drafts"}] }],
   events: [],
   slots:  ["default"],
-  cy: "from-lit-panel-root",
+  cy: "tsr-conf-from-lit-panel-root",
 };

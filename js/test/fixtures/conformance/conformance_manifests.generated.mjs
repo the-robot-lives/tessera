@@ -115,11 +115,11 @@ export const manifests = {
     ],
     "contractVersion": 1,
     "cssProperties": [],
-    "cy": "from-lit-panel-root",
+    "cy": "tsr-conf-from-lit-panel-root",
     "events": [],
     "extension_api": "1.0.0",
-    "file": "test/support/conformance/conf_from_lit.ex",
-    "js": "conf_from_lit.mjs",
+    "file": "test/support/conformance/generated/conf_from_lit.generated.ex",
+    "js": "tsr_conf_from_lit_panel.mjs",
     "lifecycle": [],
     "module": "Tessera.TestFixtures.Conformance.FromLitPanel",
     "parts": [],
@@ -156,7 +156,7 @@ export const manifests = {
     "tag": "tsr-conf-from-lit-panel",
     "template": {
       "lexer": "hologram",
-      "raw": "<section class=\"panel\" data-cy=\"from-lit-panel-root\">\n  <h3 data-cy=\"from-lit-title\">{@panel_title}</h3>\n  <p class=\"mode\" data-cy=\"from-lit-mode\">{if(@open, do: \"open\", else: \"closed\")}</p>\n  <ul data-cy=\"from-lit-list\">{%for row <- @rows, key: row.id}<li data-id={row.id}>{row.label}</li>{/for}</ul>\n  <button type=\"button\" data-cy=\"from-lit-tick\" $click={:tick}>tick</button>\n  <span class=\"ticks\" data-cy=\"from-lit-ticks\">{@tick_count}</span>\n</section>\n"
+      "raw": "<section class=\"panel\" data-cy=\"tsr-conf-from-lit-panel-root\">\n  <h3 data-cy=\"from-lit-title\">{@panel_title}</h3>\n  <p class=\"mode\" data-cy=\"from-lit-mode\">{%if @open}<span class=\"mode-text\">open</span>{%else}<span class=\"mode-text\">closed</span>{/if}</p>\n  <ul data-cy=\"from-lit-list\">\n    {%for row <- @rows, key: row.id}<li data-id={row.id}>{row.label}</li>{/for}\n  </ul>\n  <button type=\"button\" data-cy=\"from-lit-tick\" $click={:tick}>tick</button>\n  <span class=\"ticks\" data-cy=\"from-lit-ticks\">{@tick_count}</span>\n</section>\n"
     }
   },
   "tsr-conf-light": {
