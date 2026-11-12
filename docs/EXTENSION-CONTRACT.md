@@ -920,6 +920,14 @@ mixin static `tesseraExtensionApi`; X-15 pins the agreement.]
 - **Elixir extenders** pin at derivation: `use Base, tag: "…" (or :inherit),
   extension_api: "~> 1.0"`. Unsatisfied MAJOR ⇒ `CompileError`; unsatisfied
   minor range ⇒ compile warning listing what the base does not declare.
+  [LANDED TESSER-002, owner decision 2026-11-12: the pin is stored as the
+  **requirement string as written** (spec `extension_api_pin`, manifest key
+  `"extension_api_pin"`, present only when pinned), never resolved to a
+  version. The derived element's own `extension_api` is inherited from the
+  base (a pin is not a declaration, §8.3). `mix tessera.manifest` re-checks
+  the requirement with `Version.match?` against the base's CURRENT version,
+  so a vendor minor bump inside the range needs no recompile of the
+  extender and a major bump warns.]
 - **JS extenders** pin at the extension point: `behaviors.add(tag, fn, {
   api: "^1.0.0" })` (`onAction` gains the same option in a minor; the
   `extendElement` registry takes it too, §5.9). The pin is evaluated at

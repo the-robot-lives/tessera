@@ -949,6 +949,8 @@ defmodule Noizu.Tessera.Component do
       extension_api:
         Module.get_attribute(env.module, :tessera_extension_api) ||
           Spec.default_extension_api(),
+      # §8.4: the derivation pin as written (`"~> 1.0"`), nil when unpinned.
+      extension_api_pin: Module.get_attribute(env.module, :tessera_extension_api_pin),
       # Template regions ride the compiled template entry (§5.4, brief 2d):
       # `regions` = what the template declares, `region_overrides` = what this
       # module replaces via slot_template.
