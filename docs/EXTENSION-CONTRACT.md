@@ -824,6 +824,14 @@ compiled `<tsr-conf-form>` fixture through a recording subclass implementing
 the same push-per-render pattern, so the identical bodies run unmodified on
 both engines.
 
+**Light-DOM render root (lit-parity #96, Tier 1).** `render_root: :light` on
+`use Noizu.Tessera.Component` renders into the element itself. There is no
+shadow root, so slots are a compile error, and `::part`/`:host` theming does
+not apply. Styles are adopted into the element's root node (document or
+enclosing shadow root) without replacing that root's existing sheets. A
+derived element inherits its base's root. The manifest carries
+`"renderRoot": "light"` only when set.
+
 ### 6.8 Explicitly NOT part of the contract
 
 - Any `__tessera`- or `__action_`-prefixed member; any `_`-prefixed property.

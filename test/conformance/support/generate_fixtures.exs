@@ -31,6 +31,8 @@ fixtures = [
   Tessera.TestFixtures.Conformance.Slots,
   Tessera.TestFixtures.Conformance.Directives,
   Tessera.TestFixtures.Conformance.Pipeline,
+  # lit-parity #96 (render_root: :light) — consumed by js/test/light_dom.test.mjs.
+  Tessera.TestFixtures.Conformance.Light,
   # X-17 (brief 2d): the first DERIVED conformance pair — the vendor element
   # replaces the base's `:row` region via slot_template + {%super%}. Its
   # generated element imports the base element by relative path, which lands

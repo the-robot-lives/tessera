@@ -913,4 +913,61 @@ defmodule Noizu.Tessera.ComponentTest do
       refute element =~ "updated(changedProperties)"
     end
   end
+
+  describe "render_root: :light (lit-parity #96, BoE #1)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp light_opts(id, extra) do
+      ~s|tag: "light-#{id}", js: "light_#{id}.mjs"#{extra}|
+    end
+
+    @light_body """
+    state :count, :integer, default: 0
+    template ~TSR"<p>{@count}</p>"
+    """
+
+    test "a light component renders into the element and says so in the manifest" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(light_opts(id, ", render_root: :light"), @light_body)
+      spec = mod.__tessera_spec__()
+
+      assert spec.render_root == :light
+      assert mod.__tessera_manifest__()["renderRoot"] == "light"
+
+      js = LitCodegen.element_module(spec)
+      assert js =~ "createRenderRoot() {"
+      assert js =~ "return this;"
+      # styles adopted additively, never via Lit's replacing adoptStyles
+      assert js =~ "[...root.adoptedStyleSheets, ...add]"
+    end
+
+    test "the default stays a shadow root with no manifest key" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(light_opts(id, ""), @light_body)
+
+      assert mod.__tessera_spec__().render_root == :shadow
+      refute Map.has_key?(mod.__tessera_manifest__(), "renderRoot")
+      refute LitCodegen.element_module(mod.__tessera_spec__()) =~ "createRenderRoot"
+    end
+
+    test "an unknown render_root raises" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError,
+                   ~r/:render_root option must be :shadow \(default\) or :light/,
+                   fn ->
+                     compile_source(light_opts(id, ", render_root: :open"), @light_body)
+                   end
+    end
+
+    test "light DOM cannot declare slots" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/render_root: :light cannot declare slots/, fn ->
+        compile_source(light_opts(id, ", render_root: :light"), """
+        slot "header"
+        """)
+      end
+    end
+  end
 end
