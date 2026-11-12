@@ -82,6 +82,10 @@ export function checkKnownViolations(
       failures.push(`known violation "${id}" no longer reproduces: fixed? remove it from the allowlist`);
   });
   Object.entries(pins ?? {}).forEach(([id, rulePins]) => {
+    if (!known.includes(id)) {
+      failures.push(`pinned rule "${id}" is not in the known allowlist (misconfiguration: pin without known)`);
+      return;
+    }
     const v = violations.find((x) => x.id === id);
     const nodes = v?.nodes ?? [];
     const chains = nodes.map((n) => axeTargetChain(n.target));
