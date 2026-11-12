@@ -25,16 +25,22 @@ const TIER2: string = Cypress.env("tsrTier2Url") ?? "http://localhost:5589";
 const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
 
 /**
- * Waits until the custom element at `hostSelector` has BOTH a shadow root and
+ * Waits until EVERY custom element matching `hostSelector` (not just the
+ * first — robot-review 4547531352) has BOTH a shadow root and
  * `shadowSelector` rendered inside it (elements upgrade asynchronously — the
  * UMD glue dynamically imports the module bundle — and axe must never run on
  * a half-mounted page or the assertion itself becomes the flake).
  */
 function waitShadowReady(hostSelector: string, shadowSelector: string): void {
   cy.get(hostSelector).should(($el) => {
-    expect($el[0].shadowRoot, `shadow root attached: ${hostSelector}`).to.not.eq(null);
+    expect($el.length, `host matched: ${hostSelector}`).to.be.greaterThan(0);
+    $el.each((_i, el) => {
+      expect((el as HTMLElement).shadowRoot, `shadow root attached: ${hostSelector}`).to.not.eq(null);
+    });
   });
-  cy.get(hostSelector).shadow().find(shadowSelector).should("exist");
+  cy.get(hostSelector).each(($el) => {
+    cy.wrap($el).shadow().find(shadowSelector).should("exist");
+  });
 }
 
 describe("tessera a11y: axe over the plain-HTML host", { tags: "@fast" }, () => {
@@ -113,7 +119,9 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="layered-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="fancy-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="observed-list"]', '[data-cy="holo-list-items"]');
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX);
+    // 4 pinned listboxes (vendor / layered / fancy / observed) — a NEW
+    // aria-input-field-name from any other component goes red (4547531347).
+    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 4 });
   });
 
   it("/react/ (React-rendered counter + lists) has no axe violations", () => {
@@ -121,7 +129,8 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="react-counter"]', '[data-cy="holo-counter-count"]');
     waitShadowReady('[data-cy="react-tsr-holo-editable-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="react-fancy-list"]', '[data-cy="holo-list-items"]');
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX);
+    // 2 pinned listboxes (editable + fancy) — exact-count pin (4547531347).
+    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 2 });
   });
 
   it("/ssr/ (declarative shadow DOM counter) has no axe violations", () => {
@@ -138,8 +147,12 @@ describe("tessera a11y: axe over the Hologram demo (:5586)", { tags: "@slow" }, 
     waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
     // The Hologram runtime does a ONE-SHOT body takeover shortly after boot
     // (verified locally: a body-appended node is gone within ~1.5s). Settle
-    // past it so axe always scans the final, post-takeover DOM.
+    // past it, then RE-ASSERT readiness so axe always scans the FINAL,
+    // post-takeover DOM (robot-review 4547531345: no fixed-wait-only scan of
+    // a transient DOM; in CI the re-assert is a no-op if no takeover ran).
     cy.wait(1500);
+    waitShadowReady("persona-card", '[data-cy="persona-card-btn"]');
+    waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
     a11y.expectNoAxeViolations([]);
   });
 });
