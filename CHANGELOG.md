@@ -1,6 +1,8 @@
 # Changelog
 
-## 2026-11-12 (unreleased)
+## 2026-11-12 — 0.3.0 (release prep; hex publish = owner 2FA step)
+
+- Release **0.3.0**: `@version` 0.2.0 → 0.3.0. Contents: every entry below (Tier-2 SSR as declarative shadow DOM; Tier-1 `render_root: :light`, keyed `repeat`, `live` + `.prop`, `unsafe_html` + `guard`; a11y lane; `from_lit` render() conversion; fixes). Supervisor decision: agent-kit pm-1, option A.
 
 - feat(from_lit): `render()` → `~TSR` conversion (TESSER-016). `mix tessera.from_lit` now lowers a Lit `render()` body to a tessera `template(~TSR"""…""")` for the supported subset (interpolation, `{%if}/{%else}` from ternaries and `&&` guards, keyed/unkeyed `{%for}` from `.map`/`repeat`, `$event` action stubs, `.prop`/`?attr`/quoted-attribute bindings, `class_map`/`style_map`/`if_defined`/`live`/`unsafe_html` directives, whitelisted operators/methods, untagged template literals); anything outside the subset is dropped and reported as a `# TODO(tessera.from_lit)` marker plus a warning — the emitted markup always compiles. Converting components now emit real `state` declarations their templates read and drop the hand-portable `.mjs` stub (element generated from the spec at `mix compile`); `render: false` keeps the stub path. Also fixes the dead `warnings` reassignment in `Generator.spec_module_content/4` so style warnings reach the generated moduledoc. Tests: fixture `test/fixtures/lit/construct_kitchen_sink.ts` covering every converted construct + 7 ExUnit (`render_test.exs`, `render_mix_task_test.exs` — compile-string contract, TODO/warning via capture_io); mutation-verified (breaking the ternary rule fails 2 tests). Fast suite 484/0; format under 1.18.4.
 
