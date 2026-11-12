@@ -18,8 +18,8 @@ subset documented in the `Noizu.Tessera.FromLit.Render` moduledoc table;
 anything outside the subset is dropped with a `todos` entry (and a warning)
 rather than guessed. Directives keep the Tier-1 literal forms: `classMap`
 and `styleMap` take an inline object literal only, `guard` takes a literal
-dep array and a value-expression body (no html bodies — those lower only via
-the ternary/&& branch forms).
+dep array and a zero-argument arrow body (`() => expr` — no html bodies;
+those lower only via the ternary/&& branch forms).
 
 ## How to use
 

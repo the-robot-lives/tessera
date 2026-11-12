@@ -145,6 +145,18 @@ defmodule Noizu.Tessera.FromLit.RenderTest do
       assert reason =~ "rename one handler"
     end
 
+    test "two bindings to the SAME handler share one action without a collision (PR #76 review, 4551712824)" do
+      %{markup: markup, todos: todos, actions: actions} =
+        Render.convert(
+          ~s(<button @click=${this.save}>a</button><button @click=${this.save}>b</button>),
+          %{}
+        )
+
+      assert markup == ~s(<button $click={:save}>a</button><button $click={:save}>b</button>)
+      assert todos == []
+      assert actions == ["save"]
+    end
+
     test "classMap/styleMap with a variable argument is dropped with the precise reason (PR #44 review, thread 4545471218)" do
       %{markup: markup, todos: todos} =
         Render.convert(~s[<p class=${classMap(this.classes)}>x</p>], %{"classes" => :classes})
@@ -164,6 +176,18 @@ defmodule Noizu.Tessera.FromLit.RenderTest do
       assert markup == "<p></p>"
       assert [%{reason: reason}] = todos
       assert reason =~ "literal dep array"
+    end
+
+    test "guard with a non-zero-argument arrow names the arrow form in the reason (PR #76 review, 4551712854)" do
+      %{markup: markup, todos: todos} =
+        Render.convert(
+          ~s|<p>${guard([this.n], (x) => x)}</p>|,
+          %{"n" => :n}
+        )
+
+      assert markup == "<p></p>"
+      assert [%{reason: reason}] = todos
+      assert reason =~ "zero-argument arrow"
     end
 
     test "a fully-unsupported render body keeps its todos/warnings (PR #44 review, thread 4545471204)" do

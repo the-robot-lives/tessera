@@ -13,7 +13,7 @@ defmodule Noizu.Tessera.FromLit.Render do
   | `${repeat(items, (i) => i.id, (i) => html\\`…\\`)}` | `{%for i <- @items, key: i.id}…{/for}` |
   | `@click=${this.foo}` | `$click={:foo}` (+ an `action :foo` stub) |
   | `.prop=${…}`, `?attr=${…}`, `attr=${…}`, `attr="a ${…}"` | same shape, `{expr}` |
-  | `classMap({…})`, `styleMap({…})`, `ifDefined`, `live`, `unsafeHTML`, `guard([…], expr)`, `nothing` | `class_map`, `style_map`, `if_defined`, `live`, `unsafe_html`, `guard`, `nothing` |
+  | `classMap({…})`, `styleMap({…})`, `ifDefined`, `live`, `unsafeHTML`, `guard([…], () => expr)`, `nothing` | `class_map`, `style_map`, `if_defined`, `live`, `unsafe_html`, `guard`, `nothing` |
 
   Operators `=== !== == != < <= > >= + - * / % && || ! ?:` and string/number/
   boolean/null literals, `x.length` (→ `Enum.count`), `.toUpperCase()` /
@@ -123,13 +123,13 @@ defmodule Noizu.Tessera.FromLit.Render do
   @spec convert(String.t(), %{optional(String.t()) => atom()}) :: result()
   def convert(inner, known) when is_binary(inner) do
     {parts, _} = tpl(inner <> "`", [], [])
-    ctx = %{known: known, scope: %{}, todos: [], actions: []}
+    ctx = %{known: known, scope: %{}, todos: [], handlers: []}
     {markup, ctx} = convert_parts(parts, ctx)
 
     %{
       markup: tidy(markup),
       todos: ctx.todos |> Enum.reverse() |> Enum.uniq(),
-      actions: ctx.actions |> Enum.reverse() |> Enum.uniq()
+      actions: ctx.handlers |> Enum.reverse() |> Enum.uniq() |> Enum.map(&elem(&1, 1))
     }
   end
 
@@ -278,8 +278,8 @@ defmodule Noizu.Tessera.FromLit.Render do
       try do
         case prefix do
           "@" ->
-            action = handler(ast, ctx)
-            {:ok, "$#{name}={:#{action}}", %{ctx | actions: [action | ctx.actions]}}
+            {orig, action} = handler(ast, ctx)
+            {:ok, "$#{name}={:#{action}}", %{ctx | handlers: [{orig, action} | ctx.handlers]}}
 
           p ->
             ctx = maybe_warn_unsafe_html(ast, ctx, js)
@@ -293,10 +293,10 @@ defmodule Noizu.Tessera.FromLit.Render do
     end
   end
 
-  defp handler({:member, {:this}, n}, ctx), do: action_name(n, ctx)
+  defp handler({:member, {:this}, n}, ctx), do: {n, action_name(n, ctx)}
 
   defp handler({:call, {:member, {:member, {:this}, n}, "bind"}, [{:this}]}, ctx),
-    do: action_name(n, ctx)
+    do: {n, action_name(n, ctx)}
 
   defp handler(_, _),
     do:
@@ -309,14 +309,19 @@ defmodule Noizu.Tessera.FromLit.Render do
     snake = n |> Naming.camel_to_snake() |> Atom.to_string() |> String.trim_leading("_")
 
     if Regex.match?(Naming.snake_regex(), snake) and snake not in @reserved do
-      if snake in ctx.actions do
-        throw(
-          {:unsupported,
-           "handlers `_save`/`save` collapse to tessera action `:#{snake}` " <>
-             "(a leading `_` is stripped) — rename one handler"}
-        )
-      else
-        snake
+      # PR #76 review (4551712824): two bindings to the SAME handler share one
+      # action legally; only two DIFFERENT handlers collapsing to one action
+      # (a leading `_` is stripped by the snake conversion) are a collision.
+      case Enum.find(ctx.handlers, fn {orig, s} -> s == snake and orig != n end) do
+        {orig, ^snake} ->
+          throw(
+            {:unsupported,
+             "handlers #{inspect(orig)}/#{inspect(n)} collapse to tessera action `:#{snake}` " <>
+               "(a leading `_` is stripped) — rename one handler"}
+          )
+
+        nil ->
+          snake
       end
     else
       throw({:unsupported, "handler name #{inspect(n)} is not a valid tessera action name"})
@@ -553,8 +558,9 @@ defmodule Noizu.Tessera.FromLit.Render do
     do:
       throw(
         {:unsupported,
-         "guard() takes a literal dep array and a value-expression body — " <>
-           "`guard([this.a, this.b], expr)`; variable deps or html bodies are outside the subset"}
+         "guard() takes a literal dep array and a zero-argument arrow body — " <>
+           "`guard([this.a, this.b], () => expr)`; variable deps, arrows with parameters, " <>
+           "or html bodies are outside the subset"}
       )
 
   defp ex({:call, {:member, o, m}, []}, ctx) when m in ["toUpperCase", "toLowerCase", "trim"] do
