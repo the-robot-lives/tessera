@@ -24,6 +24,10 @@ const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
 const TIER2: string = Cypress.env("tsrTier2Url") ?? "http://localhost:5589";
 const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
 
+// window.Hologram is GlobalRegistry (globalThis.Hologram), exposed by the
+// runtime "to make tests easier"; mountedPage is set after the boot render.
+type HoloWindow = Window & { Hologram?: { mountedPage?: unknown } };
+
 /**
  * Waits until EVERY custom element matching `hostSelector` (not just the
  * first — robot-review 4547531352) has BOTH a shadow root and
@@ -105,11 +109,11 @@ describe("tessera a11y: aria-live inside a shadow root", { tags: "@fast" }, () =
 // still asserts each of them REPRODUCES, so fixing one turns the test red and
 // forces the entry out). Real violations found by this lane are NEVER pinned
 // without a ticket.
-// TESSER-024: the editable-list/fancy-list <ul role="listbox"> renders with
-// no accessible name (axe aria-input-field-name, serious) on every tier-2
-// host that mounts it — UI fix owed by the runtime (tessera-lit-1). Per-page
-// knowns: /ssr/ mounts only the counter, so the pin must NOT apply there.
-const KNOWN_LISTBOX: string[] = ["aria-input-field-name"];
+// TESSER-024: the editable-list/fancy-list <ul role="listbox"> used to render
+// with no accessible name (axe aria-input-field-name, serious) on every tier-2
+// host that mounts it — it was pinned here (4 nodes on /plain/, 2 on /react/)
+// until the fix gave the listbox aria-label={@title}; the entry is gone and
+// every host below requires zero violations again.
 
 describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slow" }, () => {
   it("/plain/ (counter + editable/fancy lists, shadow DOM) has no axe violations", () => {
@@ -119,9 +123,8 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="layered-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="fancy-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="observed-list"]', '[data-cy="holo-list-items"]');
-    // 4 pinned listboxes (vendor / layered / fancy / observed) — a NEW
-    // aria-input-field-name from any other component goes red (4547531347).
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 4 });
+    // TESSER-024 fixed: the 4 listboxes must be named, not pinned.
+    a11y.expectNoAxeViolations();
   });
 
   it("/react/ (React-rendered counter + lists) has no axe violations", () => {
@@ -129,8 +132,8 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="react-counter"]', '[data-cy="holo-counter-count"]');
     waitShadowReady('[data-cy="react-tsr-holo-editable-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="react-fancy-list"]', '[data-cy="holo-list-items"]');
-    // 2 pinned listboxes (editable + fancy) — exact-count pin (4547531347).
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 2 });
+    // TESSER-024 fixed: the 2 React-host listboxes must be named, not pinned.
+    a11y.expectNoAxeViolations();
   });
 
   it("/ssr/ (declarative shadow DOM counter) has no axe violations", () => {
@@ -145,12 +148,20 @@ describe("tessera a11y: axe over the Hologram demo (:5586)", { tags: "@slow" }, 
     cy.visit(`${HOLO}/`);
     waitShadowReady("persona-card", '[data-cy="persona-card-btn"]');
     waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
-    // The Hologram runtime does a ONE-SHOT body takeover shortly after boot
-    // (verified locally: a body-appended node is gone within ~1.5s). Settle
-    // past it, then RE-ASSERT readiness so axe always scans the FINAL,
-    // post-takeover DOM (robot-review 4547531345: no fixed-wait-only scan of
-    // a transient DOM; in CI the re-assert is a no-op if no takeover ran).
-    cy.wait(1500);
+    // The Hologram runtime does a ONE-SHOT body takeover shortly after boot:
+    // #mountPage renders the page and patches the body vnode (a
+    // body-appended node is gone within ~1.5s — verified locally), then sets
+    // window.Hologram.mountedPage in the SAME animation-frame callback
+    // (GlobalRegistry, exposed for tests). Waiting on mountedPage PROVES the
+    // takeover has completed — a fixed wait cannot (robot-review 4547688678):
+    // cy.should() retries until the runtime sets it, however slow CI is.
+    // The shadow-readiness re-asserts stay as belt-and-braces.
+    cy.window().should((win) => {
+      expect(
+        (win as HoloWindow).Hologram?.mountedPage ?? null,
+        "window.Hologram.mountedPage set (one-shot body takeover complete)",
+      ).to.not.eq(null);
+    });
     waitShadowReady("persona-card", '[data-cy="persona-card-btn"]');
     waitShadowReady("persona-picker", '[data-cy="persona-picker-panel"]');
     a11y.expectNoAxeViolations([]);
