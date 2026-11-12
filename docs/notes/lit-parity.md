@@ -838,4 +838,6 @@ Tier 1 property bindings `.prop={expr}` lower to lit-html property parts (`.prop
 
 **Author guidance.** Bind props for state, not markup. If a sink is genuinely needed, feed `unsafe_html` sanitized input, or accept the warning and record the decision next to the template.
 
-**Scope note (PR #50).** When mixed-text and live()-in-attribute-position bindings widen the property-binding surface (PR #50), their lowering must route through the same `maybe_warn_prop_sink/2` check so the widened paths warn identically.
+**Mixed-text dotted bindings.** Quoted or mixed text/expression parts on a dotted name (`.innerHTML="pre {@markup} post"`) lower through the same mixed-parts clause and warn identically — the sink guard fires on every property-binding path, not only the single-expression form (robot-review round, TESSER-030). Static dotted values (author-literal text, no host data) stay legal and silent.
+
+**Scope note (PR #50).** PR #50's widened lowering paths (mixed-text in plain attribute position, live() in attribute position) must route through the same `maybe_warn_prop_sink/2` check so every property-binding path warns identically.

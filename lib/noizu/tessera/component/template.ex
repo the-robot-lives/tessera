@@ -972,6 +972,12 @@ defmodule Noizu.Tessera.Component.Template do
   end
 
   defp attr_js({name, {:parts, parts}}, ctx) do
+    # Mixed text/expression parts on a dotted name lower to a quoted property
+    # assignment — a property-binding path the sink guard must cover too
+    # (TESSER-030 robot review 4553404659). Static dotted values stay legal —
+    # no host data flows through them.
+    maybe_warn_prop_sink(name, ctx)
+
     inner =
       Enum.map_join(parts, "", fn
         {:text, s} ->
@@ -996,17 +1002,20 @@ defmodule Noizu.Tessera.Component.Template do
 
   defp maybe_warn_prop_sink("." <> prop = name, ctx) do
     if prop in @prop_sink_denylist do
+      loc = if ctx.line, do: [file: ctx.file, line: ctx.line], else: [file: ctx.file]
+
       IO.warn(
         "tessera #{name}={…} targets a known XSS sink: #{prop} writes raw HTML and bypasses " <>
           "lit-html text escaping. For trusted, sanitized markup prefer unsafe_html(…) in markup " <>
           "position (lit-parity #71); a deliberate #{name} sink is allowed but is on you — this " <>
           "warning is not a sanitizer and the denylist is not complete " <>
           "(docs/notes/lit-parity.md § .prop security surface)",
-        file: ctx.file,
-        line: ctx.line || 0
+        loc
       )
     end
   end
+
+  defp maybe_warn_prop_sink(_name, _ctx), do: :ok
 
   # Binding sources arrive brace-stripped: ":increment" or ":increment, step: 1"
   # (Hologram expression form) or "increment" (Hologram string form). Accept

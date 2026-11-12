@@ -1079,6 +1079,22 @@ defmodule Noizu.Tessera.ComponentTest do
       refute stderr =~ "XSS sink"
       refute stderr =~ "tessera .value"
     end
+
+    test "a quoted mixed-text dotted binding warns too" do
+      id = :erlang.unique_integer([:positive])
+
+      stderr =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          compile_source(~s|tag: "sink-#{id}", js: "sink_#{id}.mjs"|, """
+          state :markup, :string, default: ""
+          template ~TSR'''
+          <div .innerHTML="pre {@markup} post"></div>
+          '''
+          """)
+        end)
+
+      assert stderr =~ "tessera .innerHTML={…} targets a known XSS sink"
+    end
   end
 
   describe "unsafe_html + guard (lit-parity #71/#66, BoE #4)" do
