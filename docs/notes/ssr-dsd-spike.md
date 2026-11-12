@@ -10,6 +10,17 @@ Context: lit-parity §2.12 rows #154–#165, the row marked "highest-risk" (#155
 DSD). U8 gate: never a release blocker; accept-as-gap was the sanctioned
 fallback — not needed: the question is answered.
 
+> **Production status (2026-11-12, TESSER SSR-1/SSR-2): §4.1 and §4.2 LANDED.**
+> The shim adopts a server `[data-tessera-holo-host]` and normalises the
+> adopted vnode sels (`priv/tessera_holo/src/tessera_holo.mjs`
+> `findServerHost` / `normalizeHydratedVnode`; `mountComponent(…, {hydrate:
+> false})` opts out). `Noizu.Tessera.Hologram.Render.element/4` emits the DSD
+> markup plus `tsr-props`. Proven in a browser by `demo/e2e/src/e2e/ssr_dsd.cy.ts`
+> (single subtree, server-node identity after an action, class re-applied).
+> The spec FAILS when either half is removed. Still owed: §4.3 init/3 compile
+> warning and §4.4 conformance cases (SSR-3), plus the §4.5 complex-component
+> checks. Only the HoloKit Counter is exercised today.
+
 ## 1. The two questions, answered
 
 **Q1 — can Hologram's SERVER renderer emit a component's shadow-root HTML?**

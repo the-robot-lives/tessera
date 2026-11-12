@@ -20,7 +20,7 @@ Write a component once as a custom element. Ship it in a hex package. A Hologram
 - **Extension contract** on both tiers: `use Vendor.Element` derivation, same-tag takeover as layered extension (`tag: :inherit`, `priority:`), open actions, `el.state` / `dispatchAction` / `onAction`, `extendElement`, pinned `behaviors.add`. See `docs/EXTENSION-CONTRACT.md`.
 - **Tooling:** interactive component gallery (`mix tessera.gen.gallery`, CEM via `mix tessera.cem`) and a Lit→tessera converter (`mix tessera.from_lit`).
 - **Conformance suite** runs one shared test set on both tiers.
-- **Exactly what's covered, and what isn't:** `docs/notes/lit-parity.md` (parity declaration + matrix) and `docs/notes/gap-acceptance.md` (accepted gaps). Full Tier-2 Lit parity is not claimed; SSR/Declarative Shadow DOM is proven in a spike but not shipped.
+- **Exactly what's covered, and what isn't:** `docs/notes/lit-parity.md` (parity declaration + matrix) and `docs/notes/gap-acceptance.md` (accepted gaps). Full Tier-2 Lit parity is not claimed. Tier-2 SSR as Declarative Shadow DOM is on `develop` (unreleased): `Noizu.Tessera.Hologram.Render.element/4` renders on the server and the runtime hydrates in place. Components must define `init/3` (see the module docs). So far it is browser-proven on the HoloKit Counter only.
 
 ## Quick start — consuming (Hologram app)
 

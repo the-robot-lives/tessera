@@ -19,6 +19,13 @@ defmodule HoloKit.Components.Counter do
     |> Hologram.Component.put_state(count: 0, step: Map.get(props, :step, 1))
   end
 
+  # SSR / DSD author contract (Noizu.Tessera.Hologram.Render): the server
+  # render runs init/3, so it mirrors the client init's state. The emit
+  # mount is client-only — the server init sets state alone.
+  def init(props, component, server) do
+    {Hologram.Component.put_state(component, count: 0, step: Map.get(props, :step, 1)), server}
+  end
+
   def action(:increment, _params, component) do
     step = Map.get(component.state, :step, 1)
     count = Map.get(component.state, :count, 0) + step
