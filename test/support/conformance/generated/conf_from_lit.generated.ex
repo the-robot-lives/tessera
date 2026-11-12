@@ -24,22 +24,15 @@ defmodule Tessera.TestFixtures.Conformance.FromLitPanel do
   # Lit: panelTitle
   attr :panel_title, :string, default: "Overview"
   attr :open, :boolean, default: true, reflect: true
-
-  prop :rows, :list,
-    json: true,
-    default: [
-      %{"id" => "r1", "label" => "Inbox"},
-      %{"id" => "r2", "label" => "Sent"},
-      %{"id" => "r3", "label" => "Drafts"}
-    ]
-
+  prop :rows, :list, json: true, default: [%{"id" => "r1", "label" => "Inbox"}, %{"id" => "r2", "label" => "Sent"}, %{"id" => "r3", "label" => "Drafts"}]
   # Lit: tickCount
-  state(:tick_count, :integer, default: 0)
+  state :tick_count, :integer, default: 0
 
   cy "tsr-conf-from-lit-panel-root"
 
+
   template(~TSR"""
-  <section class="panel" data-cy="from-lit-panel-root">
+  <section class="panel" data-cy="tsr-conf-from-lit-panel-root">
     <h3 data-cy="from-lit-title">{@panel_title}</h3>
     <p class="mode" data-cy="from-lit-mode">{%if @open}<span class="mode-text">open</span>{%else}<span class="mode-text">closed</span>{/if}</p>
     <ul data-cy="from-lit-list">
@@ -50,6 +43,6 @@ defmodule Tessera.TestFixtures.Conformance.FromLitPanel do
   </section>
   """)
 
-  # Lit handler `tick` — port the method body (state/emit DSL); no-op stub.
+  # Lit handler `tick` — ported by generate_fixtures.exs post-processing (real port of Lit tick()).
   action(:tick, fn state, _params -> %{state | tick_count: state.tick_count + 1} end)
 end

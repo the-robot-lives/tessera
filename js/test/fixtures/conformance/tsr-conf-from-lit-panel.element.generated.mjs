@@ -68,7 +68,7 @@ class TsrConfFromLitPanel extends TesseraElement(LitElement, contract, {state: [
           }
 
   render() {
-    return html`<section class="panel" data-cy="from-lit-panel-root">
+    return html`<section class="panel" data-cy="tsr-conf-from-lit-panel-root">
   <h3 data-cy="from-lit-title">${__t(this.panelTitle)}</h3>
   <p class="mode" data-cy="from-lit-mode">${(this.open) ? html`<span class="mode-text">open</span>` : html`<span class="mode-text">closed</span>`}</p>
   <ul data-cy="from-lit-list">

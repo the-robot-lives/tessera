@@ -76,20 +76,33 @@ from_lit_shape = Map.put(from_lit_shape, "tag", "tsr-conf-from-lit-panel")
 {_, from_lit_source} =
   Enum.find(from_lit_files, fn {path, _} -> String.ends_with?(path, ".ex") end)
 
+# Each anchor must occur EXACTLY once: a missing anchor means the converter
+# output drifted, and a repeated one means first-match replacement could hit
+# the wrong node (robot review on #64).
 sub! = fn source, pattern, replacement ->
-  if String.contains?(source, pattern) do
-    String.replace(source, pattern, replacement, global: false)
-  else
-    Mix.raise(
-      "generate_fixtures: from_lit post-process anchor missing — converter output drifted:\n  #{pattern}"
-    )
+  case length(String.split(source, pattern)) - 1 do
+    1 ->
+      String.replace(source, pattern, replacement, global: false)
+
+    0 ->
+      Mix.raise(
+        "generate_fixtures: from_lit post-process anchor missing — converter output drifted:\n  #{pattern}"
+      )
+
+    n ->
+      Mix.raise(
+        "generate_fixtures: from_lit post-process anchor is ambiguous (#{n} matches):\n  #{pattern}"
+      )
   end
 end
 
 from_lit_source =
   from_lit_source
   # Conformance data-cy hooks (see above): root + the elements the WTR test queries.
-  |> sub!.(~s|<section class="panel">|, ~s|<section class="panel" data-cy="from-lit-panel-root">|)
+  |> sub!.(
+    ~s|<section class="panel">|,
+    ~s|<section class="panel" data-cy="tsr-conf-from-lit-panel-root">|
+  )
   |> sub!.("<h3>{@panel_title}</h3>", ~s|<h3 data-cy="from-lit-title">{@panel_title}</h3>|)
   |> sub!.(~s|<p class="mode">|, ~s|<p class="mode" data-cy="from-lit-mode">|)
   |> sub!.("<ul>", ~s|<ul data-cy="from-lit-list">|)
@@ -98,7 +111,12 @@ from_lit_source =
     ~s|<button type="button" data-cy="from-lit-tick" $click={:tick}>tick</button>|
   )
   |> sub!.(~s|<span class="ticks">|, ~s|<span class="ticks" data-cy="from-lit-ticks">|)
-  # Promote the converter's no-op action stub to the real port of Lit tick().
+  # Promote the converter's no-op action stub to the real port of Lit tick(),
+  # and keep the retained converter comment truthful about it.
+  |> sub!.(
+    "port the method body (state/emit DSL); no-op stub.",
+    "ported by generate_fixtures.exs post-processing (real port of Lit tick())."
+  )
   |> sub!.(
     "action(:tick, fn state, _params -> state end)",
     "action(:tick, fn state, _params -> %{state | tick_count: state.tick_count + 1} end)"
