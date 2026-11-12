@@ -226,6 +226,12 @@ defmodule Noizu.Tessera.Component.Expr do
   defp translate_expr({:if_defined, _meta, [arg]}, ctx),
     do: "ifDefined(" <> translate_expr(arg, ctx) <> ")"
 
+  # live(expr) (lit-parity #67, BoE need #3): Lit's `live` directive — the
+  # binding is checked against the LIVE DOM value, not the last rendered one,
+  # so an input the user edited is still reset when state re-renders it.
+  defp translate_expr({:live, _meta, [arg]}, ctx),
+    do: "live(" <> translate_expr(arg, ctx) <> ")"
+
   defp translate_expr({:nothing, _meta, atom_ctx}, _ctx) when is_atom(atom_ctx), do: "nothing"
 
   # variables
@@ -497,7 +503,7 @@ defmodule Noizu.Tessera.Component.Expr do
           meta,
           "local call #{fun}/#{length(args)} is outside the tessera element subset — only " <>
             "allowlisted Kernel/String/Enum functions, emit/2 and the directive forms " <>
-            "(class_map/1, style_map/1, if_defined/1, nothing) are in the subset"
+            "(class_map/1, style_map/1, if_defined/1, live/1, nothing) are in the subset"
         )
     end
   end

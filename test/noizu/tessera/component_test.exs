@@ -1013,4 +1013,36 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
   end
+
+  describe "live() + .prop bindings (lit-parity #67, BoE #3)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp live_js(template) do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "live-#{id}", js: "live_#{id}.mjs"|, """
+        state :draft, :string, default: ""
+        template ~TSR"#{template}"
+        """)
+
+      LitCodegen.element_module(mod.__tessera_spec__())
+    end
+
+    test "live() on a property binding lowers unquoted and imports the directive" do
+      js = live_js("<input .value={live(@draft)} />")
+      assert js =~ ~s|import { live } from "lit/directives/live.js";|
+      assert js =~ ".value=${live(this.draft)}"
+    end
+
+    test "a plain property binding is unquoted and skips the __t string helper" do
+      js = live_js("<input .value={@draft} />")
+      assert js =~ ".value=${this.draft}"
+      refute js =~ "lit/directives/live.js"
+    end
+
+    test "live() in attribute position is unquoted too" do
+      assert live_js("<input value={live(@draft)} />") =~ "value=${live(this.draft)}"
+    end
+  end
 end
