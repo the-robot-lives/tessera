@@ -20,9 +20,20 @@
 /// <reference types="cypress" />
 import { tesseraA11y as a11y } from "../support/tessera/a11y";
 
-const PLAIN: string = Cypress.env("tsrPlainUrl") ?? "http://localhost:5587";
-const TIER2: string = Cypress.env("tsrTier2Url") ?? "http://localhost:5589";
-const HOLO: string = Cypress.env("tsrHoloUrl") ?? "http://localhost:5586";
+// A host URL from the Cypress env: only a non-empty string overrides the
+// default. Anything else (unset, "", or a non-string) falls back, and a
+// non-string is reported rather than silently ignored (#68 review).
+function envUrl(key: string, fallback: string): string {
+  const v: unknown = Cypress.env(key);
+  if (typeof v === "string" && v.trim() !== "") return v;
+  if (typeof v === "string" && v !== "") Cypress.log({ name: "a11y", message: `ignoring blank ${key}` });
+  else if (v !== undefined && typeof v !== "string") Cypress.log({ name: "a11y", message: `ignoring non-string ${key}=${String(v)}` });
+  return fallback;
+}
+
+const PLAIN: string = envUrl("tsrPlainUrl", "http://localhost:5587");
+const TIER2: string = envUrl("tsrTier2Url", "http://localhost:5589");
+const HOLO: string = envUrl("tsrHoloUrl", "http://localhost:5586");
 
 // window.Hologram is GlobalRegistry (globalThis.Hologram), exposed by the
 // runtime "to make tests easier"; mountedPage is set after the boot render.
