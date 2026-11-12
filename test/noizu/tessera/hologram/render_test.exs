@@ -34,6 +34,51 @@ defmodule Noizu.Tessera.Hologram.RenderTest do
     end
   end
 
+  defmodule GenuineTemplateKeyError do
+    use Hologram.Component
+
+    # Full contract honoured (init/3 present), but the template itself raises
+    # a KeyError on a keyword-list term — a real bug, not a state miss.
+    def init(props, component),
+      do: Hologram.Component.put_state(component, opts: Map.get(props, :opts, []))
+
+    def init(props, component, server), do: {init(props, component), server}
+
+    def template do
+      ~HOLO"<span>{Keyword.fetch!(@opts, :missing)}</span>"
+    end
+  end
+
+  defmodule GenuineInitKeyError do
+    use Hologram.Component
+
+    # init/3 present but raises its own KeyError on a plain-map term
+    # (shape-identical to a state miss) — must propagate untouched.
+    def init(props, component),
+      do: Hologram.Component.put_state(component, x: Map.fetch!(props, :required))
+
+    def init(props, component, server), do: {init(props, component), server}
+
+    def template do
+      ~HOLO"<span>{@x}</span>"
+    end
+  end
+
+  defmodule NestedMapMiss do
+    use Hologram.Component
+
+    # init/3 sets a nested plain-map state value; the template fetches a key
+    # off THAT value (no :cid in its term) — an author data bug, raw.
+    def init(_props, component),
+      do: Hologram.Component.put_state(component, config: %{other: 1})
+
+    def init(props, component, server), do: {init(props, component), server}
+
+    def template do
+      ~HOLO"<span>{Map.fetch!(@config, :k)}</span>"
+    end
+  end
+
   test "a component without init/3 fails with the author-contract fix, not a bare KeyError" do
     error =
       assert_raise ArgumentError, fn ->
@@ -42,6 +87,57 @@ defmodule Noizu.Tessera.Hologram.RenderTest do
 
     assert error.message =~ "read state key :count"
     assert error.message =~ "def init(props, component, server)"
+  end
+
+  test "a genuine template KeyError surfaces untouched, not rewritten as the author-contract error" do
+    error =
+      assert_raise KeyError, fn ->
+        Render.element(GenuineTemplateKeyError, "genuine-kw")
+      end
+
+    assert error.key == :missing
+    refute is_map(error.term)
+  end
+
+  test "a KeyError raised inside the author's own init/3 surfaces untouched" do
+    error =
+      assert_raise KeyError, fn ->
+        Render.element(GenuineInitKeyError, "genuine-init")
+      end
+
+    assert error.key == :required
+    assert is_map(error.term)
+  end
+
+  test "a KeyError on a nested plain-map state value (no :cid in term) surfaces untouched" do
+    error =
+      assert_raise KeyError, fn ->
+        Render.element(NestedMapMiss, "nested-map-miss")
+      end
+
+    assert error.key == :k
+    assert error.term == %{other: 1}
+  end
+
+  # Drift probe (robot review 303d2c66/4552844292): pins the RAW KeyError
+  # shape the narrowing is keyed on, straight from Hologram's renderer —
+  # term is a plain map carrying :cid (tessera's props_dom injection). If a
+  # Hologram upgrade changes the access shape or cid threading, THIS test
+  # fails loudly and state_miss?/3 must be re-probed, not silently re-run.
+  test "drift probe: a genuine state miss raises KeyError{term: plain map with :cid} at the renderer" do
+    renderer = Module.concat([Hologram, Template, Renderer])
+    env = struct(Module.concat([Hologram, Template, Renderer, Env]))
+    server = struct(Module.concat([Hologram, Server]))
+    props_dom = [{"cid", [expression: {"tssr_ssr"}]}]
+
+    error =
+      assert_raise KeyError, fn ->
+        {_, _, _} = renderer.render_dom({:component, ClientOnlyInit, props_dom, []}, env, server)
+      end
+
+    assert error.key == :count
+    assert is_map(error.term) and not is_struct(error.term)
+    assert Map.has_key?(error.term, :cid)
   end
 
   test "element/4 emits a declarative shadow root holding the server host" do
