@@ -22,7 +22,12 @@ declare global {
     // globalThis & ApplicationWindow). Lets specs read/write __tier2Saved
     // without a cast.
     interface ApplicationWindow {
-      __tier2Saved: Tier2SavedDetail | null;
+      // OPTIONAL: until a spec assigns it, a read sees runtime `undefined` —
+      // the type must not claim otherwise. The camelCase spec initializes it
+      // (null) before registering its listener and reads it back through
+      // cy.window().its("__tier2Saved"), where an uninitialized read fails
+      // the deep.eq assertion instead of hiding behind the type.
+      __tier2Saved?: Tier2SavedDetail | null;
     }
   }
   // Maps the element's custom DOM event name onto its payload type so the
