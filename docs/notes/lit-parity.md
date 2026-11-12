@@ -5,7 +5,7 @@
 > Post-0.2.0 changes on `develop` (2026-11-12). The rows below are NOT yet re-scored; counts are recomputed at the next release:
 > - #96 `createRenderRoot` (light DOM): **Tier 1 implemented.** `use Noizu.Tessera.Component, render_root: :light` emits `createRenderRoot() { return this; }` and adopts styles additively into the root node. Slots are refused at compile time, and `:host` rules don't match in light DOM. Covered by `js/test/light_dom.test.mjs`. Tier 2 is unchanged.
 > - #63 `repeat`: **Tier 1 implemented.** The keyed loop `{%for row <- @rows, key: row.id}` lowers to `repeat(items, keyFn, templateFn)` and imports `lit/directives/repeat.js`. Reorders move keyed nodes, covered by `js/test/repeat.test.mjs`, which fails when lowered to `.map`. Unkeyed `{%for}` stays `Array.map`.
-> - #67 `live` (+ lit-html `.prop` bindings): **Tier 1 implemented.** `.value={live(@draft)}` lowers to `.value=${live(this.draft)}`. Property bindings `.prop={expr}` are new and assign the property unquoted. Covered by `js/test/live.test.mjs` (a user-edited input is reset on re-render), which fails without `live`.
+> - #67 `live` (+ lit-html `.prop` bindings): **Tier 1 implemented.** `.value={live(@draft)}` lowers to `.value=${live(this.draft)}`. Property bindings `.prop={expr}` are new and assign the property unquoted. Covered by `js/test/live.test.mjs` (a user-edited input is reset on re-render), which fails without `live`. Security surface + compile-time sink warning (TESSER-030): see [§ .prop security surface](#prop-security-surface-tesser-030).
 > - #66 `guard`, #71 `unsafeHTML`: **Tier 1 implemented.** `guard([@deps], expr)` lowers to `guard([…], () => …)`. `unsafe_html(expr)` lowers to `unsafeHTML(…)`; it is an XSS sink by design, so bind only trusted, sanitized markup. Covered by `js/test/unsafe_guard.test.mjs`, which fails with either directive removed.
 > - #155–#158 SSR/DSD: **Tier 2 shipped** (`Noizu.Tessera.Hologram.Render`, shim hydration; conformance SSR-01/02). See `docs/notes/ssr-dsd-spike.md`.
 >
@@ -824,3 +824,20 @@ Tests use `@open-wc/testing` for Lit-native components. Tier 2 (Hologram) compon
 ---
 
 *End of parity matrix. 227 features inventoried across 16 areas. Matrix covers Phase 1 (tessera today), Tier 1 (spike/elixir-to-lit @ 103c776), and Tier 2 (spike/hologram-runtime-element @ 9db5bb6). Single remaining ❓: #164 (Tier 2 framework SSR integrations — not exercised in the spike).*
+---
+
+## .prop security surface (TESSER-030)
+
+Tier 1 property bindings `.prop={expr}` lower to lit-html property parts (`.prop=${expr}`), which assign the DOM property directly. That bypasses lit-html's text escaping entirely: text and attribute interpolation goes through the `__t` string helper (HTML-escaped at the attribute layer), while a property assignment hands the value to the DOM untouched. If `prop` is a raw-HTML sink, host data can inject markup — and therefore script — the same class of risk `unsafe_html(expr)` takes on deliberately (lit-parity #71).
+
+**Compile-time sink warning (implemented, TESSER-030).** `.innerHTML={…}`, `.outerHTML={…}` and `.srcdoc={…}` emit an `IO.warn` at the binding site (file and line included). These three are unambiguous sink names — no legitimate custom element defines them — so the warning carries a near-zero false-positive rate. Deliberate use stays legal (warn, not error): the warning itself points at the sanctioned opt-in.
+
+**What the denylist is not.** It is not a sanitizer. lit-html does not sanitize property assignments, and sink names cannot be enumerated: any custom-element property can be a sink (a `renderRichText`-style prop), and URL-shaped props (`.src`, `.href`, `.formAction`) execute `javascript:` URLs. Those are deliberately NOT denied — legitimate custom elements define `src`/`href` props, so a name-denylist there would be pure noise — but with them the author owns the URL: validate the scheme at the source (allow `http(s):`/`mailto:`, treat `javascript:` as data, never as a URL).
+
+**Sanctioned opt-in for raw markup.** `unsafe_html(expr)` (lit-parity #71) lowers to Lit's `unsafeHTML` directive and is the documented escape hatch for trusted, sanitized markup — prefer it over `.innerHTML={…}`: it works in markup position and its name announces the risk at the call site.
+
+**Author guidance.** Bind props for state, not markup. If a sink is genuinely needed, feed `unsafe_html` sanitized input, or accept the warning and record the decision next to the template.
+
+**Mixed-text dotted bindings.** Quoted or mixed text/expression parts on a dotted name (`.innerHTML="pre {@markup} post"`) lower through the same mixed-parts clause and warn identically — the sink guard fires on every property-binding path, not only the single-expression form (robot-review round, TESSER-030). Static dotted values (author-literal text, no host data) stay legal and silent.
+
+**Scope note (PR #50).** PR #50's widened lowering paths (mixed-text in plain attribute position, live() in attribute position) must route through the same `maybe_warn_prop_sink/2` check so every property-binding path warns identically.
