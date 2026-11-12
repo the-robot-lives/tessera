@@ -165,6 +165,29 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
                ~s(attr :display_name, :string, default: "Anon", reflect: true, attribute: "person")
     end
 
+    test "a renamed attribute with a quote/backslash is emitted as an escaped literal (PR #59)" do
+      weird = ~S(we"ird\name)
+
+      shape =
+        Extractor.extract("""
+        class Y extends LitElement {
+          @property({ type: String, attribute: "person", reflect: true })
+          displayName = "Anon";
+        }
+        """)
+        |> Map.put("tag", "rename-widget")
+        |> Map.update!("properties", fn props ->
+          Enum.map(props, &Map.put(&1, "attribute", weird))
+        end)
+
+      {files, _warnings} = Generator.generate(shape, "MyApp.WeirdRename", "/proj")
+      content = spec_content({files, _warnings})
+
+      # the option carries the inspect/1-escaped literal and the module still parses
+      assert content =~ "attribute: " <> inspect(weird)
+      assert {:ok, _ast} = Code.string_to_quoted(content)
+    end
+
     @tag :compile
     test "the renamed attr compiles and the spec carries the original attribute (PR #54)" do
       id = System.unique_integer([:positive])
