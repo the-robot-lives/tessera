@@ -154,6 +154,86 @@ defmodule Noizu.Tessera.Hologram.Render do
 
   defp state_miss?(%KeyError{}, _module, _stacktrace), do: false
 
+  @doc """
+  Pre-render author-contract lint for one DSD-exported component (TESSER-028).
+
+  Probe-renders `module` exactly as `shadow_html/3` would (empty props —
+  Hologram prop defaults apply) and classifies the outcome WITHOUT raising:
+
+    * `:ok` — the probe render succeeded;
+    * `{:violation, key}` — the SSR author contract is violated: the server
+      render raised the TESSER-029 author-contract ArgumentError and a
+      plain-atom state `key` was extractable from its message;
+    * `{:error, reason}` — the probe render failed some other way (an author
+      bug the lint does not interpret): an exception struct, or
+      `{kind, value}` for a `throw`n value or an `exit` caught from the
+      render. Never raises: classification is total over every non-success
+      outcome.
+
+  The violation detection rides the TESSER-009/TESSER-029 render-time guard —
+  this lint is that guard shifted left to build/CI time for manifest-listed
+  components (`mix tessera.ssr_lint`). Compile-time detection is impossible:
+  Hologram 0.10 injects a no-op default `init/3` into every component
+  (deps/hologram/component.ex), so nothing after compilation can tell an
+  author-defined `init/3` from the injected one. The runtime ArgumentError
+  therefore remains the enforcement point for everything the lint does not
+  cover; the lint only moves the discovery of KNOWN DSD-exported components
+  earlier.
+  """
+  @spec lint_component(module(), map()) ::
+          :ok | {:violation, atom()} | {:error, Exception.t() | {:throw | :exit, term()}}
+  def lint_component(module, props \\ %{}) when is_atom(module) and is_map(props) do
+    try do
+      shadow_html(module, Map.new(props))
+      :ok
+    rescue
+      error in ArgumentError ->
+        if String.starts_with?(error.message, "tessera SSR:") do
+          case contract_key(error.message) do
+            {:ok, key} -> {:violation, key}
+            # No extractable plain-atom key (message-format drift, or a forged
+            # contract-prefixed message) — still never raises; surfaces as an
+            # unclassified error so the task output shows the raw exception.
+            :no_key -> {:error, error}
+          end
+        else
+          {:error, error}
+        end
+
+      error ->
+        {:error, error}
+    catch
+      kind, value when kind in [:throw, :exit] ->
+        {:error, {kind, value}}
+    end
+  end
+
+  # The contract message is tessera's own (shadow_html/3): its key segment is
+  # `inspect(key)` bounded by the fixed suffix " that its server init did not
+  # set", so the capture cannot run past the key into surrounding prose.
+  # Only a PLAIN-ATOM inspect shape (`:name` / `:name?` / `:name!`, ≤252
+  # chars) converts, via String.to_existing_atom — which NEVER creates an
+  # atom: the genuine key already exists in the VM (it came from the
+  # KeyError), while a forged or drifted plain-atom-shaped name that has
+  # never been an atom raises, caught below as :no_key. Shape runs, exotic
+  # atoms, and non-atoms never match; the caller surfaces the raw exception
+  # as an unclassified error rather than promoting anything to
+  # {:violation, key}.
+  @contract_key_rx ~r/read state key (:([A-Za-z_][A-Za-z0-9_]{0,250}[?!]?)) that its server init did not set/
+
+  defp contract_key(message) do
+    try do
+      case Regex.run(@contract_key_rx, message) do
+        [_, _key, name] -> {:ok, String.to_existing_atom(name)}
+        _ -> :no_key
+      end
+    rescue
+      # Forged unknown plain-atom name or an overlong capture (atoms cap at
+      # 255 bytes): to_existing_atom raises instead of minting.
+      ArgumentError -> :no_key
+    end
+  end
+
   @doc "Props as the `tsr-props` JSON the element reads (camelCase keys)."
   @spec props_json(map()) :: String.t()
   def props_json(props) when is_map(props) do
