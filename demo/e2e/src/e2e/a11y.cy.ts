@@ -105,11 +105,11 @@ describe("tessera a11y: aria-live inside a shadow root", { tags: "@fast" }, () =
 // still asserts each of them REPRODUCES, so fixing one turns the test red and
 // forces the entry out). Real violations found by this lane are NEVER pinned
 // without a ticket.
-// TESSER-024: the editable-list/fancy-list <ul role="listbox"> renders with
-// no accessible name (axe aria-input-field-name, serious) on every tier-2
-// host that mounts it — UI fix owed by the runtime (tessera-lit-1). Per-page
-// knowns: /ssr/ mounts only the counter, so the pin must NOT apply there.
-const KNOWN_LISTBOX: string[] = ["aria-input-field-name"];
+// TESSER-024: the editable-list/fancy-list <ul role="listbox"> used to render
+// with no accessible name (axe aria-input-field-name, serious) on every tier-2
+// host that mounts it — it was pinned here (4 nodes on /plain/, 2 on /react/)
+// until the fix gave the listbox aria-label={@title}; the entry is gone and
+// every host below requires zero violations again.
 
 describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slow" }, () => {
   it("/plain/ (counter + editable/fancy lists, shadow DOM) has no axe violations", () => {
@@ -119,9 +119,8 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="layered-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="fancy-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="observed-list"]', '[data-cy="holo-list-items"]');
-    // 4 pinned listboxes (vendor / layered / fancy / observed) — a NEW
-    // aria-input-field-name from any other component goes red (4547531347).
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 4 });
+    // TESSER-024 fixed: the 4 listboxes must be named, not pinned.
+    a11y.expectNoAxeViolations();
   });
 
   it("/react/ (React-rendered counter + lists) has no axe violations", () => {
@@ -129,8 +128,8 @@ describe("tessera a11y: axe over the Tier-2 static hosts (:5589)", { tags: "@slo
     waitShadowReady('[data-cy="react-counter"]', '[data-cy="holo-counter-count"]');
     waitShadowReady('[data-cy="react-tsr-holo-editable-list"]', '[data-cy="holo-list-items"]');
     waitShadowReady('[data-cy="react-fancy-list"]', '[data-cy="holo-list-items"]');
-    // 2 pinned listboxes (editable + fancy) — exact-count pin (4547531347).
-    a11y.expectNoAxeViolations(KNOWN_LISTBOX, { "aria-input-field-name": 2 });
+    // TESSER-024 fixed: the 2 React-host listboxes must be named, not pinned.
+    a11y.expectNoAxeViolations();
   });
 
   it("/ssr/ (declarative shadow DOM counter) has no axe violations", () => {

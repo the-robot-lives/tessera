@@ -165,6 +165,7 @@ defmodule HoloKit.Components.EditableList do
 
       <ul
         role="listbox"
+        aria-label={@title}
         tabindex="0"
         data-cy="holo-list-items"
         $key_down.arrow_down={:select_down}

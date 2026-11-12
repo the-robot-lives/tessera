@@ -67,20 +67,22 @@ class PersonaPicker extends TesseraElement(LitElement, contract) {
     const personas = Array.isArray(this.personas) ? this.personas : [];
 
     return html`
-      <div data-cy="persona-picker-panel">
-        <h3>${this.title}</h3>
-        <div class="cards">
-          ${personas.map(
-            (persona) => html`
-              <persona-card
-                display-name=${persona.name}
-                .tagList=${persona.tags ?? []}
-              ></persona-card>
-            `,
-          )}
+      <div data-cy="persona-picker-root">
+        <div data-cy="persona-picker-panel">
+          <h3>${this.title}</h3>
+          <div class="cards">
+            ${personas.map(
+              (persona) => html`
+                <persona-card
+                  display-name=${persona.name}
+                  .tagList=${persona.tags ?? []}
+                ></persona-card>
+              `,
+            )}
+          </div>
+          <p class="picked" data-cy="persona-picker-selected">picked: ${this.#selected ?? "none"}</p>
+          <slot></slot>
         </div>
-        <p class="picked" data-cy="persona-picker-selected">picked: ${this.#selected ?? "none"}</p>
-        <slot></slot>
       </div>
     `;
   }
