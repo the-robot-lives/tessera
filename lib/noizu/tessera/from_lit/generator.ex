@@ -406,7 +406,10 @@ defmodule Noizu.Tessera.FromLit.Generator do
 
   defp attr_line(entry) do
     opts =
-      [default_opt(entry.default)]
+      [
+        default_opt(entry.default),
+        if(entry[:reflect], do: "reflect: true")
+      ]
       |> Enum.reject(&is_nil/1)
       |> Enum.join(", ")
 
@@ -452,7 +455,8 @@ defmodule Noizu.Tessera.FromLit.Generator do
     notes =
       [
         if(entry.original != Atom.to_string(entry.name), do: "Lit: #{entry.original}"),
-        if(kind == "attr" and entry[:reflect], do: "reflect"),
+        # reflect rides the attr itself as `reflect: true` (review on PR #50):
+        # a bare "# reflect" comment documented the flag without declaring it.
         if(kind == "attr" and is_binary(entry[:attribute]),
           do: "Lit attribute: #{entry.attribute}"
         )
