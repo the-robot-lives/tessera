@@ -94,6 +94,23 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
     end
   end
 
+  defmodule ForgedUnknownAtomStub do
+    use Hologram.Component
+
+    # Raises a contract-prefixed message whose key segment is plain-atom
+    # SHAPED but has never existed as an atom in the VM. String.to_existing_atom/1
+    # must raise (not mint), contract_key catches it as :no_key, and the lint
+    # classifies {:error, exception}.
+    def init(_props, _component, _server) do
+      raise ArgumentError,
+            "tessera SSR: Noizu.Tessera.Hologram.SsrLintTest.ForgedUnknownAtomStub read state key :brand_new_never_defined_atom_tsser_028_probe that its server init did not set. Hologram renders on the server with init/3."
+    end
+
+    def template do
+      ~HOLO"<span>x</span>"
+    end
+  end
+
   # -- lint_component/2 -------------------------------------------------------
 
   test "a contract-honouring component lints :ok" do
@@ -134,6 +151,14 @@ defmodule Noizu.Tessera.Hologram.SsrLintTest do
     # "count" as a quoted inspect rep — never promotable to {:violation, key}
     # (the spec is {:violation, atom()}), and nothing minted from it.
     assert {:error, %ArgumentError{}} = Render.lint_component(ForgedBinaryKeyStub, %{})
+  end
+
+  test "a forged contract message with an unknown plain-atom key lints {:error, exception}, minting nothing" do
+    # ":brand_new_never_defined_atom_tsser_028_probe" is plain-atom-SHAPED but
+    # has never been an atom in the VM — String.to_existing_atom/1 raises
+    # instead of minting it, contract_key catches, and the lint classifies
+    # {:error, exception} (atom-table stays untouched).
+    assert {:error, %ArgumentError{}} = Render.lint_component(ForgedUnknownAtomStub, %{})
   end
 
   # -- mix tessera.ssr_lint ---------------------------------------------------

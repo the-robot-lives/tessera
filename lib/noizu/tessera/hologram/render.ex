@@ -211,18 +211,26 @@ defmodule Noizu.Tessera.Hologram.Render do
   # The contract message is tessera's own (shadow_html/3): its key segment is
   # `inspect(key)` bounded by the fixed suffix " that its server init did not
   # set", so the capture cannot run past the key into surrounding prose.
-  # Only a PLAIN-ATOM inspect shape (`:name` / `:name?` / `:name!`) converts,
-  # via String.to_atom on a segment that is inspect/1 output of an atom that
-  # already exists in the VM (nothing is minted). Exotic atoms and non-atoms
-  # (quoted/compound inspect output) return :no_key — the caller surfaces the
-  # raw exception rather than promoting a binary to {:violation, key} or
-  # minting a wrong atom for an exotic key.
-  @contract_key_rx ~r/read state key (:([A-Za-z_][A-Za-z0-9_]*[?!]?)) that its server init did not set/
+  # Only a PLAIN-ATOM inspect shape (`:name` / `:name?` / `:name!`, ≤252
+  # chars) converts, via String.to_existing_atom — which NEVER creates an
+  # atom: the genuine key already exists in the VM (it came from the
+  # KeyError), while a forged or drifted plain-atom-shaped name that has
+  # never been an atom raises, caught below as :no_key. Shape runs, exotic
+  # atoms, and non-atoms never match; the caller surfaces the raw exception
+  # as an unclassified error rather than promoting anything to
+  # {:violation, key}.
+  @contract_key_rx ~r/read state key (:([A-Za-z_][A-Za-z0-9_]{0,250}[?!]?)) that its server init did not set/
 
   defp contract_key(message) do
-    case Regex.run(@contract_key_rx, message) do
-      [_, _key, name] -> {:ok, String.to_atom(name)}
-      _ -> :no_key
+    try do
+      case Regex.run(@contract_key_rx, message) do
+        [_, _key, name] -> {:ok, String.to_existing_atom(name)}
+        _ -> :no_key
+      end
+    rescue
+      # Forged unknown plain-atom name or an overlong capture (atoms cap at
+      # 255 bytes): to_existing_atom raises instead of minting.
+      ArgumentError -> :no_key
     end
   end
 
