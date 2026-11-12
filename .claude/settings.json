@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/keithbrings/.claude/hooks/accords-compliance.py",
+            "timeout": 30,
+            "statusMessage": "Checking Accords/Trinity + reflection…"
+          }
+        ]
+      }
+    ]
+  }
+}

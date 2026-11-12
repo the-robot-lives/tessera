@@ -365,15 +365,24 @@ defmodule Noizu.Tessera.Component.Template do
     end
   end
 
+  # `{%for item <- @items}` (Array.map) or the keyed form
+  # `{%for item <- @items, key: item.id}` (lit-parity #63, BoE need #2), which
+  # lowers to Lit's `repeat` directive so reorders MOVE existing DOM nodes
+  # instead of re-rendering them. A keyed loop carries its collection as
+  # `{:tessera_keyed, coll, key}`; nothing downstream inspects coll otherwise.
   defp for_pattern(expr_str) do
-    case Code.string_to_quoted(expr_str) do
-      {:ok, {:<-, _, [{var, _, nil}, coll]}} when is_atom(var) ->
+    case Code.string_to_quoted("[" <> expr_str <> "]") do
+      {:ok, [{:<-, _, [{var, _, nil}, coll]}]} when is_atom(var) ->
         {:ok, {var, coll}}
+
+      {:ok, [{:<-, _, [{var, _, nil}, coll]}, {:key, key}]} when is_atom(var) ->
+        {:ok, {var, {:tessera_keyed, coll, key}}}
 
       _ ->
         {:error,
          "for pattern `#{expr_str}` is outside the tessera element subset — " <>
-           "use a single variable: {%for item <- @items}"}
+           "use a single variable: {%for item <- @items} " <>
+           "(keyed: {%for item <- @items, key: item.id})"}
     end
   end
 
@@ -773,6 +782,16 @@ defmodule Noizu.Tessera.Component.Template do
     "${(#{Expr.translate(ast, ctx)}) ? html`#{inner}` : html`#{else_inner}`}"
   end
 
+  defp node_js({:for, var, {:tessera_keyed, coll, key}, children}, ctx, opts) do
+    # keyed loop (lit-parity #63): Lit `repeat` — the key expression sees the
+    # loop var, so `key: item.id` is translated in the inner ctx.
+    inner_ctx = %{ctx | vars: MapSet.put(ctx.vars, var)}
+    inner = Enum.map_join(children, "", &node_js(&1, inner_ctx, opts))
+
+    "${repeat((#{Expr.translate(coll, ctx)} ?? []), (#{var}) => #{Expr.translate(key, inner_ctx)}, " <>
+      "(#{var}) => html`#{inner}`)}"
+  end
+
   defp node_js({:for, var, coll, children}, ctx, opts) do
     # the loop var is pattern-bound inside the callback — body expressions
     # (interpolations AND attribute expressions) may reference it
@@ -924,6 +943,14 @@ defmodule Noizu.Tessera.Component.Template do
   # style={style_map(…)}, title={if_defined(…)}, title={nothing}) emits UNQUOTED
   # and without __t — lit-html directive part position. A quoted directive is
   # treated as a string; `nothing` unquoted removes the attribute.
+  # Property binding (`.value={expr}`, lit-html `.prop=${…}`): the value is
+  # assigned to the element PROPERTY, unquoted and without __t, so non-string
+  # values and directives such as live() pass through untouched.
+  defp attr_js({"." <> _ = name, {:parts, [{:expr, e}]}}, ctx) do
+    ast = if is_binary(e), do: to_ast(e, ctx), else: e
+    "#{name}=${#{Expr.translate(ast, ctx)}}"
+  end
+
   defp attr_js({name, {:parts, [{:expr, e}]}}, ctx) do
     ast = if is_binary(e), do: to_ast(e, ctx), else: e
 
@@ -1053,6 +1080,9 @@ defmodule Noizu.Tessera.Component.Template do
   defp directive_ast?({:class_map, _, [_]}), do: true
   defp directive_ast?({:style_map, _, [_]}), do: true
   defp directive_ast?({:if_defined, _, [_]}), do: true
+  defp directive_ast?({:live, _, [_]}), do: true
+  defp directive_ast?({:unsafe_html, _, [_]}), do: true
+  defp directive_ast?({:guard, _, [_, _]}), do: true
   defp directive_ast?({:nothing, _, ctx}) when is_atom(ctx), do: true
   defp directive_ast?(_), do: false
 

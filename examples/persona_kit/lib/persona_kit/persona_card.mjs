@@ -53,7 +53,7 @@ class PersonaCard extends TesseraElement(LitElement, contract) {
     }
     .internal {
       margin-left: 8px;
-      color: #6366f1;
+      color: #4f46e5;
       font-size: 0.85em;
     }
     footer {

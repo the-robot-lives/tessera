@@ -913,4 +913,171 @@ defmodule Noizu.Tessera.ComponentTest do
       refute element =~ "updated(changedProperties)"
     end
   end
+
+  describe "render_root: :light (lit-parity #96, BoE #1)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp light_opts(id, extra) do
+      ~s|tag: "light-#{id}", js: "light_#{id}.mjs"#{extra}|
+    end
+
+    @light_body """
+    state :count, :integer, default: 0
+    template ~TSR"<p>{@count}</p>"
+    """
+
+    test "a light component renders into the element and says so in the manifest" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(light_opts(id, ", render_root: :light"), @light_body)
+      spec = mod.__tessera_spec__()
+
+      assert spec.render_root == :light
+      assert mod.__tessera_manifest__()["renderRoot"] == "light"
+
+      js = LitCodegen.element_module(spec)
+      assert js =~ "createRenderRoot() {"
+      assert js =~ "return this;"
+      # styles adopted additively, never via Lit's replacing adoptStyles
+      assert js =~ "[...root.adoptedStyleSheets, ...add]"
+    end
+
+    test "the default stays a shadow root with no manifest key" do
+      id = :erlang.unique_integer([:positive])
+      mod = compile_source(light_opts(id, ""), @light_body)
+
+      assert mod.__tessera_spec__().render_root == :shadow
+      refute Map.has_key?(mod.__tessera_manifest__(), "renderRoot")
+      refute LitCodegen.element_module(mod.__tessera_spec__()) =~ "createRenderRoot"
+    end
+
+    test "an unknown render_root raises" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError,
+                   ~r/:render_root option must be :shadow \(default\) or :light/,
+                   fn ->
+                     compile_source(light_opts(id, ", render_root: :open"), @light_body)
+                   end
+    end
+
+    test "light DOM cannot declare slots" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/render_root: :light cannot declare slots/, fn ->
+        compile_source(light_opts(id, ", render_root: :light"), """
+        slot "header"
+        """)
+      end
+    end
+  end
+
+  describe "keyed {%for} → repeat (lit-parity #63, BoE #2)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    test "a keyed loop lowers to repeat with the key fn and imports the directive" do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows, key: row.id}<li>{row.label}</li>{/for}</ul>"
+        """)
+
+      js = LitCodegen.element_module(mod.__tessera_spec__())
+      assert js =~ ~s|import { repeat } from "lit/directives/repeat.js";|
+      assert js =~ "repeat((this.rows ?? []), (row) => row.id, (row) => html`"
+    end
+
+    test "an unkeyed loop stays Array.map with no repeat import" do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows}<li>{row}</li>{/for}</ul>"
+        """)
+
+      js = LitCodegen.element_module(mod.__tessera_spec__())
+      refute js =~ "lit/directives/repeat.js"
+      assert js =~ "(this.rows ?? []).map((row) => html`"
+    end
+
+    test "any other loop option is rejected with the keyed form in the message" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/keyed: \{%for item <- @items, key: item.id\}/, fn ->
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows, by: row.id}<li>{row}</li>{/for}</ul>"
+        """)
+      end
+    end
+  end
+
+  describe "live() + .prop bindings (lit-parity #67, BoE #3)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp live_js(template) do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "live-#{id}", js: "live_#{id}.mjs"|, """
+        state :draft, :string, default: ""
+        template ~TSR"#{template}"
+        """)
+
+      LitCodegen.element_module(mod.__tessera_spec__())
+    end
+
+    test "live() on a property binding lowers unquoted and imports the directive" do
+      js = live_js("<input .value={live(@draft)} />")
+      assert js =~ ~s|import { live } from "lit/directives/live.js";|
+      assert js =~ ".value=${live(this.draft)}"
+    end
+
+    test "a plain property binding is unquoted and skips the __t string helper" do
+      js = live_js("<input .value={@draft} />")
+      assert js =~ ".value=${this.draft}"
+      refute js =~ "lit/directives/live.js"
+    end
+
+    test "live() in attribute position is unquoted too" do
+      assert live_js("<input value={live(@draft)} />") =~ "value=${live(this.draft)}"
+    end
+  end
+
+  describe "unsafe_html + guard (lit-parity #71/#66, BoE #4)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    defp ug_js(template) do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "ug-#{id}", js: "ug_#{id}.mjs"|, """
+        state :markup, :string, default: ""
+        state :note, :string, default: ""
+        template ~TSR"#{template}"
+        """)
+
+      LitCodegen.element_module(mod.__tessera_spec__())
+    end
+
+    test "unsafe_html lowers to unsafeHTML (unquoted) with its import" do
+      js = ug_js("<div>{unsafe_html(@markup)}</div>")
+      assert js =~ ~s|import { unsafeHTML } from "lit/directives/unsafe-html.js";|
+      assert js =~ "${unsafeHTML(this.markup)}"
+    end
+
+    test "guard lowers to guard(deps, () => body) with its import" do
+      js = ug_js("<div>{guard([@note], @note)}</div>")
+      assert js =~ ~s|import { guard } from "lit/directives/guard.js";|
+      assert js =~ "${guard([this.note], () => this.note)}"
+    end
+
+    test "guard needs a dependency list literal" do
+      assert_raise CompileError, ~r/guard\/2 takes a dependency LIST literal first/, fn ->
+        ug_js("<div>{guard(@note, @note)}</div>")
+      end
+    end
+  end
 end

@@ -226,6 +226,33 @@ defmodule Noizu.Tessera.Component.Expr do
   defp translate_expr({:if_defined, _meta, [arg]}, ctx),
     do: "ifDefined(" <> translate_expr(arg, ctx) <> ")"
 
+  # live(expr) (lit-parity #67, BoE need #3): Lit's `live` directive — the
+  # binding is checked against the LIVE DOM value, not the last rendered one,
+  # so an input the user edited is still reset when state re-renders it.
+  defp translate_expr({:live, _meta, [arg]}, ctx),
+    do: "live(" <> translate_expr(arg, ctx) <> ")"
+
+  # unsafe_html(expr) (lit-parity #71, BoE need #4): Lit `unsafeHTML` renders
+  # the string as HTML WITHOUT escaping. The name is deliberately loud: only
+  # bind trusted, sanitized markup — it is an XSS sink by design.
+  defp translate_expr({:unsafe_html, _meta, [arg]}, ctx),
+    do: "unsafeHTML(" <> translate_expr(arg, ctx) <> ")"
+
+  # guard([deps], expr) (lit-parity #66, BoE need #4): Lit `guard` re-evaluates
+  # `expr` only when a dependency changes (identity check), so an expensive
+  # sub-template is skipped on unrelated re-renders.
+  defp translate_expr({:guard, meta, [deps, body]}, ctx) do
+    unless is_list(deps) do
+      raise CompileError,
+        file: ctx.file,
+        line: meta[:line] || ctx.line || 0,
+        description:
+          "tessera guard/2 takes a dependency LIST literal first: guard([@a, @b], expr)"
+    end
+
+    "guard(" <> translate_expr(deps, ctx) <> ", () => " <> translate_expr(body, ctx) <> ")"
+  end
+
   defp translate_expr({:nothing, _meta, atom_ctx}, _ctx) when is_atom(atom_ctx), do: "nothing"
 
   # variables
@@ -497,7 +524,7 @@ defmodule Noizu.Tessera.Component.Expr do
           meta,
           "local call #{fun}/#{length(args)} is outside the tessera element subset — only " <>
             "allowlisted Kernel/String/Enum functions, emit/2 and the directive forms " <>
-            "(class_map/1, style_map/1, if_defined/1, nothing) are in the subset"
+            "(class_map/1, style_map/1, if_defined/1, live/1, unsafe_html/1, guard/2, nothing) are in the subset"
         )
     end
   end

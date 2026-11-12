@@ -10,16 +10,24 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
   @fixture_dir Path.expand("../../../fixtures/lit", __DIR__)
   @persona Extractor.extract_file(Path.join(@fixture_dir, "persona_widget.ts")) |> elem(1)
 
-  defp generate_persona(module_name \\ "MyApp.Components.PersonaWidget", root \\ "/proj") do
-    Generator.generate(@persona, module_name, root)
+  # `render: false` = the pre-render-conversion stub path (spec + hand-portable
+  # .mjs element + WTR skeleton); default = the render() -> ~TSR path (spec +
+  # WTR skeleton, element generated from the spec at `mix compile`).
+  defp generate_persona(
+         module_name \\ "MyApp.Components.PersonaWidget",
+         root \\ "/proj",
+         opts \\ []
+       ) do
+    Generator.generate(@persona, module_name, root, opts)
   end
 
   defp spec_content({files, _warnings}), do: files |> Enum.at(0) |> elem(1)
   defp mjs_content({files, _warnings}), do: files |> Enum.at(1) |> elem(1)
 
   describe "file layout" do
-    test "mirrors tessera.gen.component paths (spec + colocated .mjs + WTR skeleton)" do
-      {files, _warnings} = generate_persona()
+    test "mirrors tessera.gen.component paths in stub mode (spec + colocated .mjs + WTR skeleton)" do
+      {files, _warnings} =
+        generate_persona("MyApp.Components.PersonaWidget", "/proj", render: false)
 
       assert Enum.map(files, &elem(&1, 0)) ==
                Enum.map(
@@ -28,8 +36,23 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
                )
     end
 
-    test "the WTR skeleton is the scaffold one, importing the real relative .mjs path" do
+    test "render() conversion mode drops the .mjs stub (element generated from the spec)" do
       {files, _warnings} = generate_persona()
+
+      assert Enum.map(files, &elem(&1, 0)) ==
+               Enum.map(
+                 Scaffold.generate("persona-widget", "MyApp.Components.PersonaWidget", "/proj"),
+                 &elem(&1, 0)
+               )
+               |> Enum.reject(&String.ends_with?(&1, "persona_widget.mjs"))
+
+      assert length(files) == 2
+    end
+
+    test "the WTR skeleton is the scaffold one, importing the real relative .mjs path" do
+      {files, _warnings} =
+        generate_persona("MyApp.Components.PersonaWidget", "/proj", render: false)
+
       {test_path, test_content} = Enum.at(files, 2)
       [{_lib, _spec}, {mjs_path, _mjs}, _test] = files
 
@@ -60,13 +83,22 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
       assert content =~ "prop :filters, :map, json: true, default: %{}"
     end
 
-    test "Lit @state fields are commented-out state declarations, not wire props" do
-      content = spec_content(generate_persona())
+    test "stub mode: Lit @state fields are commented-out state declarations, not wire props" do
+      content =
+        spec_content(generate_persona("MyApp.Components.PersonaWidget", "/proj", render: false))
 
       assert content =~ "# state :open, :boolean, default: false"
       assert content =~ "# state :internal_count, :integer, default: 0"
       refute content =~ ~r/^\s*prop :open/m
       refute content =~ ~r/^\s*attr :open/m
+    end
+
+    test "render() conversion mode: @state fields become real state declarations the template reads" do
+      content = spec_content(generate_persona())
+
+      assert content =~ "state :open, :boolean, default: false"
+      assert content =~ "state :internal_count, :integer, default: 0"
+      assert content =~ "template(~TSR\"\"\""
     end
 
     test "events carry snake_cased detail maps; grammar adaptations are loud" do
@@ -145,7 +177,8 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
 
   describe ".mjs element stub" do
     test "extends TesseraElement(LitElement, contract) and keeps the load-bearing register" do
-      content = mjs_content(generate_persona())
+      content =
+        mjs_content(generate_persona("MyApp.Components.PersonaWidget", "/proj", render: false))
 
       assert content =~ ~s(import { LitElement, html, css } from "lit";)
       assert content =~ ~s(import { defineOnce, TesseraElement } from "@noizu/tessera-core";)
@@ -156,7 +189,8 @@ defmodule Noizu.Tessera.FromLit.GeneratorTest do
     end
 
     test "extracted styles are carried into static styles; state fields are listed for porting" do
-      content = mjs_content(generate_persona())
+      content =
+        mjs_content(generate_persona("MyApp.Components.PersonaWidget", "/proj", render: false))
 
       assert content =~ "static styles = css`"
       assert content =~ ":host { display: block; }"
