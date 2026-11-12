@@ -154,6 +154,59 @@ defmodule Noizu.Tessera.Hologram.Render do
 
   defp state_miss?(%KeyError{}, _module, _stacktrace), do: false
 
+  @doc """
+  Pre-render author-contract lint for one DSD-exported component (TESSER-028).
+
+  Probe-renders `module` exactly as `shadow_html/3` would (empty props —
+  Hologram prop defaults apply) and classifies the outcome WITHOUT raising:
+
+    * `:ok` — the probe render succeeded;
+    * `{:violation, key}` — the SSR author contract is violated: the server
+      render raised the TESSER-029 author-contract ArgumentError on state
+      `key` (an atom);
+    * `{:error, exception}` — the probe render failed some other way (an
+      author bug the lint does not interpret; surfaced raw).
+
+  The violation detection rides the TESSER-009/TESSER-029 render-time guard —
+  this lint is that guard shifted left to build/CI time for manifest-listed
+  components (`mix tessera.ssr_lint`). Compile-time detection is impossible:
+  Hologram 0.10 injects a no-op default `init/3` into every component
+  (deps/hologram/component.ex), so nothing after compilation can tell an
+  author-defined `init/3` from the injected one. The runtime ArgumentError
+  therefore remains the enforcement point for everything the lint does not
+  cover; the lint only moves the discovery of KNOWN DSD-exported components
+  earlier.
+  """
+  @spec lint_component(module(), map()) :: :ok | {:violation, atom()} | {:error, Exception.t()}
+  def lint_component(module, props \\ %{}) when is_atom(module) and is_map(props) do
+    try do
+      shadow_html(module, Map.new(props))
+      :ok
+    rescue
+      error in ArgumentError ->
+        if String.starts_with?(error.message, "tessera SSR:") do
+          {:violation, contract_key!(error.message)}
+        else
+          {:error, error}
+        end
+
+      error ->
+        {:error, error}
+    end
+  end
+
+  # The contract message is tessera's own (shadow_html/3) and always carries
+  # `read state key #{inspect(key)}` where key is the template-var atom that
+  # missed. The key already exists as an atom in the VM (it came from a
+  # KeyError keyed by it), so the strict regex + to_atom cannot mint anything.
+  defp contract_key!(message) do
+    case Regex.run(~r/read state key (:?[^\s]+) /, message) do
+      [_, ":" <> name] -> String.to_atom(name)
+      [_, raw] -> raw
+      _ -> raise "tessera SSR contract message without a state key: #{inspect(message)}"
+    end
+  end
+
   @doc "Props as the `tsr-props` JSON the element reads (camelCase keys)."
   @spec props_json(map()) :: String.t()
   def props_json(props) when is_map(props) do
