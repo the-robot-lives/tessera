@@ -21,11 +21,7 @@ describe("tessera a11y: axe over the plain-HTML host", { tags: "@fast" }, () => 
     cy.visit(`${PLAIN}/`);
     cy.get("persona-card").should("exist");
     cy.get("persona-card").first().shadow().find('[data-cy="persona-card-btn"]').should("exist");
-    // KNOWN DEFECT (computed by axe: #6366f1 on #ffffff = 4.46:1, needs 4.5:1,
-    // 13.6px normal weight): the persona-card `.internal` text in
-    // examples/persona_kit. Tracked as a TESSER-015 follow-up for tessera-lit-1;
-    // the entry must be deleted when the colour is darkened (it fails once fixed).
-    a11y.expectNoAxeViolations(["color-contrast"]);
+    a11y.expectNoAxeViolations();
   });
 
   it("a11y-live.html fixture has no axe violations", () => {
