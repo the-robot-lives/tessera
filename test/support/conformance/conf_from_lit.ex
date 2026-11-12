@@ -7,21 +7,24 @@ defmodule Tessera.TestFixtures.Conformance.FromLitPanel do
 
   The attr/prop/state surface below is the converter's mechanical output,
   unchanged (warnings: `rows` ships as a json prop, Lit attribute
-  observation dropped). Per the from-lit workflow step 3, the render was
+  observation dropped). Reflection included: the converter emits
+  `reflect: true` on the attr (PR #50 review follow-up — previously a bare
+  `# reflect` comment documented the flag without declaring it). Per the
+  from-lit workflow step 3, the render was
   ported into the element DSL: the stub template kept (ternary →
   `{if/2}`, keyed repeat → `{%for .., key: ..}`, `@click` → `$click`),
   `tick` promoted from the commented no-op stub to a real state action,
   and data-cy hooks added (conformance selector convention only — no wire
   surface). Asserts the converted element's DOM matches what the original
-  Lit render produces: text, attributes, list order, click → state.
+  Lit render produces: text, attributes (incl. boolean reflection), list
+  order, click → state.
   """
 
   use Noizu.Tessera.Component, tag: "tsr-conf-from-lit-panel", js: "conf_from_lit.mjs"
 
   # Lit: panelTitle
   attr(:panel_title, :string, default: "Overview")
-  # reflect
-  attr(:open, :boolean, default: true)
+  attr(:open, :boolean, default: true, reflect: true)
 
   prop(:rows, :list,
     json: true,

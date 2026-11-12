@@ -22,7 +22,7 @@ class TsrConfFromLitPanel extends TesseraElement(LitElement, contract, {state: [
   static properties = {
       tick_count: { type: Number },
       panelTitle: { type: String },
-      open: { type: Boolean },
+      open: { type: Boolean, reflect: true },
       rows: { type: Array },
     };
 

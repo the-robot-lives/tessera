@@ -108,6 +108,7 @@ export const manifests = {
       {
         "default": true,
         "name": "open",
+        "reflect": true,
         "required": false,
         "type": "boolean"
       }

@@ -37,10 +37,12 @@ describe("from_lit conversion renders live (Tier 1)", () => {
 
   it("flips the ternary branch when the attr changes", async () => {
     const el = await mount();
-    el.open = false;
+    // drive via the ATTRIBUTE (not the property) — the title's claim.
+    // Lit boolean attrs: present (any value) = true, absent = false.
+    el.removeAttribute("open");
     await el.updateComplete;
     expect(cy(el, "from-lit-mode").textContent).to.equal("closed");
-    el.open = true;
+    el.setAttribute("open", "");
     await el.updateComplete;
     expect(cy(el, "from-lit-mode").textContent).to.equal("open");
   });
@@ -50,6 +52,18 @@ describe("from_lit conversion renders live (Tier 1)", () => {
     el.setAttribute("panel-title", "Ops Board");
     await el.updateComplete;
     expect(cy(el, "from-lit-title").textContent).to.equal("Ops Board");
+  });
+
+  it("reflects the boolean open attr (converter emits reflect: true)", async () => {
+    const el = await mount();
+    // Lit boolean reflection: true → attribute present, false → removed
+    expect(el.hasAttribute("open")).to.equal(true);
+    el.open = false;
+    await el.updateComplete;
+    expect(el.hasAttribute("open")).to.equal(false);
+    el.open = true;
+    await el.updateComplete;
+    expect(el.hasAttribute("open")).to.equal(true);
   });
 
   it("renders the keyed list in order with data-id attributes", async () => {
@@ -73,14 +87,25 @@ describe("from_lit conversion renders live (Tier 1)", () => {
     }
   });
 
+  // The @click handler routes through __tesseraDispatch; a committed
+  // transition fires `tsr-state-change` BEFORE the test may assert, so a
+  // click can never race updateComplete (review on PR #50, warning 1).
+  async function clickAwaitCommit(el, button) {
+    const committed = new Promise((resolve) =>
+      el.addEventListener("tsr-state-change", resolve, { once: true })
+    );
+    button.click();
+    await committed;
+    await el.updateComplete;
+  }
+
   it("click → action → state change re-renders the tick count", async () => {
     const el = await mount();
     const button = cy(el, "from-lit-tick");
-    button.click();
-    await el.updateComplete;
+    await clickAwaitCommit(el, button);
     expect(cy(el, "from-lit-ticks").textContent).to.equal("1");
-    button.click();
-    await el.updateComplete;
+    expect(el.tick_count).to.equal(1);
+    await clickAwaitCommit(el, button);
     expect(cy(el, "from-lit-ticks").textContent).to.equal("2");
     // the state is visible through the public statics too
     expect(el.tick_count).to.equal(2);
