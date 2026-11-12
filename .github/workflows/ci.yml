@@ -109,6 +109,39 @@ jobs:
         run: npm ci && npm run test:fast
 
   # ------------------------------------------- BLOCKING core claim (both lanes)
+  # PR-only typecheck gate for the e2e suite (`tsc --noEmit`). Kept as its own
+  # job, NOT a step in e2e-smoke: e2e-smoke has no `if:` and also runs on
+  # fast-lane pushes (feature/**), and slim-CI tiering says push runs add no
+  # new work. PR runs only; shares e2e-smoke's node_modules cache key so warm
+  # runs are just `npx tsc` (seconds).
+  e2e-typecheck:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Cache e2e node_modules
+        id: e2e-tsc-cache
+        uses: actions/cache@v4
+        with:
+          path: demo/e2e/node_modules
+          key: e2e-js-${{ runner.os }}-${{ hashFiles('demo/e2e/package-lock.json') }}
+
+      - name: tsc --noEmit
+        working-directory: demo/e2e
+        run: |
+          if [ -d node_modules ]; then
+            echo "cache hit — running tsc directly"
+          else
+            npm ci --no-audit --no-fund
+          fi
+          npx tsc --noEmit
+
+  # ------------------------------------------- BLOCKING core claim (both lanes)
   # Core claim = shadow-DOM event → dispatchAction → Hologram action →
   # re-render, on the Hologram (:5586) + plain-HTML (:5587) hosts. The gallery
   # (:5588) is a component vitrine, NOT part of the core claim — its e2e moved
