@@ -529,7 +529,9 @@ defmodule Noizu.Tessera.Component.LitCodegen do
   @directive_imports [
     {"classMap", "lit/directives/class-map.js"},
     {"styleMap", "lit/directives/style-map.js"},
-    {"ifDefined", "lit/directives/if-defined.js"}
+    {"ifDefined", "lit/directives/if-defined.js"},
+    # keyed {%for … , key: …} (lit-parity #63)
+    {"repeat", "lit/directives/repeat.js"}
   ]
 
   defp render_js(%Spec{template: nil}), do: ""

@@ -970,4 +970,47 @@ defmodule Noizu.Tessera.ComponentTest do
       end
     end
   end
+
+  describe "keyed {%for} → repeat (lit-parity #63, BoE #2)" do
+    alias Noizu.Tessera.Component.LitCodegen
+
+    test "a keyed loop lowers to repeat with the key fn and imports the directive" do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows, key: row.id}<li>{row.label}</li>{/for}</ul>"
+        """)
+
+      js = LitCodegen.element_module(mod.__tessera_spec__())
+      assert js =~ ~s|import { repeat } from "lit/directives/repeat.js";|
+      assert js =~ "repeat((this.rows ?? []), (row) => row.id, (row) => html`"
+    end
+
+    test "an unkeyed loop stays Array.map with no repeat import" do
+      id = :erlang.unique_integer([:positive])
+
+      mod =
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows}<li>{row}</li>{/for}</ul>"
+        """)
+
+      js = LitCodegen.element_module(mod.__tessera_spec__())
+      refute js =~ "lit/directives/repeat.js"
+      assert js =~ "(this.rows ?? []).map((row) => html`"
+    end
+
+    test "any other loop option is rejected with the keyed form in the message" do
+      id = :erlang.unique_integer([:positive])
+
+      assert_raise CompileError, ~r/keyed: \{%for item <- @items, key: item.id\}/, fn ->
+        compile_source(~s|tag: "rep-#{id}", js: "rep_#{id}.mjs"|, """
+        state :rows, :list, default: []
+        template ~TSR"<ul>{%for row <- @rows, by: row.id}<li>{row}</li>{/for}</ul>"
+        """)
+      end
+    end
+  end
 end
