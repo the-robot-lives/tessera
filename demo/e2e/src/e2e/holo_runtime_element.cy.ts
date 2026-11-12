@@ -385,3 +385,7 @@ describe("tier 2 — React host", () => {
     asserts.noConsoleErrors();
   });
 });
+
+// BREAK-GUARD PROBE (throwaway): deliberate type error to prove the
+// e2e-typecheck CI job bites. Reverted in the next commit.
+const breakGuardProbe: number = "not a number";
