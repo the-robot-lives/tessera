@@ -108,38 +108,55 @@ jobs:
         working-directory: js
         run: npm ci && npm run test:fast
 
-  # ------------------------------------------- BLOCKING core claim (both lanes)
-  # PR-only typecheck gate for the e2e suite (`tsc --noEmit`). Kept as its own
+  # ---------------------------------------------------- PR-only typecheck gate
+  # `tsc --noEmit` over the e2e suite, pull_request runs ONLY. Kept as its own
   # job, NOT a step in e2e-smoke: e2e-smoke has no `if:` and also runs on
   # fast-lane pushes (feature/**), and slim-CI tiering says push runs add no
-  # new work. PR runs only; shares e2e-smoke's node_modules cache key so warm
-  # runs are just `npx tsc` (seconds).
+  # new work. It is NOT part of the blocking core claim and does NOT run in
+  # both lanes. (Direct pushes to develop are outside this gate; develop
+  # changes arrive via PRs.) Warm cache: checkout + npm-ci-skip + local tsc —
+  # seconds. No `needs:` (house rule).
   e2e-typecheck:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Single source for the node toolchain: setup-node and the cache key both
+    # read this, so a version bump can never leave a stale node-version
+    # literal in the key (robot review #95 thread 4553899450).
+    env:
+      NODE_VERSION: "24"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Cache e2e node_modules
         id: e2e-tsc-cache
         uses: actions/cache@v4
         with:
           path: demo/e2e/node_modules
-          key: e2e-js-${{ runner.os }}-${{ hashFiles('demo/e2e/package-lock.json') }}
+          # NODE_VERSION (shared with setup-node above) + package.json ride
+          # beside the lockfile: a node bump or a manifest-only change must
+          # not reuse node_modules built by another toolchain. Deliberately
+          # NO restore-keys — a near-miss restore would attach a tree built
+          # against a DIFFERENT lockfile (the stale-deps class this gate
+          # exists to prevent); a cold npm ci is the safe miss. (Robot
+          # review #91 threads 4553737476/4553737691.)
+          key: e2e-js-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('demo/e2e/package.json', 'demo/e2e/package-lock.json') }}
 
-      - name: tsc --noEmit
+      - name: tsc --noEmit (local binary)
         working-directory: demo/e2e
         run: |
-          if [ -d node_modules ]; then
-            echo "cache hit — running tsc directly"
-          else
+          # Install gate = the cache action's own verdict, NOT directory
+          # existence: a stale/partial node_modules (or a manifest change
+          # without a lockfile diff) must re-install, not be trusted.
+          if [ "${{ steps.e2e-tsc-cache.outputs.cache-hit }}" != "true" ]; then
             npm ci --no-audit --no-fund
           fi
-          npx tsc --noEmit
+          # The pinned local binary — npx here could auto-install a
+          # non-pinned TypeScript if node_modules were incomplete.
+          ./node_modules/.bin/tsc --noEmit
 
   # ------------------------------------------- BLOCKING core claim (both lanes)
   # Core claim = shadow-DOM event → dispatchAction → Hologram action →
